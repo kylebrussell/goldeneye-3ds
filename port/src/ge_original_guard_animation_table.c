@@ -227,6 +227,26 @@ void *ge_port_guard_animation_resolve(uint32_t record_offset)
     return native->published;
 }
 
+int ge_original_guard_animation_materialize_direct_entry(
+    uintptr_t entry, uintptr_t native_table_base)
+{
+    uintptr_t record_offset;
+
+    if (entry == 0U || entry == 1U)
+        return 1;
+    if (native_table_base != 0U && entry >= native_table_base
+            && entry - native_table_base < ge_animation_segment_size) {
+        record_offset = entry - native_table_base;
+    } else if (entry < ge_animation_segment_size) {
+        record_offset = entry;
+    } else {
+        return 0;
+    }
+    if (record_offset > UINT32_MAX)
+        return 0;
+    return ge_port_guard_animation_resolve((uint32_t)record_offset) != NULL;
+}
+
 int ge_port_guard_animation_owns(const void *animation)
 {
     return find_native(animation) != NULL;

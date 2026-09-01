@@ -159,6 +159,14 @@ int main(int argc, char **argv)
     entries = read_file(argv[2], &entries_size);
     assert(ge_original_guard_animation_table_bind(records, records_size));
     assert(ge_original_guard_animation_entries_bind(entries, entries_size));
+    assert(ge_original_guard_animation_materialize_direct_entry(0U, 0U));
+    assert(ge_original_guard_animation_materialize_direct_entry(1U, 0U));
+    assert(ge_original_guard_animation_materialize_direct_entry(
+        PTR_ANIM_idle, 0U));
+    assert(ge_original_guard_animation_materialize_direct_entry(
+        0x10000000U + PTR_ANIM_fire_standing_fast, 0x10000000U));
+    assert(!ge_original_guard_animation_materialize_direct_entry(
+        0x10000000U + records_size, 0x10000000U));
     death_animation = ge_port_guard_animation_resolve(PTR_ANIM_death_head);
     idle_animation = ge_port_guard_animation_resolve(PTR_ANIM_idle);
     fire_animation = ge_port_guard_animation_resolve(

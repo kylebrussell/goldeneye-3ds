@@ -25,6 +25,7 @@ typedef int PLAYERFLAG;
 #include "ge_original_dam_guard_death_link.h"
 #include "ge_original_guard_grenade_model.h"
 #include "ge_original_guard_grenade_object.h"
+#include "ge_original_guard_animation_table.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -32,6 +33,7 @@ typedef int PLAYERFLAG;
 
 #ifdef GE_PLATFORM_3DS
 #include "memp.h"
+#include "game/initanitable.h"
 #include "game/vtxstore.h"
 
 /* lvlStageLoad normally establishes MEMPOOL_STAGE immediately before the
@@ -45,6 +47,7 @@ extern void expand_ani_table_entries(s32 **entries);
 extern s32 animation_table_ptrs1[];
 extern struct ModelAnimation *animation_table_ptrs2[];
 static bool ge_guard_animation_tables_initialized;
+static bool ge_guard_animation_table_pointers_expanded;
 #endif
 
 #define GE_SERVICE_SOUND_CAPACITY 24U
@@ -223,11 +226,31 @@ void ge_original_gameplay_services_reset(void)
     g_mempPools[MEMPOOL_STAGE].end = ge_guard_damage_vtx_arena
         + sizeof(ge_guard_damage_vtx_arena);
     sub_GAME_7F09B820();
-    if (!ge_guard_animation_tables_initialized) {
+    if (!ge_guard_animation_table_pointers_expanded) {
         expand_ani_table_entries((s32 **)&animation_table_ptrs1);
         expand_ani_table_entries((s32 **)&animation_table_ptrs2);
-        initWeaponAnimGroups();
-        ge_guard_animation_tables_initialized = true;
+        ge_guard_animation_table_pointers_expanded = true;
+    }
+    {
+        const uintptr_t table_base = (uintptr_t)&ptr_animation_table->data;
+        bool materialized = true;
+
+        for (index = 0U; index < (size_t)ANIM_MAX; index++) {
+            materialized =
+                ge_original_guard_animation_materialize_direct_entry(
+                    (uintptr_t)(uint32_t)animation_table_ptrs1[index],
+                    table_base) && materialized;
+        }
+        for (index = 0U; index < (size_t)AIRCRAFT_ANIMATION_MAX; index++) {
+            materialized =
+                ge_original_guard_animation_materialize_direct_entry(
+                    (uintptr_t)animation_table_ptrs2[index], table_base)
+                    && materialized;
+        }
+        if (materialized && !ge_guard_animation_tables_initialized) {
+            initWeaponAnimGroups();
+            ge_guard_animation_tables_initialized = true;
+        }
     }
 #endif
     ge_original_covert_modem_object_reset();

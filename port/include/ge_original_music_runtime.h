@@ -33,6 +33,13 @@ GeOriginalMusicRuntime *ge_original_music_runtime_open(
 GeOriginalMusicRuntime *ge_original_music_runtime_open_asset_pack(
         GeAssetPack *pack, const char *cseq_path,
         int16_t volume, GeAudioOutput *output);
+int ge_original_music_runtime_set_layer_asset_pack(
+        GeOriginalMusicRuntime *runtime, GeAssetPack *pack,
+        unsigned layer, const char *cseq_path, int16_t volume);
+int ge_original_music_runtime_set_layer_volume(
+        GeOriginalMusicRuntime *runtime, unsigned layer, int16_t volume);
+void ge_original_music_runtime_stop_layer(
+        GeOriginalMusicRuntime *runtime, unsigned layer);
 void ge_original_music_runtime_close(GeOriginalMusicRuntime *runtime);
 /* Separate music PCM ring. Bind this as the platform sink's secondary mix. */
 GeAudioOutput *ge_original_music_runtime_output(

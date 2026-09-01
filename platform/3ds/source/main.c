@@ -142,6 +142,7 @@ extern u32 weaponLoadProjectileModels(ITEM_IDS modelid);
 extern struct AIRecord *ailistFindById(s32 id);
 extern void *g_CurrentPlayer;
 extern s32 getMissiontimer(void);
+extern void sub_GAME_7F0C11FC(s32 stagenum);
 
 #define CLEAR_COLOR 0x05070BFF
 #define DAM_ENVIRONMENT_RGBA_COLOR 0xFF603010U
@@ -1099,6 +1100,52 @@ static const char *stage_music_asset_path(int32_t level_id)
     GeOriginalStageMusic music;
     return ge_original_stage_music_resolve(level_id, &music)
         ? ge_original_music_track_asset_path(music.main_track) : NULL;
+}
+
+typedef struct RuntimeOriginalMusicSync {
+    uint64_t generation[3];
+    int32_t track[3];
+    uint16_t volume[3];
+} RuntimeOriginalMusicSync;
+
+static bool sync_original_gameplay_music(
+    GeOriginalMusicRuntime *runtime,
+    GeAssetPack *asset_pack,
+    RuntimeOriginalMusicSync *sync)
+{
+    GeOriginalMusicPortSnapshot snapshot = {0};
+    size_t layer;
+    if (runtime == NULL || asset_pack == NULL || sync == NULL) return false;
+    ge_original_music_port_snapshot(&snapshot);
+    for (layer = 0U; layer < 3U; ++layer) {
+        const int32_t track = snapshot.layer_track[layer];
+        if (sync->generation[layer] != snapshot.layer_generation[layer]
+                || sync->track[layer] != track) {
+            if (track <= 0) {
+                ge_original_music_runtime_stop_layer(runtime,
+                    (unsigned)layer);
+            } else {
+                const char *path = ge_original_music_track_asset_path(track);
+                if (path == NULL
+                        || !ge_original_music_runtime_set_layer_asset_pack(
+                            runtime, asset_pack, (unsigned)layer, path,
+                            (int16_t)snapshot.layer_volume[layer])) {
+                    printf("Could not switch original music layer %lu to %ld.\n",
+                        (unsigned long)layer + 1UL, (long)track);
+                    return false;
+                }
+            }
+            sync->generation[layer] = snapshot.layer_generation[layer];
+            sync->track[layer] = track;
+            sync->volume[layer] = snapshot.layer_volume[layer];
+        } else if (sync->volume[layer] != snapshot.layer_volume[layer]) {
+            if (!ge_original_music_runtime_set_layer_volume(
+                    runtime, (unsigned)layer,
+                    (int16_t)snapshot.layer_volume[layer])) return false;
+            sync->volume[layer] = snapshot.layer_volume[layer];
+        }
+    }
+    return true;
 }
 
 static bool load_visual_probe_tour(
@@ -3221,6 +3268,14 @@ static bool write_input_probe_result(
     fprintf(stream, "music_port=%llu,%ld,%ld\n",
         (unsigned long long)music_port.unavailable_play_requests,
         (long)music_port.last_layer, (long)music_port.last_track);
+    fprintf(stream,
+        "music_layers=%ld,%u,%u;%ld,%u,%u;%ld,%u,%u\n",
+        (long)music_port.layer_track[0], music_port.layer_volume[0],
+        music_port.layer_fading[0],
+        (long)music_port.layer_track[1], music_port.layer_volume[1],
+        music_port.layer_fading[1],
+        (long)music_port.layer_track[2], music_port.layer_volume[2],
+        music_port.layer_fading[2]);
     fprintf(stream, "ndsp=%u,%08lx,%llu,%llu\n",
         ge_3ds_audio_is_active() ? 1U : 0U,
         (unsigned long)(uint32_t)ge_3ds_audio_last_error(),
@@ -16592,6 +16647,7 @@ int main(void)
     GeRetraceScheduler scheduler;
     GeAudioOutput audio_output;
     GeOriginalMusicRuntime *original_music = NULL;
+    RuntimeOriginalMusicSync original_music_sync;
     Ge3dsSaveProvider mission_save_provider = {0};
     RuntimeGbiMesh rareware_mesh = {0};
     RuntimeBlotterPreview blotter_preview = {0};
@@ -16683,6 +16739,10 @@ int main(void)
                                  NULL, NULL, NULL) == GE_TEXTURE_CACHE_OK;
 
 start_stage_runtime:
+    memset(&original_music_sync, 0, sizeof(original_music_sync));
+    original_music_sync.track[0] = INT32_MIN;
+    original_music_sync.track[1] = INT32_MIN;
+    original_music_sync.track[2] = INT32_MIN;
     if (assets_mounted) {
         rareware_mesh = load_rareware_display_list(&asset_pack);
         (void)load_rareware_front_model(&asset_pack, &rareware_front_model);
@@ -17002,6 +17062,16 @@ start_stage_runtime:
     }
 
     (void)ge_port_start_stage(&port, selected_level_id);
+    /* This is the unchanged mp_music.c stage initializer. It chooses the
+     * authored main/background state and owns subsequent watch, death and
+     * mission transitions; the native runtime only mirrors its three CSeq
+     * players into the shared libaudio synth. */
+    sub_GAME_7F0C11FC(selected_level_id);
+    if (original_music != NULL
+            && !sync_original_gameplay_music(
+                original_music, &asset_pack, &original_music_sync)) {
+        printf("Could not bind original stage music layers.\n");
+    }
     if (original_frontend_runtime.ramrom_active
             && !ge_original_input_ramrom_bind(
                 original_frontend_runtime.ramrom_replay
@@ -17263,6 +17333,13 @@ start_stage_runtime:
                  * ordering player props it advances the recorded gameplay
                  * RNG exactly three times per presented simulation pass. */
                 shuffle_player_ids();
+                ge_original_music_port_tick();
+                if (original_music != NULL
+                        && !sync_original_gameplay_music(
+                            original_music, &asset_pack,
+                            &original_music_sync)) {
+                    printf("Original music layer sync failed.\n");
+                }
                 if (audio_active && original_music != NULL
                         && ge_original_music_runtime_tick_60hz(
                             original_music) != GE_AUDIO_ABI_OK) {

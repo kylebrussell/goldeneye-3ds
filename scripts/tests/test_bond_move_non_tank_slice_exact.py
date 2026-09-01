@@ -44,7 +44,7 @@ def main() -> None:
             assert tokens(canonical) == tokens(module.extract_function(generated, name)), name
             assert f"{name} sha256={module.digest(canonical)}" in generated
             checked += 1
-    assert checked == 140
+    assert checked == 141
     print(f"bond move non-tank exactness: {checked} canonical bodies/data token-identical")
 
 

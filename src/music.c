@@ -1432,6 +1432,9 @@ void musicFadeTick(void)
         {
             if (t0 == 0)
             {
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+                if (g_musicXTrack1SeqPlayer != NULL)
+#endif
                 alCSPStop(g_musicXTrack1SeqPlayer);
             }
 
@@ -1456,6 +1459,9 @@ void musicFadeTick(void)
         {
             if (t0 == 0)
             {
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+                if (g_musicXTrack2SeqPlayer != NULL)
+#endif
                 alCSPStop(g_musicXTrack2SeqPlayer);
             }
 
@@ -1480,6 +1486,9 @@ void musicFadeTick(void)
         {
             if (t0 == 0)
             {
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+                if (g_musicXTrack3SeqPlayer != NULL)
+#endif
                 alCSPStop(g_musicXTrack3SeqPlayer);
             }
 

@@ -30,6 +30,7 @@ FUNCTIONS = {
         "sub_GAME_7F0C0C10",
         "sub_GAME_7F0C1310",
         "set_missionstate",
+        "sub_GAME_7F0C11FC",
     ),
     "src/game/lv.c": ("lvlSetControlsLockedFlag",),
     "src/game/options.c": (

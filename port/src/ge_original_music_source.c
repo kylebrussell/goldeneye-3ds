@@ -14,6 +14,8 @@ static void ge_original_music_port_unavailable(int32_t layer, int32_t track)
     ++ge_original_music_port_state.unavailable_play_requests;
     ge_original_music_port_state.last_layer = layer;
     ge_original_music_port_state.last_track = track;
+    if (layer >= 1 && layer <= 3)
+        ++ge_original_music_port_state.layer_generation[layer - 1];
 }
 
 #define g_musicSfxBufferPtr ge_original_music_source_unused_sfx_bank
@@ -53,7 +55,40 @@ void ge_original_music_port_unbind_instrument_bank(void)
     ge_original_music_port_state.instrument_bank_ready = 0U;
 }
 
+void ge_original_music_port_tick(void)
+{
+    musicFadeTick();
+}
+
 void ge_original_music_port_snapshot(GeOriginalMusicPortSnapshot *snapshot)
 {
-    if (snapshot != NULL) *snapshot = ge_original_music_port_state;
+    static const s32 *const tracks[3] = {
+        &g_musicXTrack1CurrentTrackNum,
+        &g_musicXTrack2CurrentTrackNum,
+        &g_musicXTrack3CurrentTrackNum,
+    };
+    static const u16 *const volumes[3] = {
+        &g_musicXTrack1Volume,
+        &g_musicXTrack2Volume,
+        &g_musicXTrack3Volume,
+    };
+    static const s32 *const fades[3] = {
+        &g_musicXTrack1Fade,
+        &g_musicXTrack2Fade,
+        &g_musicXTrack3Fade,
+    };
+    size_t layer;
+    if (snapshot == NULL) return;
+    *snapshot = ge_original_music_port_state;
+    for (layer = 0U; layer < 3U; ++layer) {
+        const s32 track = *tracks[layer];
+        u32 volume = *volumes[layer];
+        snapshot->layer_track[layer] = track;
+        snapshot->layer_fading[layer] = *fades[layer] != 0;
+        if (track > 0 && track < NUM_MUSIC_TRACKS)
+            volume = (volume * g_musicDefaultTrackVolume[track]) >> 15;
+        else
+            volume = 0U;
+        snapshot->layer_volume[layer] = (u16)volume;
+    }
 }

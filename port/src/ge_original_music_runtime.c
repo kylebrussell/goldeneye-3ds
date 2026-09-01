@@ -16,14 +16,24 @@
 #define GE_MUSIC_RUNTIME_MAX_VOICES 0x10
 #define GE_MUSIC_RUNTIME_MAX_EVENTS 0x40
 #define GE_MUSIC_RUNTIME_MAX_CHANNELS 16
+#define GE_MUSIC_RUNTIME_LAYER_COUNT 3U
+
+typedef struct GeMusicRetiredSequence {
+    uint8_t *bytes;
+    struct GeMusicRetiredSequence *next;
+} GeMusicRetiredSequence;
 
 struct GeOriginalMusicRuntime {
     ALGlobals globals;
     ALHeap heap;
     ALCSPlayer player;
     ALCSeq sequence;
+    ALCSPlayer extra_players[GE_MUSIC_RUNTIME_LAYER_COUNT - 1U];
+    ALCSeq extra_sequences[GE_MUSIC_RUNTIME_LAYER_COUNT - 1U];
     uint8_t *heap_bytes;
     uint8_t *sequence_bytes;
+    uint8_t *extra_sequence_bytes[GE_MUSIC_RUNTIME_LAYER_COUNT - 1U];
+    GeMusicRetiredSequence *retired_sequences;
     Acmd *commands;
     int16_t *frame_pcm;
     int16_t *output_samples;
@@ -37,6 +47,30 @@ struct GeOriginalMusicRuntime {
     int initialized;
     uint8_t retrace_phase;
 };
+
+static ALCSPlayer *ge_music_layer_player(
+        GeOriginalMusicRuntime *runtime, unsigned layer)
+{
+    if (runtime == NULL || layer >= GE_MUSIC_RUNTIME_LAYER_COUNT) return NULL;
+    return layer == 0U ? &runtime->player
+        : &runtime->extra_players[layer - 1U];
+}
+
+static ALCSeq *ge_music_layer_sequence(
+        GeOriginalMusicRuntime *runtime, unsigned layer)
+{
+    if (runtime == NULL || layer >= GE_MUSIC_RUNTIME_LAYER_COUNT) return NULL;
+    return layer == 0U ? &runtime->sequence
+        : &runtime->extra_sequences[layer - 1U];
+}
+
+static uint8_t **ge_music_layer_bytes(
+        GeOriginalMusicRuntime *runtime, unsigned layer)
+{
+    if (runtime == NULL || layer >= GE_MUSIC_RUNTIME_LAYER_COUNT) return NULL;
+    return layer == 0U ? &runtime->sequence_bytes
+        : &runtime->extra_sequence_bytes[layer - 1U];
+}
 
 #define GE_MUSIC_MS *(((s32)((f32)44.1)) & ~0x7)
 static s32 ge_music_custom_fx_params[50] = {
@@ -104,7 +138,6 @@ GeOriginalMusicRuntime *ge_original_music_runtime_open(
         ge_original_music_runtime_close(runtime);
         return NULL;
     }
-    memcpy(runtime->sequence_bytes, cseq, cseq_size);
     runtime->output = &runtime->music_output;
     alHeapInit(&runtime->heap, runtime->heap_bytes,
             GE_MUSIC_RUNTIME_HEAP_BYTES);
@@ -126,9 +159,17 @@ GeOriginalMusicRuntime *ge_original_music_runtime_open(
     player.maxEvents = GE_MUSIC_RUNTIME_MAX_EVENTS;
     player.maxChannels = GE_MUSIC_RUNTIME_MAX_CHANNELS;
     player.heap = &runtime->heap;
-    alCSPNew(&runtime->player, &player);
-    /* Preserve music.c's original bank-event call and player layout. */
-    alSeqpSetBank((ALSeqPlayer *)&runtime->player, instrument_bank);
+    {
+        unsigned layer;
+        for (layer = 0U; layer < GE_MUSIC_RUNTIME_LAYER_COUNT; ++layer) {
+            ALCSPlayer *layer_player = ge_music_layer_player(runtime, layer);
+            alCSPNew(layer_player, &player);
+            /* Preserve music.c's original bank-event call and three-player
+             * layout: main, X/theme and background ambience. */
+            alSeqpSetBank((ALSeqPlayer *)layer_player, instrument_bank);
+        }
+    }
+    memcpy(runtime->sequence_bytes, cseq, cseq_size);
     alCSeqNew(&runtime->sequence, runtime->sequence_bytes);
     alCSPSetSeq(&runtime->player, &runtime->sequence);
     alCSPSetVol(&runtime->player, volume);
@@ -137,6 +178,49 @@ GeOriginalMusicRuntime *ge_original_music_runtime_open(
     runtime->abi.direct_addresses = 1U;
     runtime->stats.last_abi_result = GE_AUDIO_ABI_OK;
     return runtime;
+}
+
+static int ge_original_music_runtime_set_layer(
+        GeOriginalMusicRuntime *runtime, unsigned layer,
+        const uint8_t *cseq, size_t cseq_size, int16_t volume)
+{
+    ALCSPlayer *player;
+    ALCSeq *sequence;
+    uint8_t **owned_bytes;
+    uint8_t *replacement;
+    GeMusicRetiredSequence *retired = NULL;
+    if (runtime == NULL || !runtime->initialized
+            || cseq == NULL || cseq_size < 68U
+            || layer >= GE_MUSIC_RUNTIME_LAYER_COUNT)
+        return 0;
+    replacement = malloc(cseq_size);
+    if (replacement == NULL) return 0;
+    owned_bytes = ge_music_layer_bytes(runtime, layer);
+    if (*owned_bytes != NULL) {
+        retired = malloc(sizeof(*retired));
+        if (retired == NULL) {
+            free(replacement);
+            return 0;
+        }
+    }
+    memcpy(replacement, cseq, cseq_size);
+    player = ge_music_layer_player(runtime, layer);
+    sequence = ge_music_layer_sequence(runtime, layer);
+    alCSPStop(player);
+    if (retired != NULL) {
+        /* Stop is delivered through libaudio's event queue. Keep the former
+         * CSeq backing alive until the shared synth is closed so an in-flight
+         * voice can finish consuming it safely. */
+        retired->bytes = *owned_bytes;
+        retired->next = runtime->retired_sequences;
+        runtime->retired_sequences = retired;
+    }
+    *owned_bytes = replacement;
+    alCSeqNew(sequence, replacement);
+    alCSPSetSeq(player, sequence);
+    alCSPSetVol(player, volume);
+    alCSPPlay(player);
+    return 1;
 }
 
 static uint8_t *ge_music_read_asset(GeAssetPack *pack, const char *path,
@@ -192,11 +276,45 @@ fail:
     return NULL;
 }
 
+int ge_original_music_runtime_set_layer_asset_pack(
+        GeOriginalMusicRuntime *runtime, GeAssetPack *pack,
+        unsigned layer, const char *cseq_path, int16_t volume)
+{
+    uint8_t *cseq;
+    size_t cseq_size = 0U;
+    int result;
+    cseq = ge_music_read_asset(pack, cseq_path, &cseq_size);
+    if (cseq == NULL) return 0;
+    result = ge_original_music_runtime_set_layer(
+        runtime, layer, cseq, cseq_size, volume);
+    free(cseq);
+    return result;
+}
+
+int ge_original_music_runtime_set_layer_volume(
+        GeOriginalMusicRuntime *runtime, unsigned layer, int16_t volume)
+{
+    ALCSPlayer *player = ge_music_layer_player(runtime, layer);
+    if (player == NULL || !runtime->initialized) return 0;
+    alCSPSetVol(player, volume);
+    return 1;
+}
+
+void ge_original_music_runtime_stop_layer(
+        GeOriginalMusicRuntime *runtime, unsigned layer)
+{
+    ALCSPlayer *player = ge_music_layer_player(runtime, layer);
+    if (player != NULL && runtime->initialized) alCSPStop(player);
+}
+
 void ge_original_music_runtime_close(GeOriginalMusicRuntime *runtime)
 {
+    GeMusicRetiredSequence *retired;
     if (runtime == NULL) return;
     if (runtime->initialized) {
-        alCSPStop(&runtime->player);
+        unsigned layer;
+        for (layer = 0U; layer < GE_MUSIC_RUNTIME_LAYER_COUNT; ++layer)
+            alCSPStop(ge_music_layer_player(runtime, layer));
         alClose(&runtime->globals);
     }
     ge_original_music_bank_close(runtime->owned_bank);
@@ -206,6 +324,15 @@ void ge_original_music_runtime_close(GeOriginalMusicRuntime *runtime)
     free(runtime->output_samples);
     free(runtime->commands);
     free(runtime->sequence_bytes);
+    free(runtime->extra_sequence_bytes[0]);
+    free(runtime->extra_sequence_bytes[1]);
+    retired = runtime->retired_sequences;
+    while (retired != NULL) {
+        GeMusicRetiredSequence *next = retired->next;
+        free(retired->bytes);
+        free(retired);
+        retired = next;
+    }
     free(runtime->heap_bytes);
     free(runtime);
 }

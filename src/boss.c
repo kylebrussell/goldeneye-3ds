@@ -1,3 +1,7 @@
+#ifdef GE_PORT_BOSS_STAGE_SLICE
+#include <ultra64.h>
+#include "boss.h"
+#else
 #include <os_extension.h>
 #include <PR/os.h>
 #include "bondview.h"
@@ -39,6 +43,7 @@
 #include "game/player.h"
 #include "game/frametiming.h"
 #include "PR/R4300.h"
+#endif
 
 /**
  * @file boss.c
@@ -72,6 +77,7 @@
 /**
  * Copied from n64devkit\ultra\usr\src\pr\demos_old\simple\gfx.h
  */
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 typedef union {
 
     struct {
@@ -88,6 +94,7 @@ typedef union {
 
 // forward declarations
 void bossMainloop(void);
+#endif
 
 /* data */
 u32 g_BossDebugNoticeEntry = 0;
@@ -98,6 +105,7 @@ u32 g_CurentMaMallocValue = 0x4B000;
 s32 g_ShowMemUseFlag = FALSE;
 s32 g_ShowMemBarsFlag = FALSE;
 
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 struct memallocstring memallocstringtable[] = {
 { LEVELID_DAM,          "-ml0 -me0 -mgfx70  -mvtx50 -mt625 -ma275"},
 { LEVELID_FACILITY,     "-ml0 -me0 -mgfx70  -mvtx50 -mt650 -ma160"},
@@ -140,15 +148,18 @@ struct memallocstring memallocstringtable[] = {
 { 0x0, },
 { 0x0, }
 };
+#endif
 
 s32 g_MainStageNum = LEVELID_NONE;
 s32 g_BossIsDebugMenuOpen = FALSE;
 
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 OSScMsg g_bossGfxDoneMsg = { OS_SC_DONE_MSG };
 
 
 // extern declarations
 extern struct player *g_CurrentPlayer;
+#endif
 
 /**
  * 6930    70005D30
@@ -156,6 +167,7 @@ extern struct player *g_CurrentPlayer;
  */
 
 
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 void bossInitMainthreadData(void)
 {
     OSMesg bossmsg;
@@ -238,6 +250,7 @@ void bossInitMainthreadData(void)
     fileResetRamRomSave();
     clear_ramrom_block_buffer_heading_ptrs();
 }
+#endif
 
 /**
  * 6BF4    70005FF4
@@ -255,6 +268,7 @@ void bossMemBarsFlagToggle(void) {
     g_ShowMemBarsFlag = g_ShowMemBarsFlag ^ 1;
 }
 
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 /**
  * 6C1C    7000601C
  *     loads primary resources and starts main program loop
@@ -655,6 +669,7 @@ void bossMainloop(void)
 
     sub_GAME_7F0D1A7C();
 }
+#endif
 
 
 /**
@@ -689,6 +704,7 @@ LEVELID bossGetStageNum() {
  * 7568    70006968
  *     return to title screen from stage
  */
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 void bossReturnTitleStage(void) {
 #ifdef BUGFIX_R1
     display_objective_status_text_on_status_change();
@@ -699,6 +715,7 @@ void bossReturnTitleStage(void) {
     }
     bossRunTitleStage();
 }
+#endif
 
 /**
  * 75B4    700069B4
@@ -713,6 +730,8 @@ s32 bossGetDebugParseFlag(void) {
  * 75C0    700069C0
  *     V0= p->debug.notice.list entry for boss_c_debug using data at 800241A0
  */
+#ifndef GE_PORT_BOSS_STAGE_SLICE
 void bossInit(void) {
     debTryAdd(&g_BossDebugNoticeEntry, "boss_c_debug");
 }
+#endif

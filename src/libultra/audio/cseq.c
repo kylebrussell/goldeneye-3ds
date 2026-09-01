@@ -28,6 +28,38 @@ static u32 __readVarLen(ALCSeq *s,u32 track);
 static u8  __getTrackByte(ALCSeq *s,u32 track);
 static u32 __alCSeqGetTrackEvent(ALCSeq *seq, u32 track, ALEvent *event); 
 
+#if defined(GE_PORT_CSEQ_BIG_ENDIAN)
+/* CSeq files are authored in the N64's big-endian byte order.  Keep the
+ * canonical event stream and player unchanged, but read the fixed header
+ * through its file-format byte order on little-endian native ports. */
+static u32 __alCSeqHeaderU32(const ALCSeq *seq, u32 word)
+{
+    const u8 *p = (const u8 *)seq->base + word * 4;
+    return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8)
+        | (u32)p[3];
+}
+
+static u32 __alCSeqTrackOffset(const ALCSeq *seq, u32 track)
+{
+    return __alCSeqHeaderU32(seq, track);
+}
+
+static u32 __alCSeqDivision(const ALCSeq *seq)
+{
+    return __alCSeqHeaderU32(seq, 16);
+}
+#else
+static u32 __alCSeqTrackOffset(const ALCSeq *seq, u32 track)
+{
+    return seq->base->trackOffset[track];
+}
+
+static u32 __alCSeqDivision(const ALCSeq *seq)
+{
+    return seq->base->division;
+}
+#endif
+
 void alCSeqNew(ALCSeq *seq, u8 *ptr)
 {
     u32         i,tmpOff,flagTmp;
@@ -44,12 +76,16 @@ void alCSeqNew(ALCSeq *seq, u8 *ptr)
         seq->lastStatus[i] = 0;
         seq->curBUPtr[i] = 0;
         seq->curBULen[i] = 0;
-        tmpOff = seq->base->trackOffset[i];
+        tmpOff = __alCSeqTrackOffset(seq, i);
         if(tmpOff) /* if the track is valid */
         {
             flagTmp = 1 << i;
             seq->validTracks |= flagTmp;
+#if defined(GE_PORT_CSEQ_BIG_ENDIAN)
+            seq->curLoc[i] = ptr + tmpOff;
+#else
             seq->curLoc[i] = (u8*)((u32)ptr + tmpOff);
+#endif
             seq->evtDeltaTicks[i] = __readVarLen(seq,i);
             /*__alCSeqGetTrackEvent(seq,i); prime the event buffers  */
         }
@@ -57,7 +93,7 @@ void alCSeqNew(ALCSeq *seq, u8 *ptr)
             seq->curLoc[i] = 0;
     }
 
-    seq->qnpt = 1.0/(f32)seq->base->division;
+    seq->qnpt = 1.0/(f32)__alCSeqDivision(seq);
 }
 
 void alCSeqNextEvent(ALCSeq *seq,ALEvent *evt)
@@ -246,12 +282,12 @@ static u32 __alCSeqGetTrackEvent(ALCSeq *seq, u32 track, ALEvent *event)
 f32 alCSeqTicksToSec(ALCSeq *seq, s32 ticks, u32 tempo)
 {
     return ((f32) (((f32)(ticks) * (f32)(tempo)) /
-                     ((f32)(seq->base->division) * 1000000.0)));
+                     ((f32)__alCSeqDivision(seq) * 1000000.0)));
 }
 
 u32 alCSeqSecToTicks(ALCSeq *seq, f32 sec, u32 tempo)
 {
-    return (u32)(((sec * 1000000.0) * seq->base->division) / tempo);
+    return (u32)(((sec * 1000000.0) * __alCSeqDivision(seq)) / tempo);
 }
 
 
@@ -397,4 +433,3 @@ static u32 __readVarLen(ALCSeq *seq,u32 track)
     }
     return (value);
 }
-

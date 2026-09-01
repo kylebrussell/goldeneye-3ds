@@ -1,0 +1,21 @@
+{
+  "fixture": "normal-single-player-dam",
+  "canonical_assumptions": {
+    "aim_control": 0,
+    "bond_dead": false,
+    "controls_enabled": true,
+    "controls_locked": false,
+    "controller_config": "CONTROLLER_CONFIG_HONEY",
+    "controller_config_value": 0,
+    "damage_show_time_active": false,
+    "fov_y": 60.0,
+    "game_over": false,
+    "in_tank": false,
+    "look_vertical_inverted": false,
+    "player_count": 1,
+    "solo_watch_state": "WATCH_ANIMATION_0x0",
+    "solo_watch_state_value": 0,
+    "stop_play": false
+  },
+  "purpose": "Provider fixture for compiling the full canonical function; values select existing branches and do not replace their bodies."
+}

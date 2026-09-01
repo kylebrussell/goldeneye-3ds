@@ -1,3 +1,8 @@
+#ifdef GE_PORT_MODEL_ROOT_MOTION_SLICE
+#include "ge_original_animation_root_internal.h"
+#elif defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE)
+#include "ge_original_model_clock_internal.h"
+#else
 #include <ultra64.h>
 #include <memp.h>
 #include "model.h"
@@ -14,7 +19,10 @@
 #include "objecthandler.h"
 #include "quaternion.h"
 #include "random.h"
+#endif
 
+#if !defined(GE_PORT_MODEL_ROOT_MOTION_SLICE) && \
+    !defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE)
 
 typedef struct ModelGroupMtxBuildArg {
     u16 flags;
@@ -34,8 +42,6 @@ bool modelmgrCanSlotFitRwdata(Model *modelslot, ModelFileHeader *modeldef)
     return modeldef->numRecords <= 0
         || (modelslot->datas != NULL && modelslot->rwdatalen >= modeldef->numRecords);
 }
-
-
 /**
  * Address: 7F06C094
  * 
@@ -232,7 +238,6 @@ void return_null(void)
     return;
 }
 #endif
-
 
 /**
  * Address: 7F06C474
@@ -892,7 +897,9 @@ void sub_GAME_7F06D160(coord3d *arg0, coord3d *arg1, f32 mult)
     arg0->z = sub_GAME_7F06D0CC(arg0->z, arg1->z, mult);
 }
 
+#endif
 
+#ifndef GE_PORT_MODEL_ANIMATION_CLOCK_SLICE
 /**
  * Address: 7F06D1CC
  */
@@ -1014,7 +1021,10 @@ f32 sub_GAME_7F06D3F4(s32 jointnum, s32 flip, ModelSkeleton *skeleton, ModelAnim
 
     return ((f32)angle * M_TAU_F) / M_U16_MAX_VALUE_F;
 }
+#endif /* !GE_PORT_MODEL_ANIMATION_CLOCK_SLICE */
 
+#if !defined(GE_PORT_MODEL_ROOT_MOTION_SLICE) && \
+    !defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE)
 
 /**
  * Address: 7F06D490
@@ -2365,7 +2375,9 @@ void subcalcmatrices(ModelRenderData *arg0, struct Model *arg1)
 
     instcalcmatrices(arg0, arg1);
 }
+#endif /* full model before animation clock */
 
+#ifndef GE_PORT_MODEL_ROOT_MOTION_SLICE
 /**
  * Address 0x7F06F5AC.
 */
@@ -2711,7 +2723,13 @@ void modelSetAnimEndFrame(Model *model, f32 endframe) {
 }
 
 void modelSetAnimFlipFunction(Model *model, void *callback) {
+#if defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE) && \
+    UINTPTR_MAX > UINT32_MAX
+    ge_port_model_set_anim_flip_function(model, callback);
+    model->animflipfunc = callback != NULL;
+#else
     model->animflipfunc = callback;
+#endif
 }
 
 
@@ -3404,7 +3422,12 @@ void modelTickAnim(struct Model *model, s32 numticks, s32 update_chrstuff)
 
                     if (model->animflipfunc != 0) 
                     {
+#if defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE) && \
+    UINTPTR_MAX > UINT32_MAX
+                        ge_port_model_invoke_anim_flip_function(model);
+#else
                         ((void (*)(void))model->animflipfunc)();
+#endif
                     }
                 }
             }
@@ -3436,8 +3459,10 @@ void modelTickAnim(struct Model *model, s32 numticks, s32 update_chrstuff)
         }
     }
 }
+#endif /* full model or animation clock */
 
-
+#if !defined(GE_PORT_MODEL_ROOT_MOTION_SLICE) && \
+    !defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE)
 /**
  * @brief Model Type 1: 1Cycle No Secondary
  * @param[in,out] renderdata append cycle, CC and RM to display List
@@ -6393,3 +6418,4 @@ void modelNodeReplaceGdl(u32 arg0, ModelNode *node, Gfx *find, Gfx *replacement)
             break;
     }
 }
+#endif /* full model after animation clock */

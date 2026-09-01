@@ -21,8 +21,13 @@
 #include <PR/libaudio.h>
 #include <PR/ultraerror.h>
 #include <audio/synthInternals.h>
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+#include <os.h>
+#include <os_internal.h>
+#else
 #include <PR/os.h>
 #include <PR/os_internal.h>
+#endif
 #include <assert.h>
 #include <audio/initfx.h>
 
@@ -441,6 +446,5 @@ f32 _doModFunc(ALDelay *d, s32 count)
 
   return(d->rsgain * val);
 }
-
 
 

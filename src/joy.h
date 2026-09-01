@@ -32,11 +32,14 @@ u16 joyGetButtons(s8 contpadnum, u16 mask);
 u16 joyGetButtonsPressedThisFrame(s8 contpadnum, u16 mask);
 s32 joyGetStickXInRange(s8 contpadnum, s32 rangemin, s32 rangemax);
 s32 joyGetStickYInRange(s8 contpadnum, s32 rangemin, s32 rangemax);
+f32 joyGetStickXInRangef(s8 contpadnum, f32 rangemin, f32 rangemax);
+f32 joyGetStickYInRangef(s8 contpadnum, f32 rangemin, f32 rangemax);
 s32 joyGamePakProbe(void);
 s32 joyGamePakLongRead(u8 address, u8 *buffer, s32 nbytes);
 s32 joyGamePakLongWrite(u8 address, u8 *buffer, s32 nbytes);
 void joyRumblePakStart(s32 controller, f32 duration);
 void joyRumblePakStop(void);
 void joySetContDataIndex(s32 index);
+s32 joyGetContDataIndex(void);
 
 #endif

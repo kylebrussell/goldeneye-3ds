@@ -375,7 +375,11 @@ WeaponObjRecord *bondinvRemovePropWeaponByID(ITEM_IDS weaponnum)
                 {
                     ObjectRecord *obj = prop->obj;
 
+#ifdef GE_PORT_USE_ORIGINAL_TYPES
+                    if (((PropDefHeaderRecord *)obj)->type == PROPDEF_COLLECTABLE)
+#else
                     if (obj->type == PROPDEF_COLLECTABLE)
+#endif
                     {
                         WeaponObjRecord *weapon = (WeaponObjRecord *)prop->obj;
 
@@ -418,7 +422,11 @@ void bondinvRemoveItemByID(ITEM_IDS weaponnum)
                 {
                     ObjectRecord *obj = prop->obj;
 
+#ifdef GE_PORT_USE_ORIGINAL_TYPES
+                    if (((PropDefHeaderRecord *)obj)->type == PROPDEF_COLLECTABLE)
+#else
                     if (obj->type == PROPDEF_COLLECTABLE)
+#endif
                     {
                         WeaponObjRecord *weapon = (WeaponObjRecord *)prop->obj;
 
@@ -514,7 +522,7 @@ int bondinvAddWeaponByProp(PropRecord *prop)
     return added;
 }
 
-void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
+void bondinvCycleForward(ITEM_IDS *nextright, ITEM_IDS *nextleft, s32 requireammo)
 {
     s32      weapon1 = *nextright;
     s32      weapon2 = *nextleft;
@@ -607,7 +615,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
     *nextleft  = weapon2;
 }
 
-void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
+void bondinvCycleBackward(ITEM_IDS *nextright, ITEM_IDS *nextleft, s32 requireammo)
 {
     s32 weapon1 = *nextright;
     s32 weapon2 = *nextleft;

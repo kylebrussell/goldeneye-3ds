@@ -1,10 +1,16 @@
 #include <ultra64.h>
+#if defined(GE_PORT_BLOOD_DECODE_SLICE)
+#include "blood_decrypt.h"
+#include "player.h"
+void *dynAllocate(s32 size);
+#else
 #include <fr.h>
 #include "dyn.h"
 #include "title.h"
 #include "blood_decrypt.h"
 #include "player.h"
 #include <PR/os.h>
+#endif
 
 #define BLOOD_IMG_WIDTH 80
 #define BLOOD_IMG_HEIGHT 96
@@ -195,6 +201,17 @@ u8 die_blood_image_1[] = {
 
 u8 die_blood_image_end = 0;
 
+/* The N64 linker places the zero-byte sentinel immediately after the
+ * compressed stream.  Native ELF section ordering moves the zero-initialized
+ * symbol into .bss, so comparing against &die_blood_image_end would let the
+ * decoder walk through unrelated .data after the authored 42nd frame. */
+#if defined(GE_PORT_BLOOD_DECODE_SLICE)
+#define DIE_BLOOD_IMAGE_END (die_blood_image_1 + sizeof(die_blood_image_1))
+#else
+#define DIE_BLOOD_IMAGE_END (&die_blood_image_end)
+#endif
+
+#if !defined(GE_PORT_BLOOD_DECODE_SLICE)
 Gfx *clear_framebuffer_black(Gfx *gdl) 
 {
    gDPSetCycleType(gdl++, G_CYC_FILL);
@@ -215,6 +232,7 @@ Gfx *sub_GAME_7F01C1A4(Gfx *gdl) {
 
    return gdl;
 }
+#endif
 
 s32 die_blood_image_routine(s32 arg0) {
    s8 sp37;
@@ -223,7 +241,7 @@ s32 die_blood_image_routine(s32 arg0) {
    if (arg0 == 0) {
       g_CurrentPlayer->bloodImgCur = die_blood_image_1;
    } else if (arg0 == 1) {
-      if (g_CurrentPlayer->bloodImgNxt < &die_blood_image_end) {
+      if (g_CurrentPlayer->bloodImgNxt < DIE_BLOOD_IMAGE_END) {
          g_CurrentPlayer->bloodImgCur = g_CurrentPlayer->bloodImgNxt;
       }
    }
@@ -237,9 +255,34 @@ s32 die_blood_image_routine(s32 arg0) {
    sub_GAME_7F01CEEC(g_CurrentPlayer->bloodImgBufPtrArray[g_CurrentPlayer->bloodImgIdx], BLOOD_IMG_WIDTH, g_CurrentPlayer->bloodImgBufPtrArray[g_CurrentPlayer->bloodImgIdx]);
    sub_GAME_7F01CC94(g_CurrentPlayer->bloodImgBufPtrArray[g_CurrentPlayer->bloodImgIdx], BLOOD_IMG_WIDTH * BLOOD_IMG_HEIGHT, g_CurrentPlayer->bloodImgBufPtrArray[g_CurrentPlayer->bloodImgIdx]);
 
-   return (g_CurrentPlayer->bloodImgNxt >= &die_blood_image_end);
+   return (g_CurrentPlayer->bloodImgNxt >= DIE_BLOOD_IMAGE_END);
 }
 
+#if defined(GE_PORT_BLOOD_DECODE_SLICE)
+s32 ge_port_blood_decode_frame(void *player_ptr, s32 mode,
+                               u8 *destination, u32 destination_size)
+{
+   struct player *previous = g_CurrentPlayer;
+   struct player *player = player_ptr;
+   s32 complete;
+   if (player == NULL || destination == NULL
+         || destination_size < BLOOD_IMG_WIDTH * BLOOD_IMG_HEIGHT / 2)
+      return 0;
+   g_CurrentPlayer = player;
+   complete = die_blood_image_routine(mode);
+   if (player->bloodImgBufPtrArray[player->bloodImgIdx] != NULL) {
+      u32 index;
+      for (index = 0; index < BLOOD_IMG_WIDTH * BLOOD_IMG_HEIGHT / 2;
+            ++index)
+         destination[index] =
+            player->bloodImgBufPtrArray[player->bloodImgIdx][index];
+   }
+   g_CurrentPlayer = previous;
+   return complete;
+}
+#endif
+
+#if !defined(GE_PORT_BLOOD_DECODE_SLICE)
 Gfx *gunbarrelBloodOverlayDL(Gfx *gdl) {
    gDPSetTextureLUT(gdl++, G_TT_NONE);
    gDPSetTextureFilter(gdl++, G_TF_BILERP); 
@@ -289,3 +332,4 @@ Gfx *sub_GAME_7F01CA18(Gfx *gdl) {
 
    return gdl;
 }
+#endif

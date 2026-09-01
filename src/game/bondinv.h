@@ -13,8 +13,8 @@ InvItem *bondinvGetItemByIndex(s32 index);
 textoverride *bondinvGetTextbyObj(ObjectRecord *obj);
 textoverride *bondinvGetTextbyWeaponID(ITEM_IDS weaponnum);
 
-void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo);
-void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo);
+void bondinvCycleBackward(ITEM_IDS *nextright, ITEM_IDS *nextleft, s32 requireammo);
+void bondinvCycleForward(ITEM_IDS *nextright, ITEM_IDS *nextleft, s32 requireammo);
 bool bondinvHasGoldenGun(void);
 int bondinvAddInvItem(ITEM_IDS item);
 int bondinvAddDoublesInvItem(ITEM_IDS right, ITEM_IDS left);

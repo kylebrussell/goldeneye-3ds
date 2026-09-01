@@ -89,6 +89,7 @@ void alloc_false_GUARDdata_to_exec_global_action(void)
     }
 }
 
+#ifndef GE_PORT_DAM_STAGE_AI_ALLOC_SLICE
 
 void debug_object_load_all_models(void)
 {
@@ -153,4 +154,5 @@ void debug_weapon_load_table(void)
          if (modelLoad(tmp.array[i])) osSyncPrintf("loaded weapon obj=%d", tmp.array[i]);
     }
 }
+#endif
 #undef osSyncPrintf

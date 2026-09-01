@@ -15,6 +15,8 @@ void vec3Lerp(vec3d *x, vec3d *y, f32 scaler, vec3d *result)
     result->z = ((y->z - x->z) * scaler) + x->z;
 }
 
+#ifndef GE_PORT_VEC3_LERP_SLICE
+
 
 /**
  * Address: 7F05AE50
@@ -141,4 +143,4 @@ f32 scalarCubicHermiteInterp(f32 arg0, f32 arg1, f32 arg2, f32 arg3, f32 arg4)
     temp_f18 = ((2.0f * cube) - (3.0f * square)) + 1.0f;
     return (arg0 * temp_f18) + (arg1 * (1.0f - temp_f18)) + (arg2 * ((cube - (2.0f * square)) + arg4)) + (arg3 * (cube - square));
 }
-
+#endif /* !GE_PORT_VEC3_LERP_SLICE */

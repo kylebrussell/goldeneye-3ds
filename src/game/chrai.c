@@ -9,6 +9,22 @@
 #include "chraidata.h"
 #include "file.h"
 #include "gun.h"
+#if defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        && defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+#include "ge_original_global_ai.h"
+#include "ge_original_dam_mission_exit_services.h"
+/* The focused port builds name PLAYERFLAG as an ABI compatibility typedef,
+ * so retain the three canonical BITFLAG positions used by command 0xd7. */
+#ifndef PLAYERFLAG_LOCKCONTROLS
+#define PLAYERFLAG_LOCKCONTROLS (1 << 0)
+#define PLAYERFLAG_NOCONTROL (1 << 1)
+#define PLAYERFLAG_NOTIMER (1 << 2)
+#endif
+/* These are the already-live exact port owners for the only camera mode and
+ * title transition reached by the focused Facility lists. */
+#define bondviewSetCameraMode ge_original_dam_mission_set_camera_posend_exact
+#define bossReturnTitleStage ge_original_dam_mission_return_title_exact
+#endif
 #include "initanitable.h"
 #include "language.h"
 #include "loadobjectmodel.h"
@@ -33,6 +49,29 @@
 #include <random.h>
 #include <snd.h>
 #include <ultra64.h>
+
+#if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER)
+#include "ge_original_dam_mission_exit_services.h"
+#ifndef PLAYERFLAG_LOCKCONTROLS
+#define PLAYERFLAG_LOCKCONTROLS (1 << 0)
+#define PLAYERFLAG_NOCONTROL (1 << 1)
+#define PLAYERFLAG_NOTIMER (1 << 2)
+#endif
+#ifndef RUNTIMEBITFLAG_ACTIVATED
+#define RUNTIMEBITFLAG_ACTIVATED (1u << 14)
+#endif
+#ifndef RUNTIMEBITFLAG_BEENOPENED
+#define RUNTIMEBITFLAG_BEENOPENED (1u << 9)
+#endif
+#ifndef RUNTIMEBITFLAG_HASPROJECTILE
+#define RUNTIMEBITFLAG_HASPROJECTILE (1u << 7)
+#endif
+#ifndef M_U16_MAX_VALUE_F
+#define M_U16_MAX_VALUE_F 65536.0f
+#endif
+extern void guNormalize(f32 *x, f32 *y, f32 *z);
+extern PropRecord *hatCreateForChr(ChrRecord *chr, s32 modelnum, u32 flags);
+#endif
 
 // hack? used to match as called with 2 args, but decompiled code takes 1
 extern s32 objectiveGetStatus_WEAK(s32 objectiveNum, s32);
@@ -714,6 +753,7 @@ s32 chraiGetAIListID(AIRecord *AIList, bool *isGlobalAIList)
         }
     }
 
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE)
     for (i = 0; g_GlobalAILists[i].ailist; i++)
     {
         if (g_GlobalAILists[i].ailist == AIList)
@@ -722,6 +762,16 @@ s32 chraiGetAIListID(AIRecord *AIList, bool *isGlobalAIList)
             return g_GlobalAILists[i].ID;
         }
     }
+#elif defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+    for (i = 0; i < (s32)ge_original_global_ai_count(); i++)
+    {
+        if (ge_original_global_ai_find(i) == AIList)
+        {
+            *isGlobalAIList = TRUE;
+            return i;
+        }
+    }
+#endif
 
     return -1;
 }
@@ -789,6 +839,7 @@ AIRecord *ailistFindById(s32 ID)
     }
     else
     {
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE)
         for (i = 0; g_GlobalAILists[i].ailist; i++)
         {
             if (g_GlobalAILists[i].ID == ID)
@@ -796,6 +847,9 @@ AIRecord *ailistFindById(s32 ID)
                 return g_GlobalAILists[i].ailist;
             }
         }
+#elif defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+        return ge_original_global_ai_find(ID);
+#endif
     }
     return NULL;
 }
@@ -983,6 +1037,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
 
                     return;
                 }
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
                 case AI_SetChrAiList:
                 {
                     AiSetChrAiListRecord *ai = AiListp + Offset;              /* needed for stack count inflation */
@@ -1008,6 +1064,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_SetReturnAiList:
                 {
                     AiSetReturnAiListRecord *ai         = AiListp + Offset;
@@ -1058,6 +1115,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiKneelRecord);
                     break;
                 }
+#endif
                 case AI_PlayAnimation:
                 {
                     AiPlayAnimationRecord *ai = AiListp + Offset;
@@ -1092,6 +1150,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiPlayAnimationRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFPlayingAnimation:
                 {
                     AiIFPlayingAnimationRecord *ai = (AiListp + Offset);
@@ -1118,6 +1177,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiLookSurprisedRecord);
                     break;
                 }
+#endif
                 case AI_IFImOnPatrolOrStopped:
                 {
                     AiIFImOnPatrolOrStoppedRecord *ai = AiListp + Offset;
@@ -1131,6 +1191,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFChrDyingOrDead:
                 {
                     AiIFChrDyingOrDeadRecord *ai  = AiListp + Offset;
@@ -1355,7 +1416,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiHitChrWithItemRecord *ai  = AiListp + Offset;
                     ChrRecord              *chr = chrFindById(ChrEntityp, ai->CHR_NUM);
-                    vec3d                   vec = New_Vector();
+                    vec3d                   vec = New_Vector(,,);
 
                     if (chr && chr->prop)
                     {
@@ -1375,7 +1436,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     {
                         PropRecord      *prop = chrGetEquippedWeaponPropWithCheck(chr1, GUNRIGHT);
                         WeaponObjRecord *weapon;
-                        vec3d            vec = New_Vector();
+                        vec3d            vec = New_Vector(,,);
 
                         if (!prop) // not Right hand? try left
                         {
@@ -2091,6 +2152,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
                 case AI_IFBondInRoomWithPad:
                 {
                     AiIFBondInRoomWithPadRecord *ai     = AiListp + Offset;
@@ -2111,6 +2173,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFBondCollectedObject:
                 {
                     AiIFBondCollectedObjectRecord *ai  = AiListp + Offset;
@@ -2125,6 +2188,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
+#endif
                 case AI_IFKeyDropped:
                 {
                     AiIFKeyDroppedRecord *ai = AiListp + Offset;
@@ -2170,6 +2235,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
                 case AI_IFBondHasItemEquipped:
                 {
                     AiIFBondHasItemEquippedRecord *ai = AiListp + Offset;
@@ -2183,6 +2250,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFObjectExists:
                 {
                     AiIFObjectExistsRecord *ai  = AiListp + Offset;
@@ -2197,6 +2265,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
+#endif
                 case AI_IFObjectNotDestroyed:
                 {
                     AiIFObjectNotDestroyedRecord *ai  = AiListp + Offset;
@@ -2211,6 +2281,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFObjectWasActivated:
                 {
                     AiIFObjectWasActivatedRecord *ai  = AiListp + Offset;
@@ -3020,6 +3093,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiSetMyAccuracyRatingRecord);
                     break;
                 }
+#endif
                 case AI_SetMyFlags2:
                 {
                     AiSetMyFlags2Record *ai = AiListp + Offset;
@@ -3047,6 +3121,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_SetChrBitfield:
                 {
                     AiSetChrBitfieldRecord *ai = AiListp + Offset;
@@ -3074,6 +3149,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
+#endif
                 case AI_SetObjectiveBitfield:
                 {
                     AiSetObjectiveBitfieldRecord *ai    = AiListp + Offset;
@@ -3082,6 +3159,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiSetObjectiveBitfieldRecord);
                     break;
                 }
+#ifndef GE_PORT_DAM_MISSION_FLOW_SLICE
                 case AI_UnsetObjectiveBitfield:
                 {
                     AiUnsetObjectiveBitfieldRecord *ai    = AiListp + Offset;
@@ -3090,6 +3168,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiUnsetObjectiveBitfieldRecord);
                     break;
                 }
+#endif
                 case AI_IFObjectiveBitfieldHas:
                 {
                     AiIFObjectiveBitfieldHasRecord *ai    = AiListp + Offset;
@@ -3104,6 +3183,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_SetMychrflags:
                 {
                     AiSetMychrflagsRecord *ai    = AiListp + Offset;
@@ -3313,12 +3395,14 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += chraiitemsize(AiListp, Offset);
                     break;
                 }
+#endif
                 case AI_MyTimerStart:
                 {
                     chrRestartTimer(ChrEntityp); // Set timer60 to 0 and set flag
                     Offset += sizeof(AiMyTimerStartRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_MyTimerReset:
                 {
                     ChrEntityp->timer60 = 0;
@@ -3365,6 +3449,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
                 case AI_IFMyTimerGreaterThanTicks:
                 {
                     AiIFMyTimerGreaterThanTicksRecord *ai   = AiListp + Offset;
@@ -3379,6 +3464,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_HudCountdownShow:
                 {
                     countdownTimerSetVisible(1, TRUE);
@@ -3685,10 +3771,12 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiTextPrintBottomRecord);
                     break;
                 }
+#endif
+#endif
                 case AI_TextPrintTop:
                 {
                     AiTextPrintTopRecord *ai   = AiListp + Offset;
-                    char                 *text = langGet(ntohs(ai->txt));
+                    char                 *text = (char *)langGet(ntohs(ai->txt));
 
     #ifdef ENABLE_LOG
                     osSyncPrintf("ptop =  %f \n", text);
@@ -3700,6 +3788,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiTextPrintTopRecord);
                     break;
                 }
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_DAM_MISSION_SFX_SLICE)
                 case AI_SfxPlay:
                 {
                     AiSfxPlayRecord *ai       = AiListp + Offset;
@@ -3708,6 +3798,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiSfxPlayRecord);
                     break;
                 }
+#endif
+#ifndef GE_PORT_DAM_MISSION_FLOW_SLICE
 
                 case AI_SfxStopChannel:
                 {
@@ -3768,6 +3860,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiSfxFadeChannelVolumeRecord);
                     break;
                 }
+#endif
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_DAM_MISSION_SFX_SLICE)
                 case AI_SfxEmitFromObject:
                 {
                     AiSfxEmitFromObjectRecord *ai    = AiListp + Offset;
@@ -3790,6 +3885,10 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiSfxEmitFromObjectRecord);
                     break;
                 }
+#endif
+#if !defined(GE_PORT_DAM_MISSION_FLOW_SLICE) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_SfxEmitFromPad:
                 {
                     AiSfxEmitFromPadRecord *ai     = AiListp + Offset;
@@ -3944,9 +4043,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
                 case AI_EndLevel: // canonical name
                 {
                     /*"aiEndLevel" */
+#if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER)
+                    ge_original_campaign_end_level_dispatch_exact();
+#else
                     if (cameraBufferToggle)
                     {
                         if (cameraFrameCounter2 == FALSE)
@@ -3958,9 +4061,11 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     {
                         bossReturnTitleStage();
                     }
+#endif
                     Offset += sizeof(AiEndLevelRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_CameraReturnToBond:
                 {
                     bondviewSetCameraMode(CAMERAMODE_FP_NOINPUT);
@@ -3983,6 +4088,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiCameraLookAtBondFromPadRecord);
                     break;
                 }
+#endif
                 case AI_CameraSwitch:
                 {
                     AiCameraSwitchRecord *ai  = AiListp + Offset;
@@ -4008,6 +4114,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += AI_CameraSwitch_LENGTH;
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFBondYPosLessThan:
                 {
                     AiIFBondYPosLessThanRecord *ai      = AiListp + Offset;
@@ -4022,6 +4129,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
                 case AI_BondDisableControl:
                 {
                     AiBondDisableControlRecord *ai = AiListp + Offset;
@@ -4043,6 +4151,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiBondDisableControlRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_BondEnableControl:
                 {
     #ifdef ENABLE_LOG
@@ -4057,6 +4166,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiBondEnableControlRecord);
                     break;
                 }
+#endif
                 case AI_TRYTeleportingChrToPad:
                 {
                     AiTRYTeleportingChrToPadRecord *ai     = AiListp + Offset;
@@ -4170,6 +4280,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiHideAllChrsRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_ShowAllChrs:
                 {
                     s32 num;
@@ -4181,6 +4292,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiShowAllChrsRecord);
                     break;
                 }
+#endif
                 case AI_DoorOpenInstant:
                 {
                     AiDoorOpenInstantRecord *ai   = AiListp + Offset;
@@ -4210,6 +4322,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiChrRemoveItemInHandRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IfNumberOfActivePlayersLessThan:
                 {
                     AiIfNumberOfActivePlayersLessThanRecord *ai = AiListp + Offset;
@@ -4244,6 +4357,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiBondEquipItemRecord);
                     break;
                 }
+#endif
                 case AI_BondEquipItemCinema:
                 {
                     AiBondEquipItemCinemaRecord *ai = AiListp + Offset;
@@ -4252,6 +4366,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiBondEquipItemCinemaRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_BondSetLockedVelocity:
                 {
                     /*
@@ -4298,6 +4413,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiSwitchSkyRecord);
                     break;
                 }
+#endif
                 case AI_TriggerFadeAndExitLevelOnButtonPress:
                 {
                     if (stop_time_flag == FALSE)
@@ -4334,6 +4450,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiBondHideWeaponsRecord);
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_CameraOrbitPad: // sp order from xbla
                 {
                     AiCameraOrbitPadRecord *ai = AiListp + Offset;
@@ -4380,6 +4497,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#endif
                 case AI_IFObjectiveAllCompleted:
                 {
                     AiIFObjectiveAllCompletedRecord *ai = AiListp + Offset;
@@ -4394,6 +4512,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     break;
                 }
+#ifndef GE_PORT_FACILITY_MISSION_FLOW_SLICE
                 case AI_IFFolderActorIsEqual:
                 {
                     AiIFFolderActorIsEqualRecord *ai = AiListp + Offset;
@@ -4488,7 +4607,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_GasLeakAndFadeFog:
                 {
-                    coord3d emitPos = New_Coord3d();
+                    coord3d emitPos = New_Coord3d(,,);
                     init_trigger_toxic_gas_effect(&emitPos);
                     Offset += sizeof(AiGasLeakAndFadeFogRecord);
                     break;
@@ -4518,6 +4637,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     Offset += sizeof(AiObjectRocketLaunchRecord);
                     break;
                 } //============================================================================================================
+#endif
+#endif
 #endif
                 default:
                     /*

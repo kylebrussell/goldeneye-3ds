@@ -82,7 +82,7 @@ void waitForNextFrame(void) //maybe WaitForTick
     #else
     nextFrameTime = ((osGetCount() - copy_of_osgetcount_value_1) + 387937) / 775875; //current time + 1/5
     #endif
-  } while (nextFrameTime < frameDelay);
+  } while (nextFrameTime < (u32)frameDelay);
 
   frameDelay = 1;
   updateFrameCounters(nextFrameTime);
@@ -92,6 +92,8 @@ void waitForNextFrame(void) //maybe WaitForTick
 void setFrameDelay(s32 arg0) {
     #ifdef LEFTOVERDEBUG
     frameDelay = arg0;
+    #else
+    (void)arg0;
     #endif
 }
 
@@ -101,7 +103,6 @@ void eu_sub_7f0c00a4(void)
   
 }
 #endif
-
 
 
 

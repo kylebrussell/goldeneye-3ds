@@ -1,4 +1,20 @@
 #include <ultra64.h>
+#if defined(GE_PORT_GUNBARREL_HOLE_SLICE)
+#include <math.h>
+struct s_display_list_something
+{
+    s16 unk0;
+    s16 unk2;
+    s16 unk4;
+    s16 unk6;
+    s16 unk8;
+    s16 unkA;
+    u8 unkC;
+    u8 unkD;
+    u8 unkE;
+    u8 unkF;
+};
+#else
 #include <assets/animationtable_data.h>
 #include "bondtypes.h"
 #include "image.h"
@@ -8,6 +24,7 @@
 #include "chr_b.h"
 #include "initanitable.h"
 #include "chrobjdata.h"
+#endif
 
 /*
 * Address: 0x7F01BAE0
@@ -72,6 +89,7 @@ void createGunbarrelRenderHole(struct s_display_list_something *var_s0, s32 arg1
 /*
 * Address: 0x7F01BFF8
 */
+#if !defined(GE_PORT_GUNBARREL_HOLE_SLICE)
 Gfx *sub_GAME_7F01BFF8(Gfx *gdl, Vtx *vertexList, s32 numVertices)
 {
     s8 j;
@@ -98,7 +116,7 @@ Gfx *sub_GAME_7F01BFF8(Gfx *gdl, Vtx *vertexList, s32 numVertices)
 
     return gdl;
 }
-
+#endif
 
 
 

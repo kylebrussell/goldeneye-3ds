@@ -1,3 +1,10 @@
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+#include "ge_original_bond_movement_internal.h"
+#include "ge_original_stage_objective_live.h"
+#elif defined(GE_PORT_BOND_CAMERA_SLICE)
+#include "ge_original_bond_camera_internal.h"
+#include <PR/gu.h>
+#else
 #include <ultra64.h>
 #include <math.h>
 #include <bondtypes.h>
@@ -44,6 +51,14 @@
 #include "stan.h"
 #include "stanintersection.h"
 #include "textrelated.h"
+#endif
+
+#if (!defined(GE_PORT_BOND_CAMERA_SLICE) \
+    && !defined(GE_PORT_BOND_MOVEMENT_SLICE)) \
+    || defined(GE_PORT_BOND_INPUT_FULL_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE)
 
 #ifdef VERSION_EU
 
@@ -158,12 +173,25 @@
 
 #include "bondview_internal.h"
 
+#if defined(GE_PORT_BOND_INPUT_FULL_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE)
+#include "ge_original_bond_input_internal.h"
+#endif
+
 #define a8s "%8s"
 #define aX4_0f "x %4.0f"
 #define aY4_0f "y %4.0f"
 #define aZ4_0f "z %4.0f"
 #define aS3d "%s %3d"
 
+#if (!defined(GE_PORT_BOND_INPUT_FULL_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)) \
+    || defined(GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE)
+
+#ifndef GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE
 
 vec3d g_ForceBondMoveOffset;
 
@@ -1590,6 +1618,8 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
 }
 
 
+#endif /* input state helper prefix */
+
 //begin bondmove.c per pd
 
 void sub_GAME_7F07C540(s32 arg0)
@@ -1702,6 +1732,7 @@ bool currentPlayerGetXAutoAimEnabledRedirect(void)
     return currentPlayerGetXAutoAimEnabled();
 }
 
+#ifndef GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE
 
 /**
  * Updates autoxaimtime60 by g_ClockTimer.
@@ -1734,6 +1765,16 @@ void bondviewUpdateXAutoAimTime(struct PropRecord *autoaim_target, f32 auto_aim_
 }
 
 
+#endif /* !GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE */
+#endif /* full game or input state helpers */
+#endif /* full game globals and helpers/constants */
+
+#ifndef GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE
+#if !defined(GE_PORT_BOND_CAMERA_SLICE) \
+    || defined(GE_PORT_BOND_PLAYER_SPAWN_SLICE)
+#if !defined(GE_PORT_BOND_INPUT_FULL_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
 void change_player_pos_to_target(struct collision434 *col, coord3d *pos, StandTile *stan)
 {
     f32 store_x;
@@ -1766,6 +1807,12 @@ void change_player_pos_to_target(struct collision434 *col, coord3d *pos, StandTi
     col->pos3.z = store_z;
     col->collision_radius = 30;
 }
+#endif
+
+#if !defined(GE_PORT_BOND_CAMERA_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_FULL_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
 
 
 /**
@@ -1790,7 +1837,7 @@ void bondviewTankModelRotationRelated(void) {
         g_TankModelPositionOffset.f[0] = sp68->f[0];
         g_TankModelPositionOffset.f[1] = sp68->f[1];
         g_TankModelPositionOffset.f[2] = sp68->f[2];
-        mtx4RotateVecInPlace(&sp24, g_TankModelPositionOffset.f);
+        mtx4RotateVecInPlace(&sp24, &g_TankModelPositionOffset);
         g_TankModelPositionOffset.f[0] += sp64->f[0];
         g_TankModelPositionOffset.f[1] += sp64->f[1];
         g_TankModelPositionOffset.f[2] += sp64->f[2];
@@ -2075,6 +2122,15 @@ f32 bondviewGet8003646CRad(void)
 
 
 
+#endif /* !GE_PORT_BOND_INPUT_FULL_SLICE */
+#endif /* !GE_PORT_BOND_CAMERA_SLICE */
+
+#if (!defined(GE_PORT_BOND_CAMERA_SLICE) \
+    || defined(GE_PORT_BOND_MOVEMENT_SLICE)) \
+    && !defined(GE_PORT_BOND_INPUT_FULL_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
+
 /**
  * Address 0x7F07CF8C.
 */
@@ -2087,20 +2143,35 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
     f32 always_30;
     f32 collision_radius;
     s32 sp7C;
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     struct TankRecord *tank;
+#endif
     s32 stack_padding[11];
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+    union {
+        struct StandTileLocusCallbackRecord record;
+        s32 original_clear_words[16];
+    } sp3C_storage;
+#define sp3C sp3C_storage.record
+#else
     struct StandTileLocusCallbackRecord sp3C;
+#endif
 
     sp94 = 0;
 
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     if ((g_PlayerIsInTank == 1) && (g_EnterTankAudioState != TANK_RUN_STATE_NOT_RUNNING))
     {
         sp94 = sub_GAME_7F07CDD4(arg0, g_TankOrientationAngle, stan);
     }
     else
+#endif
     {
         sp90 = g_CurrentPlayer->field_488.current_tile_ptr;
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+        cdtypes = ge_port_bond_movement_cdtypes();
+#else
         if (obj_collision_flag)
         {
             cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER;
@@ -2109,15 +2180,27 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         {
             cdtypes = 0;
         }
+#endif
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+        ge_port_bond_movement_collision_dimensions(
+            &collision_radius, &height, &always_30);
+#else
         bondviewGetCollisionRadius(g_CurrentPlayer->prop, &collision_radius, &height, &always_30);
+#endif
 
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
         if (g_WorldTankProp != NULL)
         {
             sub_GAME_7F03D058(g_WorldTankProp, 0);
         }
+#endif
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+        ge_port_bond_movement_set_prop_collision(g_CurrentPlayer->prop, 0);
+#else
         sub_GAME_7F03D058(g_CurrentPlayer->prop, 0);
+#endif
         sp7C = stanTileDistanceRelated(&sp90, arg0->f[0], arg0->f[2], collision_radius, &sp3C);
 
         if (stanGetLocusField0(&sp3C) != 0)
@@ -2158,6 +2241,10 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         else
         {
 block_20:
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+            ;
+#endif
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
             /* I'm sorry, this is the only way I could make it match. */
             if (g_PlayerTankProp == NULL
                 && (stanSavedColl_posData != NULL)
@@ -2169,16 +2256,26 @@ block_20:
                     g_WorldTankProp = stanSavedColl_posData;
                 }
             }
+#endif
         }
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+        ge_port_bond_movement_set_prop_collision(g_CurrentPlayer->prop, 1);
+#else
         sub_GAME_7F03D058(g_CurrentPlayer->prop, 1);
+#endif
 
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
         if (g_WorldTankProp != NULL)
         {
             sub_GAME_7F03D058(g_WorldTankProp, 1);
         }
+#endif
     }
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+#undef sp3C
+#endif
     return sp94;
 }
 
@@ -2252,7 +2349,12 @@ s32 bondviewTryFractionMovePlayerCollision(
     f32 temp_f0;
     f32 collision_radius;
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+    ge_port_bond_movement_collision_dimensions(
+        &collision_radius, &height, &always_30);
+#else
     bondviewGetCollisionRadius(g_CurrentPlayer->prop, &collision_radius, &height, &always_30);
+#endif
 
     delta_pos.f[0] = next_pos->f[0] - g_CurrentPlayer->field_488.collision_position.f[0];
     delta_pos.f[2] = next_pos->f[2] - g_CurrentPlayer->field_488.collision_position.f[2];
@@ -2390,7 +2492,12 @@ s32 bondviewTryEndHopPlayerCollision(struct coord3d *prior_next_pos, struct coor
     StandTile *stan;
     f32 collision_radius;
 
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+    ge_port_bond_movement_collision_dimensions(
+        &collision_radius, &height, &always_30);
+#else
     bondviewGetCollisionRadius(g_CurrentPlayer->prop, &collision_radius, &height, &always_30);
+#endif
 
     delta_pos.f[0] = prior_next_pos->f[0] - g_CurrentPlayer->field_488.collision_position.f[0];
     delta_pos.f[2] = prior_next_pos->f[2] - g_CurrentPlayer->field_488.collision_position.f[2];
@@ -2499,6 +2606,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     struct coord3d next_pos; // spb4
     struct coord3d collision1_pt0; // spa8
     struct coord3d collision1_pt1; // sp9c
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     struct rect4f *polygon; // sp98
     s32 edges; // sp94
     struct TankRecord *tank_objrecord; // no stack
@@ -2506,15 +2614,20 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     f32 *farr5;
     f32 *farr6;
     f32 temp_f2; // sp80
+#endif
     struct coord3d collision2_pt0;  // sp74
     struct coord3d collision2_pt1; // sp68
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     StandTile *stan; // no stack
+#endif
     struct coord3d collision3_pt0; // sp58
     struct coord3d collision3_pt1; // sp4c
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     s32 tile_count; // sp48
     s32 i; // sp44
     s32 temp_a3; // no stack
     s32 phi_a0_3; // sp3c
+#endif
     s32 temp_v0_7; // no stack
 
 
@@ -2525,10 +2638,13 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     next_pos.f[0] = g_CurrentPlayer->field_488.collision_position.f[0] + offset->f[0];
     next_pos.f[2] = g_CurrentPlayer->field_488.collision_position.f[2] + offset->f[2];
 
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     g_BondCanEnterTank = 0;
+#endif
 
     g_CurrentPlayer->autocrouchpos = CROUCH_STAND;
 
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     if (g_WorldTankProp != NULL)
     {
         chraiGetCollisionBoundsWithoutY(g_WorldTankProp, &polygon, &edges);
@@ -2596,6 +2712,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
             }
         }
     }
+#endif
 
     // This `if` block looks like Perfect Dark bbike0f0d3c60
     if (bondviewTrySimpleMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) == 0)
@@ -2629,6 +2746,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
         }
     }
 
+#ifndef GE_PORT_BOND_MOVEMENT_SLICE
     /**
      * This block seems to be some error checking code, this will only occur when Bond
      * goes out of bounds.
@@ -2694,7 +2812,57 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     {
         objectivestatusCheckRoomEntered(g_CurrentPlayer->field_488.current_tile_ptr->room);
     }
+#else
+    ge_port_bond_movement_publish(g_CurrentPlayer);
+    if (g_CurrentPlayer->field_488.current_tile_ptr != NULL)
+    {
+        objectivestatusCheckRoomEntered(
+            g_CurrentPlayer->field_488.current_tile_ptr->room);
+    }
+#endif
 }
+
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+/*
+ * Bounded extraction of the normal on-foot root-motion consumer in MoveBond.
+ * The source animation producer is deliberately outside this slice. This
+ * preserves the original headpos -> heading -> collision path without the
+ * debug-fast direct-speed branch.
+ */
+void ge_port_bond_movement_consume_head_root(void)
+{
+    struct coord3d move_offset = {0};
+    f32 headpos_x;
+    f32 headpos_z;
+
+    headpos_x = g_CurrentPlayer->headpos.f[0];
+    headpos_z = g_CurrentPlayer->headpos.f[2];
+
+    move_offset.f[0] +=
+        (
+            (headpos_z * g_CurrentPlayer->field_488.theta_transform.f[0]) -
+            (headpos_x * g_CurrentPlayer->field_488.theta_transform.f[2])
+        ) * g_GlobalTimerDelta;
+
+    move_offset.f[2] +=
+        (
+            (headpos_z * g_CurrentPlayer->field_488.theta_transform.f[2]) +
+            (headpos_x * g_CurrentPlayer->field_488.theta_transform.f[0])
+        ) * g_GlobalTimerDelta;
+
+    bondviewCalcUpdatePlayerCollision(
+        &move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
+}
+#endif
+
+#endif /* full game or GE_PORT_BOND_MOVEMENT_SLICE */
+
+#if (!defined(GE_PORT_BOND_CAMERA_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_FULL_SLICE)) \
+    || defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    || defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
+#if !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
 
 
 /**
@@ -2911,6 +3079,9 @@ f32 bondViewGetPauseTransitionFrac(void) {
     return 0.0f;
 }
 
+#endif /* input helper prefix */
+
+#ifndef GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE
 void trigger_watch_zoom(f32 final,f32 time)
 {
   g_CurrentPlayer->zoomintime = 0.00000000;
@@ -3068,6 +3239,10 @@ void bondviewUpdateWatchZoomIn(void)
     set_cur_player_fovy(g_CurrentPlayer->zoominfovy);
     viSetFovY(g_CurrentPlayer->zoominfovy);
 }
+
+#endif /* !GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE */
+#if !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
 
 
 
@@ -3900,6 +4075,9 @@ void trigger_solo_watch_menu(s32 arg0)
     }
 }
 
+#endif /* !GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE */
+
+#ifndef GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE
 /**
  * US address 7F07FCC4.
  * Perfect Dark bwalkUpdateSpeedSideways.
@@ -4125,6 +4303,10 @@ void bondviewCurrentPlayerUpdateSpeedTheta(f32 value)
         }
     }
 }
+#endif /* !GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE */
+
+#if !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
 
 
 Gfx *currentPlayerDrawFade(Gfx *gdl)
@@ -4654,6 +4836,15 @@ void bondviewUpdatePlayerCollisionPositionFields(void)
 
 
 
+#endif /* !GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE */
+#endif /* !GE_PORT_BOND_CAMERA_SLICE or speed helpers */
+
+#if !defined(GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_WATCH_HELPERS_SLICE)
+
+#if (!defined(GE_PORT_BOND_CAMERA_SLICE) \
+    || defined(GE_PORT_BOND_MOVEMENT_SLICE)) \
+    && !defined(GE_PORT_BOND_INPUT_FULL_SLICE)
 /**
  * Fixes vv_verta within -90 and +90.
  * Updates vv_costheta, vv_sintheta, vv_verta360, vv_cosverta, vv_sinverta, field_488.theta_transform.
@@ -4698,6 +4889,10 @@ void bondviewApplyVertaTheta(void)
     g_CurrentPlayer->field_488.theta_transform.f[1] = 0;
     g_CurrentPlayer->field_488.theta_transform.f[2] = g_CurrentPlayer->vv_costheta;
 }
+
+#endif /* full game or GE_PORT_BOND_MOVEMENT_SLICE */
+
+#ifndef GE_PORT_BOND_CAMERA_SLICE
 
 
 /**
@@ -5392,7 +5587,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         /* If Bond is standing on the tank and pressed B, enter the tank. */
         else if (g_PlayerTankProp != NULL
             && g_PlayerTankProp->type == PROP_TYPE_OBJ
+#ifdef GE_PORT_USE_ORIGINAL_TYPES
+            && ((PropDefHeaderRecord *)g_PlayerTankProp->obj)->type == PROPDEF_TANK
+#else
             && g_PlayerTankProp->obj->type == PROPDEF_TANK
+#endif
             && g_BondCanEnterTank)
         {
             spEC = (struct TankRecord *)g_PlayerTankProp->obj;
@@ -6077,6 +6276,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         sub_GAME_7F067FBC(((f32) moveData.controlStickXRaw * 0.65f) / 80.0f, ((f32) moveData.controlStickYRaw * 0.65f) / 80.0f);
     }
 }
+
+#ifndef GE_PORT_BOND_INPUT_FULL_SLICE
 
 
 /**
@@ -7257,6 +7458,10 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         }
 
         bondviewCalcUpdatePlayerCollision(&move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
+#ifdef GE_PORT_BOND_MOVEMENT_SLICE
+        ge_port_bond_movement_record_canonical_collision(
+            start_collision_pos_x, start_collision_pos_z);
+#endif
 
         stanTileDistanceRelated(
             &sp200,
@@ -8056,6 +8261,10 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
 /**
  * Address 0x7F0875E4.
  */
+#endif /* !GE_PORT_BOND_INPUT_FULL_SLICE */
+#endif /* !GE_PORT_BOND_CAMERA_SLICE */
+#if !defined(GE_PORT_BOND_MOVEMENT_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_FULL_SLICE)
 void bondviewUpdateCurrentRoomPosition(s32 arg0)
 {
     getRoomPositionScaledByIndex(arg0, &g_CurrentPlayer->current_model_pos);
@@ -8169,8 +8378,11 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
     bondviewUpdateFrustumPlanes();
     store_BONDdata_curpos_to_previous();
 }
+#endif /* camera producer */
 
 
+#if !defined(GE_PORT_BOND_CAMERA_SLICE) \
+    && !defined(GE_PORT_BOND_INPUT_FULL_SLICE)
 /**
  * Address: 7F087A08
  */
@@ -10755,3 +10967,6 @@ void SurroundWithExplosions(int delay)
     g_SurroundBondWithExplosionsTicks = delay + g_GlobalTimer;
     g_PlayerTickExplodeCreatePosition = 0;
 }
+#endif /* full game after camera producer */
+#endif /* !GE_PORT_BOND_INPUT_SPEED_HELPERS_SLICE/watch helpers */
+#endif /* !GE_PORT_BOND_INPUT_STATE_HELPERS_SLICE */

@@ -416,7 +416,7 @@ typedef enum GAILISTID
     GAILIST_REMOVE_CHR
 } GAILISTID;
 
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *GAILIST_ToString[] = {
     "GAILIST_AIM_AT_BOND",
     "GAILIST_DEAD_AI",
@@ -492,7 +492,7 @@ typedef enum HITTARGET
     HIT_GENERALHALF = 0xC9
 } HITTARGET;
 
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *HITTARGET_ToString[] = {
     "HIT_NULL_PART",      /* Null part, no reaction - 1x damage*/
     "HIT_LEFT_FOOT",      /* Left foot              - 1x damage*/
@@ -703,7 +703,7 @@ char *HITTARGET_ToString[] = {
 #define AI_DOOR_STATE_OPEN    0x02 /* Opened*/
 #define AI_DOOR_STATE_CLOSING 0x04 /* Closing*/
 #define AI_DOOR_STATE_OPENING 0x08 /* Opening*/
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *DOORSTATE_ToString[] = {
     " 0",                    // undefined
     " AI_DOOR_STATE_CLOSED", /* Closed*/
@@ -4508,5 +4508,4 @@ IF_VA(NOT(IS_EMPTY(CASE_VAL0)))(IF_VA(NOT(IS_EMPTY(CASE_VAL1)))(BREAK(FAIL_LBL) 
 
 #endif
 #endif
-
 

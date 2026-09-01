@@ -145,13 +145,13 @@ static void ia8_to_ia16(uint8_t *in, png_bytep out, int numpixels)
  */
 static void ia4_to_ia16(uint8_t *in, png_bytep out, int numpixels)
 {
-	int outpos = 0;
 	int i;
 
-	for (i = 0; i < (numpixels + 1) / 2; i++) {
-		out[outpos + 0] = ((in[i] >> 1) & 7) * 32;
-		out[outpos + 1] = (in[i] & 1) * 255;
-		outpos += 2;
+	for (i = 0; i < numpixels; i++) {
+		uint8_t value = i & 1 ? in[i / 2] & 0xf : in[i / 2] >> 4;
+
+		out[i * 2 + 0] = ((value >> 1) & 7) * 32;
+		out[i * 2 + 1] = (value & 1) * 255;
 	}
 }
 
@@ -163,7 +163,9 @@ static void i4_to_i8(uint8_t *in, png_bytep out, int numpixels)
 	int i;
 
 	for (i = 0; i < numpixels; i++) {
-		out[i] = in[i] * 16;
+		uint8_t value = i & 1 ? in[i / 2] & 0xf : in[i / 2] >> 4;
+
+		out[i] = value * 17;
 	}
 }
 
@@ -186,7 +188,7 @@ static bool write_image(struct pd_image *image, struct pd_tex *tex, char *outfil
 	png.height = image->height;
 	png.format = tex_format_to_png_format(image->format);
 
-	if (png.format | PNG_FORMAT_FLAG_COLORMAP) {
+	if (png.format & PNG_FORMAT_FLAG_COLORMAP) {
 		png.colormap_entries = tex->numcolours;
 		palette = malloc(PNG_IMAGE_COLORMAP_SIZE(png));
 	}

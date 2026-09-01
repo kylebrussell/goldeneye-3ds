@@ -1,4 +1,20 @@
-# Goldeneye 007
+# GoldenEye 007 — native Nintendo 3DS port
+
+This repository is an in-progress native Nintendo 3DS port built on the
+[`n64decomp/007`](https://github.com/n64decomp/007) GoldenEye decompilation.
+The port keeps original decompiled gameplay systems and data paths wherever
+possible, with platform adapters for 3DS rendering, input, audio, storage, and
+timing.
+
+The port is not yet a finished or fully playable release. Dam currently runs
+natively in Azahar and on 3DS-targeted builds with original movement,
+collision, guards, weapons, mission state, HUD, menus, and audio under active
+integration. See [the Nintendo 3DS port notes](./docs/Porting3DS.md) for the
+current verified state and remaining gaps.
+
+No game ROM, extracted proprietary assets, generated asset pack, or compiled
+game binary is included. You must provide your own legally obtained NTSC-U ROM
+to generate the required local assets.
 
 [![NTSC-Status][NTCS-badge]][NTCS-link]
 [![JP-Status][JP-badge]][JP-link]
@@ -30,3 +46,4 @@ It builds the following ROMs:
 * [Setup Guide:](./docs/SetupGuide.md) useful information about installing the necessary dependencies and how to use it
 * [Structure Guide:](./docs/StructureGuide.md) learn more about the project structure of this repository
 * [Style Guide:](./docs/StyleGuide.md) code style conventions if you want to contribute code
+* [Nintendo 3DS native port:](./docs/Porting3DS.md) build, asset staging, emulator/hardware testing, current milestones, and known blockers. The `.3dsx` is an active bring-up build, not a fully playable game yet.

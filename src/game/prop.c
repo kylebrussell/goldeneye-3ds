@@ -1,3 +1,540 @@
+#if defined(GE_PORT_PROP_SETUP_PAD_SLICE)
+
+#include <stddef.h>
+#include <string.h>
+
+#include <ultra64.h>
+#include <bondtypes.h>
+
+#include "ge_original_dam_intro.h"
+
+stagesetup g_CurrentSetup;
+
+static GeOriginalSetupPadProviders g_GeOriginalSetupPadProviders;
+static GeOriginalSetupPadState *g_GeOriginalSetupPadState;
+
+void ge_original_setup_pad_bind(const GeOriginalSetupPadProviders *providers,
+                                GeOriginalSetupPadState *state)
+{
+    memset(&g_GeOriginalSetupPadProviders, 0,
+           sizeof(g_GeOriginalSetupPadProviders));
+    if (providers != NULL) {
+        g_GeOriginalSetupPadProviders = *providers;
+    }
+    g_GeOriginalSetupPadState = state;
+    if (state != NULL) {
+        memset(state, 0, sizeof(*state));
+    }
+}
+
+/*
+ * Native-data slice of proplvreset2. The generated C setup already contains
+ * native pointers, so the N64 setup-bank offset rebasing is intentionally a
+ * compatibility boundary. The pad scaling and STAN association loop below
+ * preserves the original loader's operation and order.
+ */
+void proplvreset2PadSlice(int32_t stage_id)
+{
+    enum LEVELID stageId = (enum LEVELID)stage_id;
+    struct stagesetup *local_stage;
+    struct PadRecord *pad;
+    f32 roompos_1 = 0.0f;
+
+    if (g_GeOriginalSetupPadState != NULL) {
+        g_GeOriginalSetupPadState->stage_id = stageId;
+    }
+
+    if (g_GeOriginalSetupPadProviders.load_setup == NULL
+            || g_GeOriginalSetupPadProviders.get_room_scale_reciprocal == NULL) {
+        return;
+    }
+
+    local_stage = g_GeOriginalSetupPadProviders.load_setup(
+        g_GeOriginalSetupPadProviders.context, stageId);
+    if (local_stage == NULL) {
+        return;
+    }
+
+    /* Native equivalent of the original setup-bank pointer rebase block. */
+    g_CurrentSetup = *local_stage;
+
+    if (g_CurrentSetup.pads)
+    {
+        roompos_1 = g_GeOriginalSetupPadProviders.get_room_scale_reciprocal(
+            g_GeOriginalSetupPadProviders.context);
+        pad = g_CurrentSetup.pads;
+
+        for (; pad->plink != NULL; pad++)
+        {
+            pad->pos.f[0] *= roompos_1;
+            pad->pos.f[1] *= roompos_1;
+            pad->pos.f[2] *= roompos_1;
+
+            if (g_GeOriginalSetupPadProviders.resolve_stan != NULL) {
+                pad->stan = g_GeOriginalSetupPadProviders.resolve_stan(
+                    g_GeOriginalSetupPadProviders.context, pad->plink);
+            }
+
+            if (g_GeOriginalSetupPadState != NULL) {
+                g_GeOriginalSetupPadState->pad_count++;
+                if (pad->stan != NULL) {
+                    g_GeOriginalSetupPadState->resolved_pad_count++;
+                }
+            }
+
+            if (1);
+        }
+    }
+
+    if (g_CurrentSetup.boundpads)
+    {
+        struct BoundPadRecord *vol = g_CurrentSetup.boundpads;
+        for (; vol->plink != NULL; vol++)
+        {
+            vol->pos.f[0] *= roompos_1;
+            vol->pos.f[1] *= roompos_1;
+            vol->pos.f[2] *= roompos_1;
+            vol->bbox.xmin *= roompos_1;
+            vol->bbox.xmax *= roompos_1;
+            vol->bbox.ymin *= roompos_1;
+            vol->bbox.ymax *= roompos_1;
+            vol->bbox.zmin *= roompos_1;
+            vol->bbox.zmax *= roompos_1;
+            if (g_GeOriginalSetupPadProviders.resolve_stan != NULL) {
+                vol->stan = g_GeOriginalSetupPadProviders.resolve_stan(
+                    g_GeOriginalSetupPadProviders.context, vol->plink);
+            }
+        }
+    }
+
+    if (g_GeOriginalSetupPadState != NULL) {
+        g_GeOriginalSetupPadState->room_scale_reciprocal = roompos_1;
+        g_GeOriginalSetupPadState->loaded = 1;
+    }
+}
+
+void ge_original_setup_pad_load(int32_t stage_id)
+{
+    proplvreset2PadSlice(stage_id);
+}
+
+#elif defined(GE_PORT_PROP_DOOR_SETUP_SLICE)
+
+#include "ge_original_door_internal.h"
+#include <string.h>
+
+static void ge_door_bound_pad_centre(BoundPadRecord *pad, coord3d *centre)
+{
+    coord3d normal;
+    f32 scale,temp;
+    bbox bb;
+    bb.zmax=pad->bbox.xmin;bb.zmin=pad->bbox.xmax;
+    bb.ymax=pad->bbox.ymin;bb.ymin=pad->bbox.ymax;
+    bb.xmax=pad->bbox.zmin;bb.xmin=pad->bbox.zmax;
+    normal.x=pad->up.y*pad->look.z-pad->up.z*pad->look.y;
+    normal.y=pad->up.z*pad->look.x-pad->up.x*pad->look.z;
+    normal.z=pad->up.x*pad->look.y-pad->up.y*pad->look.x;
+    temp=normal.x*normal.x+normal.y*normal.y+normal.z*normal.z;
+    scale=1.0f/sqrtf(temp);normal.x*=scale;normal.y*=scale;normal.z*=scale;
+    centre->x=pad->pos.x+((bb.zmax+bb.zmin)*normal.x
+        +(bb.ymax+bb.ymin)*pad->up.x+(bb.xmax+bb.xmin)*pad->look.x)*0.5f;
+    centre->y=pad->pos.y+((bb.zmax+bb.zmin)*normal.y
+        +(bb.ymax+bb.ymin)*pad->up.y+(bb.xmax+bb.xmin)*pad->look.y)*0.5f;
+    centre->z=pad->pos.z+((bb.zmax+bb.zmin)*normal.z
+        +(bb.ymax+bb.ymin)*pad->up.z+(bb.xmax+bb.xmin)*pad->look.z)*0.5f;
+}
+
+/* Exact sub_GAME_7F00324C room probes, using the typed native STAN walk seam. */
+static s32 ge_door_portal_rooms_exact(BoundPadRecord *pad, s32 *room_a,
+    s32 *room_b, coord3d *point_a, coord3d *point_b)
+{
+    StandTile *centre_stan,*probe_stan;
+    coord3d normal,centre;
+    f32 scale;
+    s32 walk_result;
+    ge_door_bound_pad_centre(pad,&centre);centre_stan=pad->stan;
+    walk_result=ge_port_door_walk(&centre_stan,pad->pos.x,pad->pos.z,
+                                  centre.x,centre.z);
+    if(walk_result<0)return -1;
+    if(walk_result==0){centre_stan=pad->stan;centre=pad->pos;}
+    normal.x=pad->up.y*pad->look.z-pad->up.z*pad->look.y;
+    normal.y=pad->up.z*pad->look.x-pad->up.x*pad->look.z;
+    normal.z=pad->up.x*pad->look.y-pad->up.y*pad->look.x;
+    scale=1.0f/sqrtf(normal.x*normal.x+normal.y*normal.y+normal.z*normal.z);
+    normal.x*=scale;normal.y*=scale;normal.z*=scale;
+    *point_a=centre;point_a->x+=normal.x*50.0f;point_a->z+=normal.z*50.0f;
+    probe_stan=centre_stan;
+    walk_result=ge_port_door_walk(&probe_stan,centre.x,centre.z,
+                                  point_a->x,point_a->z);
+    if(walk_result<0)return -1;
+    *room_a=(s32)probe_stan->room;
+    *point_b=centre;point_b->x-=normal.x*50.0f;point_b->z-=normal.z*50.0f;
+    probe_stan=centre_stan;
+    walk_result=ge_port_door_walk(&probe_stan,centre.x,centre.z,
+                                  point_b->x,point_b->z);
+    if(walk_result<0)return -1;
+    *room_b=(s32)probe_stan->room;
+    if(*room_b==*room_a)*room_b=-1;
+    return 1;
+}
+
+static void ge_door_shade(ObjectRecord *object, const u8 rgb[3])
+{
+    s32 tmp,min=0,med=0,max=0,tmp2,range;
+    rgba_u8 color;
+    color.r=rgb[0];color.g=rgb[1];color.b=rgb[2];
+    tmp=(color.r*79+color.g*156+color.b*21)>>8;
+    color.a=(u8)((255-tmp)*0.75f);
+    if(color.g>color.r)max=1;else min=1;
+    if(color.b>color.rgba[max]){med=max;max=2;}
+    else if(color.b>color.rgba[min])med=2;else{med=min;min=2;}
+    if(color.rgba[max]>0){tmp2=color.rgba[med]
+        *(color.rgba[max]-color.rgba[min])/color.rgba[max];
+        range=color.rgba[max]-color.rgba[min];color.rgba[min]=0;
+        color.rgba[med]=(u8)tmp2;color.rgba[max]=(u8)range;}
+    color.r>>=1;color.g>>=1;color.b>>=1;
+    color.r>>=1;color.g>>=1;color.b>>=1;
+    object->nextcol=color;object->shadecol=color;
+}
+
+/* Exact door7F0526EC transform, expressed against the setup-side ObjectRecord
+ * before its DoorRecord runtime tail has been installed. */
+static void ge_door_setup_matrix(ObjectRecord *object,
+    const GeOriginalDamDoorSetup *setup, const coord3d *travel,
+    f32 open_position, Mtxf *matrix)
+{
+    BoundPadRecord *pad;
+    coord3d normal,pivot,relative,position;
+    Mtxf transform;
+    if(setup->door_type==DOORTYPE_SWINGING
+       ||setup->door_type==DOORTYPE_AZTECCHAIR) {
+        pad=&g_CurrentSetup.boundpads[object->pad];
+        normal.x=pad->up.y*pad->look.z-pad->up.z*pad->look.y;
+        normal.y=pad->up.z*pad->look.x-pad->up.x*pad->look.z;
+        normal.z=pad->up.x*pad->look.y-pad->up.y*pad->look.x;
+        pivot.x=pad->pos.x+pad->up.x*pad->bbox.ymin;
+        pivot.y=pad->pos.y+pad->up.y*pad->bbox.ymin;
+        pivot.z=pad->pos.z+pad->up.z*pad->bbox.ymin;
+        if(setup->door_type==DOORTYPE_AZTECCHAIR
+           ||(object->flags&PROPFLAG_DOOR_OPENTOFRONT)) {
+            pivot.x+=normal.x*pad->bbox.xmax;
+            pivot.y+=normal.y*pad->bbox.xmax;
+            pivot.z+=normal.z*pad->bbox.xmax;
+        } else {
+            pivot.x+=normal.x*pad->bbox.xmin;
+            pivot.y+=normal.y*pad->bbox.xmin;
+            pivot.z+=normal.z*pad->bbox.xmin;
+        }
+        relative.x=object->runtime_pos.x-pivot.x;
+        relative.y=object->runtime_pos.y-pivot.y;
+        relative.z=object->runtime_pos.z-pivot.z;
+        matrix_4x4_copy(&object->mtx,matrix);
+        matrix_4x4_set_identity_and_position(&relative,&transform);
+        matrix_4x4_multiply_in_place(&transform,matrix);
+        if(setup->door_type==DOORTYPE_AZTECCHAIR) {
+            matrix_4x4_set_rotation_around_z(
+                (object->flags&PROPFLAG_DOOR_OPENTOFRONT)
+                    ? M_TAU_F-(open_position*M_TAU_F/360.0f)
+                    : open_position*M_TAU_F/360.0f,&transform);
+        } else {
+            matrix_4x4_set_rotation_around_y(
+                (object->flags&PROPFLAG_DOOR_OPENTOFRONT)
+                    ? M_TAU_F-(open_position*M_TAU_F/360.0f)
+                    : open_position*M_TAU_F/360.0f,&transform);
+        }
+        matrix_4x4_multiply_in_place(&transform,matrix);
+        matrix_4x4_set_identity_and_position(&pivot,&transform);
+        matrix_4x4_multiply_in_place(&transform,matrix);
+    } else if(setup->door_type==DOORTYPE_EYE
+              ||setup->door_type==DOORTYPE_IRIS) {
+        matrix_4x4_copy(&object->mtx,matrix);
+        matrix_4x4_set_position(&object->runtime_pos,matrix);
+    } else {
+        position.x=travel->x*open_position+object->runtime_pos.x;
+        position.y=travel->y*open_position+object->runtime_pos.y;
+        position.z=travel->z*open_position+object->runtime_pos.z;
+        matrix_4x4_copy(&object->mtx,matrix);
+        matrix_4x4_set_position(&position,matrix);
+    }
+    if(setup->door_flags&DOORFLAG_FLIP)
+        matrix_column_3_scalar_multiply_2(-1.0f,matrix->m[0]);
+}
+
+s32 ge_original_setup_door_slice(ObjectRecord *object, s32 command_index,
+    ModelFileHeader *header, Model *model, f32 pitem_scale,
+    void *collision_data, const GeOriginalDamDoorSetup *setup)
+{
+    BoundPadRecord *pad; StandTile *stan,*walkstan; coord3d base,position,centre,travel;
+    Mtxf basis,rx,rz; bbox bb; ModelRoData_BoundingBoxRecord *modelbb;
+    f32 xscale,yscale,zscale,largest; u8 rgb[3]; PropRecord *prop;
+    GeOriginalDoorPrepared out; s32 room_a=-1,room_b=-1,portal=-1,portal_result;
+    coord3d point_a={{0}},point_b={{0}}; s32 walk_result;
+    (void)command_index;
+    if(!object||!setup||!header||!model||!collision_data
+       ||object->pad<0||g_CurrentSetup.boundpads==NULL)return 0;
+    memset(&out,0,sizeof(out));out.pad_id=object->pad;out.model_id=object->obj;
+    out.portal_number=-1;out.portal_room_a=-1;out.portal_room_b=-1;
+    pad=&g_CurrentSetup.boundpads[object->pad];
+    if((object->flags&PROPFLAG_CULL_BEHIND_DOOR)
+       ||(object->flags&PROPFLAG_NO_PORTAL_CLOSE)) {
+        out.portal_lookup_attempted=1;
+        portal_result=ge_port_door_portal_rooms(pad,&room_a,&room_b,&point_a,&point_b);
+        if(portal_result<0)
+            portal_result=ge_door_portal_rooms_exact(
+                pad,&room_a,&room_b,&point_a,&point_b);
+        if(portal_result>0&&(object->flags&PROPFLAG_CULL_BEHIND_DOOR)
+           &&room_a>=0&&room_b>=0)
+            portal=ge_port_door_find_portal(room_a,room_b,&point_a,&point_b);
+    }
+    if(!ge_original_getposstan_zero_radius_slice(&pad->pos,pad->stan,&base,&stan))return -1;
+    matrix_4x4_set_basis_and_position_target(&basis,0,0,0,
+        -pad->look.x,-pad->look.y,-pad->look.z,pad->up.x,pad->up.y,pad->up.z);
+    bb.zmax=pad->bbox.xmin;bb.zmin=pad->bbox.xmax;
+    bb.ymax=pad->bbox.ymin;bb.ymin=pad->bbox.ymax;
+    bb.xmax=pad->bbox.zmin;bb.xmin=pad->bbox.zmax;
+    matrix_4x4_set_rotation_around_x(M_PI_F*0.5f,&rx);
+    matrix_4x4_set_rotation_around_z(M_PI_F*0.5f,&rz);
+    matrix_4x4_multiply_in_place(&rz,&rx);
+    matrix_4x4_multiply_in_place(&basis,&rx);
+    ge_door_bound_pad_centre(pad,&position);centre=position;
+    modelbb=(ModelRoData_BoundingBoxRecord *)header->RootNode->Child->Data;
+    xscale=(bb.ymin-bb.ymax)/(modelbb->Bounds.xmax-modelbb->Bounds.xmin);
+    yscale=(bb.xmin-bb.xmax)/(modelbb->Bounds.ymax-modelbb->Bounds.ymin);
+    zscale=(bb.zmin-bb.zmax)/(modelbb->Bounds.zmax-modelbb->Bounds.zmin);
+    if(xscale<=0.000001f||yscale<=0.000001f||zscale<=0.000001f)
+        xscale=yscale=zscale=1.0f;
+    matrix_column_1_scalar_multiply(xscale,rx.m[0]);
+    matrix_column_2_scalar_multiply(yscale,rx.m[0]);
+    matrix_column_3_scalar_multiply_2(zscale,rx.m[0]);
+    walkstan=stan;
+    if(!(object->flags2&1)) {
+        walk_result=ge_port_door_walk(&walkstan,base.x,base.z,position.x,position.z);
+        if(walk_result<0)return -2;
+        if(walk_result)stan=walkstan;else{position.x=base.x;position.z=base.z;}
+    } else position=base;
+    if(setup->door_type==DOORTYPE_VERTICAL||setup->door_type==DOORTYPE_FALLAWAY) {
+        travel.x=pad->look.x*(bb.xmin-bb.xmax);travel.y=pad->look.y*(bb.xmin-bb.xmax);
+        travel.z=pad->look.z*(bb.xmin-bb.xmax);
+    } else {travel.x=pad->up.x*(bb.ymax-bb.ymin);travel.y=pad->up.y*(bb.ymax-bb.ymin);
+        travel.z=pad->up.z*(bb.ymax-bb.ymin);}
+    prop=ge_original_objInitPreallocatedSlice(object,header,object->prop,model,pitem_scale,NULL);
+    if(!prop)return 0;
+    object->ptr_allocated_collisiondata_block=collision_data;
+    matrix_4x4_copy(&rx,&object->mtx);matrix_scalar_multiply(pitem_scale,object->mtx.m[0]);
+    object->runtime_pos=centre; prop->pos=position; prop->stan=stan;
+    prop->type=PROP_TYPE_DOOR;prop->door=(DoorRecord *)object;
+    object->flags|=PROPFLAG_00000100;
+    largest=xscale;if(largest<yscale)largest=yscale;if(largest<zscale)largest=zscale;
+    model->scale*=largest;
+    if(ge_port_door_tile_rgb(stan,position.x,position.z,rgb)<0)return -2;
+    ge_door_shade(object,rgb);
+    /* Closed initial doors use the canonical object bbox transform. Doors
+     * authored open begin with no collision, as doorUpdateBbox does. */
+    out.max_frac=(s32)setup->max_frac_fixed/65536.0f;
+    out.perim_frac=(s32)setup->perim_frac_fixed/65536.0f;
+    out.open_position=(object->flags&PROPFLAG_80000000)?out.max_frac:0.0f;
+    if(out.perim_frac<=out.open_position) {
+        ((struct collision_data *)collision_data)->edges=0;
+    } else {
+        ModelRoData_BoundingBoxRecord door_bbox=*modelbb;
+        Mtxf collision_matrix;
+        if(setup->door_flags&DOORFLAG_CLIP_TO_BBOX) {
+            if(setup->door_type==DOORTYPE_VERTICAL)
+                door_bbox.Bounds.ymax=modelbb->Bounds.ymax
+                    +(modelbb->Bounds.ymin-modelbb->Bounds.ymax)*out.open_position;
+            else
+                door_bbox.Bounds.xmin=modelbb->Bounds.xmin
+                    +(modelbb->Bounds.xmax-modelbb->Bounds.xmin)*out.open_position;
+        }
+        ge_door_setup_matrix(object,setup,&travel,out.open_position,
+                             &collision_matrix);
+        sub_GAME_7F03F540(&door_bbox,&collision_matrix,
+            (rect4f *)((struct collision_data *)collision_data)->polygon,
+            (struct collision_data *)collision_data);
+        if(setup->door_type==DOORTYPE_VERTICAL)
+            ((struct collision_data *)collision_data)->bottom=centre.y
+                +chrpropSumMatrixPosY(&door_bbox,&collision_matrix);
+        else if(setup->door_type==DOORTYPE_FALLAWAY)
+            ((struct collision_data *)collision_data)->bottom=centre.y-10000.0f;
+        else {
+            ((struct collision_data *)collision_data)->bottom=collision_matrix.m[3][1]
+                +chrpropSumMatrixPosY(&door_bbox,&collision_matrix);
+            if(setup->door_flags&DOORFLAG_EXTENDEDY)
+                ((struct collision_data *)collision_data)->bottom-=1000.0f;
+        }
+        if((setup->door_type==DOORTYPE_EYE
+            ||setup->door_type==DOORTYPE_IRIS)
+           &&out.open_position>0.4f*out.max_frac)
+            ((struct collision_data *)collision_data)->top=
+                ((struct collision_data *)collision_data)->bottom+50.0f;
+        else if(setup->door_type==DOORTYPE_FALLAWAY)
+            ((struct collision_data *)collision_data)->top=centre.y+1000.0f;
+        else {
+            ((struct collision_data *)collision_data)->top=collision_matrix.m[3][1]
+                +chrpropSumMatrixNegY(&door_bbox,&collision_matrix);
+            if(setup->door_flags&DOORFLAG_EXTENDEDY)
+                ((struct collision_data *)collision_data)->top+=1000.0f;
+        }
+    }
+    if((object->flags&PROPFLAG_CULL_BEHIND_DOOR)&&portal>=0
+       &&out.open_position==0.0f){ge_port_door_set_portal_open(portal,0);out.portal_control_connected=1;}
+    prop->rooms[0]=stan->room;prop->rooms[1]=0xffU;prop->rooms[2]=0xffU;
+    if((object->flags&PROPFLAG_CULL_BEHIND_DOOR)
+       ||(object->flags&PROPFLAG_NO_PORTAL_CLOSE)) {
+        s32 second=-1;
+        if(room_a!=(s32)stan->room&&room_a>=0)second=room_a;
+        else if(room_b>=0)second=room_b;
+        if(second>=0&&second<=254){prop->rooms[1]=(u8)second;
+            ge_port_door_register_room(prop,(s16)second);out.second_room_registered=1;}
+    }
+    out.portal_number=portal;out.portal_room_a=room_a;out.portal_room_b=room_b;
+    out.linked_door_offset=setup->linked_door_offset;
+    out.door_flags=setup->door_flags;out.door_type=setup->door_type;
+    out.accel=(s32)setup->accel_fixed/65536.0f;
+    out.decel=(s32)setup->decel_fixed/65536.0f;
+    out.max_speed=(s32)setup->max_speed_fixed/65536.0f;
+    memcpy(out.travel,travel.f,sizeof(out.travel));memcpy(out.position,position.f,sizeof(out.position));
+    memcpy(out.centre,centre.f,sizeof(out.centre));memcpy(out.matrix,rx.m,sizeof(out.matrix));
+    out.xscale=xscale;out.yscale=yscale;out.zscale=zscale;out.stan=stan;
+    out.model_header=header;out.model_instance=model;out.prop=prop;
+    out.collision_data=collision_data;out.constructed=1;ge_port_door_publish(&out);
+    return 1;
+}
+
+#elif defined(GE_PORT_PROP_DEFAULT_OBJECT_PREFIX_SLICE)
+
+#include "ge_original_default_object_internal.h"
+
+/*
+ * Exact common prefix and ordinary PadRecord branch selected from
+ * domakedefaultobj. This deliberately ends immediately before getposstan and
+ * objInitWithAutoModel, whose PitemZ/model-instance closure is not native yet.
+ */
+s32 ge_original_domakedefaultobj_standard_prefix_slice(
+    s32 arg0, ObjectRecord *arg1, s32 cmdindex)
+{
+    s32 spF0;
+    f32 sp78;
+    s32 sp74;
+    struct PadRecord *sp64;
+    struct BoundPadRecord *var_s0;
+    struct coord3d spD0;
+    struct coord3d sp80;
+    StandTile *spCC;
+    Mtxf sp8C;
+    s32 walkresult;
+
+    spF0 = arg1->obj;
+
+    modelLoad(spF0);
+
+    /* Native ABI provider for the inherited header field. */
+    sp78 = ge_port_default_object_extrascale(arg1) * 0.00390625f;
+
+    arg1->damage = *(s32*)&arg1->damage / 65536.0f;
+
+    if (getPlayerCount() >= 2)
+    {
+        sp74 = 1;
+
+        if ((get_scenario() == SCENARIO_TLD) && (arg1->obj == PROP_FLAG))
+        {
+            sp74 = 0;
+        }
+        else if ((get_scenario() == SCENARIO_MWTGG) && (arg1->obj == PROP_CHRGOLDEN))
+        {
+            sp74 = 0;
+        }
+
+        if (sp74 != 0)
+        {
+            /* Native ABI provider for the inherited header field. */
+            ge_port_default_object_set_state(
+                arg1, ge_port_default_object_state(arg1)
+                    | PROPSTATE_RESPAWN); // respawn enabled
+        }
+    }
+
+    var_s0 = NULL;
+    if (isNotBoundPad(arg1->pad))
+    {
+        sp64 = &g_CurrentSetup.pads[arg1->pad];
+
+        matrix_4x4_set_basis_and_position_target(&sp8C, 0.0f, 0.0f, 0.0f, -sp64->look.f[0], -sp64->look.f[1], -sp64->look.f[2], sp64->up.f[0], sp64->up.f[1], sp64->up.f[2]);
+
+    spD0.f[0] = sp64->pos.f[0];
+    spD0.f[1] = sp64->pos.f[1];
+    spD0.f[2] = sp64->pos.f[2];
+
+    if (arg1->flags & PROPFLAG_ONSCREEN)
+    {
+        sp80.f[0] = sp64->pos.f[0];
+        sp80.f[1] = sp64->pos.f[1];
+        sp80.f[2] = sp64->pos.f[2];
+    }
+    else
+    {
+        // same as above?
+
+        sp80.f[0] = sp64->pos.f[0];
+        sp80.f[1] = sp64->pos.f[1];
+        sp80.f[2] = sp64->pos.f[2];
+    }
+
+        spCC = sp64->stan;
+    }
+    else
+    {
+        struct coord3d normal;
+        f32 scale;
+        struct bbox bb;
+        f32 temp;
+
+        var_s0 = &g_CurrentSetup.boundpads[getBoundPadNum(arg1->pad)];
+        matrix_4x4_set_basis_and_position_target(&sp8C, 0.0f, 0.0f, 0.0f, -var_s0->look.f[0], -var_s0->look.f[1], -var_s0->look.f[2], var_s0->up.f[0], var_s0->up.f[1], var_s0->up.f[2]);
+
+        bb.zmax = var_s0->bbox.xmin;
+        bb.zmin = var_s0->bbox.xmax;
+        bb.ymax = var_s0->bbox.ymin;
+        bb.ymin = var_s0->bbox.ymax;
+        bb.xmax = var_s0->bbox.zmin;
+        bb.xmin = var_s0->bbox.zmax;
+        normal.f[0] = (var_s0->up.f[1] * var_s0->look.f[2]) - (var_s0->up.f[2] * var_s0->look.f[1]);
+        normal.f[1] = (var_s0->up.f[2] * var_s0->look.f[0]) - (var_s0->up.f[0] * var_s0->look.f[2]);
+        normal.f[2] = (var_s0->up.f[0] * var_s0->look.f[1]) - (var_s0->up.f[1] * var_s0->look.f[0]);
+        temp = (normal.f[0] * normal.f[0]) + (normal.f[1] * normal.f[1]) + (normal.f[2] * normal.f[2]);
+        scale = 1.0f / sqrtf(temp);
+        normal.f[0] *= scale;
+        normal.f[1] *= scale;
+        normal.f[2] *= scale;
+        spD0.f[0] = var_s0->pos.f[0] + ((bb.zmax + bb.zmin) * normal.f[0] + (bb.ymax + bb.ymin) * var_s0->up.f[0] + (bb.xmax + bb.xmin) * var_s0->look.f[0]) * 0.5f;
+        spD0.f[1] = var_s0->pos.f[1] + ((bb.zmax + bb.zmin) * normal.f[1] + (bb.ymax + bb.ymin) * var_s0->up.f[1] + (bb.xmax + bb.xmin) * var_s0->look.f[1]) * 0.5f;
+        spD0.f[2] = var_s0->pos.f[2] + ((bb.zmax + bb.zmin) * normal.f[2] + (bb.ymax + bb.ymin) * var_s0->up.f[2] + (bb.xmax + bb.xmin) * var_s0->look.f[2]) * 0.5f;
+
+        sp80.f[0] = spD0.f[0] + (var_s0->up.f[0] * ((var_s0->bbox.ymin - var_s0->bbox.ymax) * 0.5f));
+        sp80.f[1] = spD0.f[1] + (var_s0->up.f[1] * ((var_s0->bbox.ymin - var_s0->bbox.ymax) * 0.5f));
+        sp80.f[2] = spD0.f[2] + (var_s0->up.f[2] * ((var_s0->bbox.ymin - var_s0->bbox.ymax) * 0.5f));
+        spCC = var_s0->stan;
+        walkresult = ge_port_default_object_walk(&spCC,
+            var_s0->pos.f[0], var_s0->pos.f[2], spD0.f[0], spD0.f[2]);
+        if (walkresult < 0)
+        {
+            return 0;
+        }
+        if (walkresult == 0)
+        {
+            spD0 = var_s0->pos;
+            spCC = var_s0->stan;
+        }
+    }
+
+    ge_port_default_object_publish(arg1, spF0, sp78, &spD0, &sp80,
+                                   &sp8C, spCC);
+    return spCC != NULL;
+}
+
+#else
+
 #include <ultra64.h>
 #include <memp.h>
 #include "game/mp_weapon.h"
@@ -2031,3 +2568,5 @@ void proplvreset2(enum LEVELID stageId)
 
     alloc_false_GUARDdata_to_exec_global_action();
 }
+
+#endif /* GE_PORT_PROP_SETUP_PAD_SLICE */

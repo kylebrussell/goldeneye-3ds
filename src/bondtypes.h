@@ -3098,7 +3098,14 @@ typedef union
     typedef struct CCTVRecord
     {
         inherits ObjectRecord;
+#ifdef GE_PORT_MS_INHERITS
+        /* Anonymous-struct promotion rejects this intentionally hidden name.
+         * Layout is unchanged, and the MoveBond-only translation unit does
+         * not access the CCTV-specific member. */
+        s32      cctv_lookpad;
+#else
         s32      pad; // lookpad
+#endif
         Mtxf     unk84;
         f32 unkC4;
         f32 unkC8;

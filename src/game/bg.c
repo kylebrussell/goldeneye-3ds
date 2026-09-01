@@ -1,3 +1,11 @@
+#ifdef GE_PORT_BG_CONNECTIVITY_SLICE
+#include "ge_original_bg_connectivity_internal.h"
+/* Canonical bg.c initial value retained when the connectivity-only build
+ * excludes the full translation unit's data section. */
+f32 room_data_float1 = 1.0f;
+#include "bg_portal_connectivity.inc"
+#else
+
 #include <ultra64.h>
 #include <PR/os.h>
 #include <PR/gbi.h>
@@ -4513,79 +4521,7 @@ s32 bgCopyVisibleRoomsToList(s32 *rooms, s32 max)
 }
 
 
-/**
- * Create a list of rooms connected to roomIndex.
- * @param roomIndex    Room to query.
- * @param list         Output buffer for connected room indices.
- * @param max          Max number of entries to write.
- * @return             Number of rooms written to the list.
- */
-s32 bgGetConnectedRooms(s32 roomIndex, s32* list, s32 max)
-{
-    s32 len = 0;
-    s32 i;
-    s32 p;
-    s32 connectedRoom1;
-    s32 connectedRoom2;
-
-    for (p = 0; g_BgPortals[p].offset_portal != NULL; p++) {
-        connectedRoom1 = g_BgPortals[p].connectedRoom1;
-        connectedRoom2 = g_BgPortals[p].connectedRoom2;
-
-        if (connectedRoom1 == roomIndex) {
-            connectedRoom1 = connectedRoom2;
-            connectedRoom2 = roomIndex;
-        }
-
-        if (connectedRoom2 == roomIndex) {
-            for (i = 0; i < len; i++) {
-                if (list[i] == connectedRoom1) {
-                    goto end;
-                }
-            }
-
-            list[len] = connectedRoom1;
-            len++;
-
-            if (len >= max) {
-                return len;
-            }
-end:
-            if (1);
-        }
-    }
-
-    return len;
-}
-
-
-// Scan all portals to see if these rooms are connected
-//
-// Room data doesn't contain a list of its portals, so it goes through
-// the whole list of portals which seems naive and inefficient.
-//
-// Address: 0x7F0B8FD0
-bool bgRoomsSharePortal(s32 room1, s32 room2) 
-{
-    s32 i;
-
-    for (i = 0; g_BgPortals[i].offset_portal != NULL; i++)
-    {
-        s32 v0 = g_BgPortals[i].connectedRoom1;
-        s32 v1 = g_BgPortals[i].connectedRoom2;
-
-        if (v0 == room1 && v1 == room2)
-        {
-            return TRUE;
-        }
-
-        if (v1 == room1 && v0 == room2)
-        {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
+#include "bg_portal_connectivity.inc"
 
 
 /**
@@ -5492,3 +5428,5 @@ next_portal:
     }
     *count = cur_count;
 }
+
+#endif /* GE_PORT_BG_CONNECTIVITY_SLICE */

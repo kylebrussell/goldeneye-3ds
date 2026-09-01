@@ -1,0 +1,645 @@
+{
+  "format": "goldeneye-bondview-input-relocations-v1",
+  "frontier": {
+    "external_calls": [
+      {
+        "relocations": 2,
+        "symbol": "add_ammo_to_weapon"
+      },
+      {
+        "relocations": 1,
+        "symbol": "advance_through_inventory"
+      },
+      {
+        "relocations": 1,
+        "symbol": "atan2f"
+      },
+      {
+        "relocations": 1,
+        "symbol": "autoadvance_on_deplete_all_ammo"
+      },
+      {
+        "relocations": 1,
+        "symbol": "backstep_through_inventory"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondinvAddInvItem"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondinvIsAliveWithFlag"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondinvRemoveItemByID"
+      },
+      {
+        "relocations": 8,
+        "symbol": "bondwalkItemCheckBitflags"
+      },
+      {
+        "relocations": 1,
+        "symbol": "camera_sniper_zoom_in"
+      },
+      {
+        "relocations": 1,
+        "symbol": "camera_sniper_zoom_out"
+      },
+      {
+        "relocations": 1,
+        "symbol": "chrCheckGuardsHeardSound"
+      },
+      {
+        "relocations": 1,
+        "symbol": "chrlvStanPointPointIntersection"
+      },
+      {
+        "relocations": 2,
+        "symbol": "cur_player_get_aim_control"
+      },
+      {
+        "relocations": 14,
+        "symbol": "cur_player_get_control_type"
+      },
+      {
+        "relocations": 2,
+        "symbol": "currentPlayerAdjustCrouchPos"
+      },
+      {
+        "relocations": 3,
+        "symbol": "currentPlayerSetSwayTarget"
+      },
+      {
+        "relocations": 2,
+        "symbol": "disablePlayerActionsWhenPausedOrInMpMenu"
+      },
+      {
+        "relocations": 4,
+        "symbol": "getCurrentPlayerNoise"
+      },
+      {
+        "relocations": 13,
+        "symbol": "getCurrentPlayerWeaponId"
+      },
+      {
+        "relocations": 7,
+        "symbol": "getPlayerCount"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_ammo_count_for_weapon"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_ammo_in_hands_magazine"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_cur_player_look_vertical_inverted"
+      },
+      {
+        "relocations": 3,
+        "symbol": "get_cur_playernum"
+      },
+      {
+        "relocations": 4,
+        "symbol": "get_hands_firing_status"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_item_in_hand_zoom"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_scenario"
+      },
+      {
+        "relocations": 2,
+        "symbol": "gunSetAimType"
+      },
+      {
+        "relocations": 1,
+        "symbol": "gunSetSightVisible"
+      },
+      {
+        "relocations": 1,
+        "symbol": "gunTickGameplay"
+      },
+      {
+        "relocations": 1,
+        "symbol": "joyGetButtons"
+      },
+      {
+        "relocations": 1,
+        "symbol": "joyGetStickX"
+      },
+      {
+        "relocations": 1,
+        "symbol": "joyGetStickY"
+      },
+      {
+        "relocations": 2,
+        "symbol": "lvlGetControlsLockedFlag"
+      },
+      {
+        "relocations": 1,
+        "symbol": "sqrtf"
+      },
+      {
+        "relocations": 1,
+        "symbol": "stanResetHits"
+      },
+      {
+        "relocations": 1,
+        "symbol": "stanTestLineUnobstructed"
+      },
+      {
+        "relocations": 1,
+        "symbol": "sub_GAME_7F067F58"
+      },
+      {
+        "relocations": 1,
+        "symbol": "sub_GAME_7F067FBC"
+      },
+      {
+        "relocations": 1,
+        "symbol": "trigger_remote_mine_detonation"
+      },
+      {
+        "relocations": 2,
+        "symbol": "viGetFovY"
+      }
+    ],
+    "external_data_symbols": [
+      {
+        "relocations": 2,
+        "symbol": "g_BondCanEnterTank"
+      },
+      {
+        "relocations": 8,
+        "symbol": "g_ClockTimer"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_CurrentPlayer"
+      },
+      {
+        "relocations": 18,
+        "symbol": "g_GlobalTimerDelta"
+      },
+      {
+        "relocations": 26,
+        "symbol": "g_PlayerIsInTank"
+      },
+      {
+        "relocations": 4,
+        "symbol": "g_PlayerTankProp"
+      },
+      {
+        "relocations": 4,
+        "symbol": "g_TankDamagePenaltyTicks"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankOrientationAngle"
+      },
+      {
+        "relocations": 6,
+        "symbol": "g_TankTurnSpeed"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretAngle"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretOrientationAngleDeg"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretOrientationAngleRad"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretTurn"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretVerticalAngle"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretVerticalAngleRelated"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_bondviewForceDisarm"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_gameOverFlag"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_stopPlayFlag"
+      },
+      {
+        "relocations": 2,
+        "symbol": "tank_turret_turn_speed"
+      }
+    ],
+    "internal_calls": [
+      {
+        "relocations": 3,
+        "symbol": "bondviewCurrentPlayerUpdateSpeedTheta"
+      },
+      {
+        "relocations": 6,
+        "symbol": "bondviewCurrentPlayerUpdateSpeedVerta"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewGetCollisionRadius"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewGetIfCurrentPlayerDamageShowTime"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewGetVisibleToGuardsFlag"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewTankModelRotationRelated"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewTriggerWatchZoom"
+      },
+      {
+        "relocations": 3,
+        "symbol": "bondviewUpdateSpeedForwards"
+      },
+      {
+        "relocations": 3,
+        "symbol": "bondviewUpdateSpeedSideways"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewUpdateWatchZoomIn"
+      },
+      {
+        "relocations": 2,
+        "symbol": "bondviewYPositionRelated"
+      },
+      {
+        "relocations": 1,
+        "symbol": "currentPlayerGetXAutoAimEnabledRedirect"
+      },
+      {
+        "relocations": 1,
+        "symbol": "currentPlayerGetYAutoAimEnabledRedirect"
+      },
+      {
+        "relocations": 2,
+        "symbol": "sub_GAME_7F080228"
+      },
+      {
+        "relocations": 1,
+        "symbol": "trigger_solo_watch_menu"
+      }
+    ],
+    "internal_data_symbols": [
+      {
+        "relocations": 8,
+        "symbol": "g_EnterTankAudioState"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_EnterTankCoord"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnterBondHorizAngleDeg"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnterBondVertAngleDeg"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnteringSitHeight"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnteringSitHeightRemain"
+      }
+    ],
+    "unique_external_calls": 42,
+    "unique_external_data_symbols": 19,
+    "unique_internal_calls": 15,
+    "unique_internal_data_symbols": 6
+  },
+  "function": {
+    "end": 41688,
+    "name": "bondviewProcessInput",
+    "size": 9812,
+    "text_offset": 31876
+  },
+  "normal_dam_provider_tranche": {
+    "remaining_external_calls": [
+      {
+        "relocations": 2,
+        "symbol": "add_ammo_to_weapon"
+      },
+      {
+        "relocations": 1,
+        "symbol": "advance_through_inventory"
+      },
+      {
+        "relocations": 1,
+        "symbol": "atan2f"
+      },
+      {
+        "relocations": 1,
+        "symbol": "autoadvance_on_deplete_all_ammo"
+      },
+      {
+        "relocations": 1,
+        "symbol": "backstep_through_inventory"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondinvAddInvItem"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondinvIsAliveWithFlag"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondinvRemoveItemByID"
+      },
+      {
+        "relocations": 8,
+        "symbol": "bondwalkItemCheckBitflags"
+      },
+      {
+        "relocations": 1,
+        "symbol": "camera_sniper_zoom_in"
+      },
+      {
+        "relocations": 1,
+        "symbol": "camera_sniper_zoom_out"
+      },
+      {
+        "relocations": 1,
+        "symbol": "chrCheckGuardsHeardSound"
+      },
+      {
+        "relocations": 1,
+        "symbol": "chrlvStanPointPointIntersection"
+      },
+      {
+        "relocations": 2,
+        "symbol": "currentPlayerAdjustCrouchPos"
+      },
+      {
+        "relocations": 3,
+        "symbol": "currentPlayerSetSwayTarget"
+      },
+      {
+        "relocations": 4,
+        "symbol": "getCurrentPlayerNoise"
+      },
+      {
+        "relocations": 13,
+        "symbol": "getCurrentPlayerWeaponId"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_ammo_count_for_weapon"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_ammo_in_hands_magazine"
+      },
+      {
+        "relocations": 4,
+        "symbol": "get_hands_firing_status"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_item_in_hand_zoom"
+      },
+      {
+        "relocations": 1,
+        "symbol": "get_scenario"
+      },
+      {
+        "relocations": 2,
+        "symbol": "gunSetAimType"
+      },
+      {
+        "relocations": 1,
+        "symbol": "gunSetSightVisible"
+      },
+      {
+        "relocations": 1,
+        "symbol": "gunTickGameplay"
+      },
+      {
+        "relocations": 1,
+        "symbol": "joyGetButtons"
+      },
+      {
+        "relocations": 1,
+        "symbol": "joyGetStickX"
+      },
+      {
+        "relocations": 1,
+        "symbol": "joyGetStickY"
+      },
+      {
+        "relocations": 1,
+        "symbol": "sqrtf"
+      },
+      {
+        "relocations": 1,
+        "symbol": "stanResetHits"
+      },
+      {
+        "relocations": 1,
+        "symbol": "stanTestLineUnobstructed"
+      },
+      {
+        "relocations": 1,
+        "symbol": "sub_GAME_7F067F58"
+      },
+      {
+        "relocations": 1,
+        "symbol": "sub_GAME_7F067FBC"
+      },
+      {
+        "relocations": 1,
+        "symbol": "trigger_remote_mine_detonation"
+      }
+    ],
+    "remaining_external_data_symbols": [
+      {
+        "relocations": 4,
+        "symbol": "g_TankDamagePenaltyTicks"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankOrientationAngle"
+      },
+      {
+        "relocations": 6,
+        "symbol": "g_TankTurnSpeed"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretAngle"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretOrientationAngleDeg"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretOrientationAngleRad"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretTurn"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretVerticalAngle"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankTurretVerticalAngleRelated"
+      },
+      {
+        "relocations": 2,
+        "symbol": "tank_turret_turn_speed"
+      }
+    ],
+    "remaining_internal_calls": [
+      {
+        "relocations": 3,
+        "symbol": "bondviewCurrentPlayerUpdateSpeedTheta"
+      },
+      {
+        "relocations": 6,
+        "symbol": "bondviewCurrentPlayerUpdateSpeedVerta"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewGetCollisionRadius"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewGetIfCurrentPlayerDamageShowTime"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewGetVisibleToGuardsFlag"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewTankModelRotationRelated"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewTriggerWatchZoom"
+      },
+      {
+        "relocations": 3,
+        "symbol": "bondviewUpdateSpeedForwards"
+      },
+      {
+        "relocations": 3,
+        "symbol": "bondviewUpdateSpeedSideways"
+      },
+      {
+        "relocations": 1,
+        "symbol": "bondviewUpdateWatchZoomIn"
+      },
+      {
+        "relocations": 2,
+        "symbol": "bondviewYPositionRelated"
+      },
+      {
+        "relocations": 1,
+        "symbol": "currentPlayerGetXAutoAimEnabledRedirect"
+      },
+      {
+        "relocations": 1,
+        "symbol": "currentPlayerGetYAutoAimEnabledRedirect"
+      },
+      {
+        "relocations": 2,
+        "symbol": "sub_GAME_7F080228"
+      },
+      {
+        "relocations": 1,
+        "symbol": "trigger_solo_watch_menu"
+      }
+    ],
+    "remaining_internal_data_symbols": [
+      {
+        "relocations": 8,
+        "symbol": "g_EnterTankAudioState"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_EnterTankCoord"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnterBondHorizAngleDeg"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnterBondVertAngleDeg"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnteringSitHeight"
+      },
+      {
+        "relocations": 2,
+        "symbol": "g_TankEnteringSitHeightRemain"
+      }
+    ],
+    "resolved_calls": [
+      "cur_player_get_aim_control",
+      "cur_player_get_control_type",
+      "disablePlayerActionsWhenPausedOrInMpMenu",
+      "getPlayerCount",
+      "get_cur_player_look_vertical_inverted",
+      "get_cur_playernum",
+      "lvlGetControlsLockedFlag",
+      "viGetFovY"
+    ],
+    "resolved_data_symbols": [
+      "g_BondCanEnterTank",
+      "g_ClockTimer",
+      "g_CurrentPlayer",
+      "g_GlobalTimerDelta",
+      "g_PlayerIsInTank",
+      "g_PlayerTankProp",
+      "g_bondviewForceDisarm",
+      "g_gameOverFlag",
+      "g_stopPlayFlag"
+    ],
+    "unique_remaining_symbols": 65
+  },
+  "object": "build/u/src/game/bondview2.o",
+  "object_sha256": "ec82d074431f63a9727599667f55a69bf769e0d6d62abe3d1e7984d3ddb3eef8"
+}

@@ -1,0 +1,42 @@
+#ifndef GE_ORIGINAL_STAGE_MODEL_PUBLICATION_H
+#define GE_ORIGINAL_STAGE_MODEL_PUBLICATION_H
+
+#include "ge_original_model_scene.h"
+#include "ge_original_pitem_models.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+typedef enum GeOriginalStageModelPublicationStatus {
+    GE_ORIGINAL_STAGE_MODEL_PUBLICATION_OK = 0,
+    GE_ORIGINAL_STAGE_MODEL_PUBLICATION_INVALID_ARGUMENT,
+    GE_ORIGINAL_STAGE_MODEL_PUBLICATION_NOT_VISIBLE,
+    GE_ORIGINAL_STAGE_MODEL_PUBLICATION_INVALID_MODEL,
+    GE_ORIGINAL_STAGE_MODEL_PUBLICATION_INVALID_PART,
+} GeOriginalStageModelPublicationStatus;
+
+/* Binds one currently visible native object's exact Model.render_pos matrix
+ * bank to the model-scene input. The bank remains eye-space, exactly as
+ * objTick/modelUpdateMatrices published it; live view-to-world is the outer
+ * transform that returns flattened vertices to world space. Quantization is
+ * deliberately left to ge_original_model_scene_build's N64 s15.16 path. */
+GeOriginalStageModelPublicationStatus
+ge_original_stage_model_publication_input(
+    const GeOriginalPitemModelProvider *models, const void *definition,
+    size_t visible_part_index, uint8_t room,
+    const float view_to_world[4][4], GeOriginalModelSceneInput *input);
+
+/* Initial resident-scene installation must flatten articulated models before
+ * the per-frame ONSCREEN publication pass has run. It uses the same exact
+ * Model.render_pos bank and view-to-world transform, but does not treat the
+ * transient visibility flag as an absence of model data. */
+GeOriginalStageModelPublicationStatus
+ge_original_stage_model_publication_resident_input(
+    const GeOriginalPitemModelProvider *models, const void *definition,
+    size_t visible_part_index, uint8_t room,
+    const float view_to_world[4][4], GeOriginalModelSceneInput *input);
+
+const char *ge_original_stage_model_publication_status_name(
+    GeOriginalStageModelPublicationStatus status);
+
+#endif

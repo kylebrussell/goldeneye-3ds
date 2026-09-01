@@ -1,3 +1,666 @@
+#ifdef GE_PORT_CHRPROP_STATE_SLICE
+
+#include <ultra64.h>
+#include <assert.h>
+#include <bondtypes.h>
+#include "chrai.h"
+#include "bg.h"
+#include "stan.h"
+
+/*
+ * Bounded native build of the original prop pool, active-list and room-list
+ * routines. The function bodies below are kept identical to their canonical
+ * definitions later in this file; the port adapter owns only storage setup
+ * and ABI validation.
+ */
+PropRecord g_Props[MAX_PROPS];
+s16 *RoomPropListBlockIndices;
+struct roomproplistblock *RoomPropListBlocks;
+PropRecord *g_ActivePropsTail = 0;
+PropRecord *g_ActivePropsHead = 0;
+PropRecord *g_FreeProps = 0;
+extern s32 g_MaxNumRooms;
+void ge_original_object_collision_bounds_slice(
+    PropRecord *prop, coord2d **polygon, s32 *edges,
+    f32 *top, f32 *bottom);
+
+void chrpropEnable(PropRecord *prop)
+{
+    prop->flags |= PROPFLAG_ENABLED;
+}
+
+PropRecord *chrpropGetActiveTail(void)
+{
+    return g_ActivePropsTail;
+}
+
+PropRecord* chrpropAllocate(void)
+{
+    PropRecord* prop;
+
+    if (g_FreeProps)
+    {
+        prop = g_FreeProps;
+        g_FreeProps = prop->prev;
+
+        prop->prev = NULL;
+        prop->next = NULL;
+        prop->parent = NULL;
+        prop->child = NULL;
+
+        prop->flags = 0;
+        prop->stan = NULL;
+        prop->timetoregen = 0;
+        prop->rooms[0] = 0xFF;
+        return prop;
+    }
+
+    return NULL;
+}
+
+void chrpropActivate(PropRecord* prop)
+{
+    PropRecord* cur;
+
+    cur = g_ActivePropsTail;
+    if (cur != NULL)
+    {
+        cur->next = prop;
+
+        prop->prev = g_ActivePropsTail;
+        prop->next = NULL;
+
+        g_ActivePropsTail = prop;
+        return;
+    }
+
+    prop->prev = NULL;
+    prop->next = NULL;
+    g_ActivePropsTail = g_ActivePropsHead = prop;
+}
+
+#define MAXBLOCKS 256
+
+s32 chrpropInsertPropnum(s16 propnum, s32 block)
+{
+    s32 i;
+    #ifdef DEBUG
+    assert(block<MAXBLOCKS); //prop.c line 2136
+    #endif
+    // Note: The size of the propnums array is 16, but we're only iterating over the first 15 elements.
+    //       Is this because the last element is always -1? Seems like a waste.
+    for (i = 0; i < 15; i++)
+    {
+        if (RoomPropListBlocks[block].propnums[i] < 0)
+        {
+            RoomPropListBlocks[block].propnums[i] = propnum;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+s32 chrpropInitializeNewChunkForRoom(s32 room, s32 prevblock)
+{
+    s32 i;
+#ifdef DEBUG
+    assert(room < g_MaxNumRooms); // roomnumber
+    assert(prevblock<MAXBLOCKS);
+#endif
+    for (i = 0; i < MAXBLOCKS; i++)
+    {
+        if (RoomPropListBlocks[i].propnums[0] == -2)
+        {
+            // This chunk is allowed to be erased
+            s32 j;
+            for (j = 0; j < 16; j++)
+            {
+                RoomPropListBlocks[i].propnums[j] = -1;
+            }
+
+            if (prevblock >= 0)
+            {
+                RoomPropListBlocks[prevblock].propnums[0xF] = i;
+            }
+            else
+            {
+                RoomPropListBlockIndices[room] = i;
+            }
+
+            return i;
+        }
+    }
+#ifdef DEBUG
+    osSyncPrintf("newblockforroom: no free blocks!\n");
+#endif
+    return -1;
+}
+
+void chrpropRegisterRoom(PropRecord *prop, s16 room)
+{
+	s32 prevchunk = -1;
+#ifdef DEBUG
+    assert(room < g_MaxNumRooms); // roomnumber
+#endif
+    if (room < 0)
+    {
+        return;
+    }
+    else
+    {
+        // Find which chunk to start at
+        s32 block = RoomPropListBlockIndices[room];
+        s16 propnum = (prop - g_Props);
+#ifdef DEBUG
+        assert(block<MAXBLOCKS);
+#endif
+
+        while (block >= 0)
+        {
+            if (chrpropInsertPropnum(propnum, block))
+            {
+                return;
+            }
+
+            prevchunk = block;
+            block     = RoomPropListBlocks[block].propnums[0xF];
+#ifdef DEBUG
+            assert(block<MAXBLOCKS);
+#endif
+        }
+
+        // Allocate a new chunk
+        block = chrpropInitializeNewChunkForRoom(room, prevchunk);
+
+        if (block >= 0)
+        {
+            chrpropInsertPropnum(propnum, block);
+        }
+    }
+}
+
+void chrpropDeregisterRoom(PropRecord *prop, s16 room)
+{
+    bool removed = FALSE;
+    s32 prev = -1;
+
+    if (room >= 0)
+    {
+        s16 block = RoomPropListBlockIndices[room];
+        s16 propIndex = (s16)(prop - g_Props);
+
+        while (block >= 0)
+        {
+            bool populated = FALSE;
+            s32 i;
+
+            for (i = 0; i < 15; i++)
+            {
+                if (propIndex == RoomPropListBlocks[block].propnums[i])
+                {
+                    RoomPropListBlocks[block].propnums[i] = -1;
+                    removed = TRUE;
+                }
+                else if (!populated
+                        && RoomPropListBlocks[block].propnums[i] >= 0)
+                {
+                    populated = TRUE;
+                }
+            }
+
+            if (!populated)
+            {
+                RoomPropListBlocks[block].propnums[0] = -2;
+                if (prev >= 0)
+                    RoomPropListBlocks[prev].propnums[15]
+                        = RoomPropListBlocks[block].propnums[15];
+                else
+                    RoomPropListBlockIndices[room]
+                        = RoomPropListBlocks[block].propnums[15];
+            }
+            else
+            {
+                prev = block;
+            }
+
+            if (removed) return;
+            block = RoomPropListBlocks[block].propnums[15];
+        }
+    }
+}
+
+void chrpropDeregisterRooms(PropRecord *prop)
+{
+    u8 *roomIter = prop->rooms;
+    u8 room = roomIter[0];
+
+    while (room != (u8)-1)
+    {
+        chrpropDeregisterRoom(prop, room);
+        room = *++roomIter;
+    }
+    if (!(prop->flags & PROPFLAG_00000010)) prop->rooms[0] = (u8)-1;
+}
+
+void chrpropRegisterRooms(PropRecord *prop)
+{
+    u8 *roomIter = prop->rooms;
+    u8 room = roomIter[0];
+
+    while (room != (u8)-1)
+    {
+        chrpropRegisterRoom(prop, room);
+        room = *++roomIter;
+    }
+}
+
+void chrpropUpdateRoomList(PropRecord *prop, coord3d *bbmin,
+                           coord3d *bbmax, f32 radius)
+{
+    ObjectRecord *obj = NULL;
+    s32 rooms[7];
+    StandTile *tile;
+    s32 count = 0;
+    s32 i;
+    u8 *src;
+
+    if (prop->flags & PROPFLAG_00000008)
+    {
+        if (prop->type == PROP_TYPE_OBJ || prop->type == PROP_TYPE_WEAPON
+                || prop->type == PROP_TYPE_DOOR)
+            obj = prop->obj;
+
+        if (obj != NULL && (obj->runtime_bitflags & 0x80)
+                && (obj->projectile->flags & PROJECTILEFLAG_00000008))
+            src = obj->projectile->unkCC;
+        else
+            src = prop->rooms;
+
+        for (i = 0; src[i] != 0xff; i++) rooms[i] = src[i];
+        count = i;
+    }
+    else
+    {
+        tile = prop->stan;
+        sub_GAME_7F0B21B0(&tile, prop->pos.x, prop->pos.z,
+                          radius, rooms, &count, 7);
+    }
+
+    sub_GAME_7F0BA2D4(bbmin, bbmax, rooms, &count, 7);
+    for (i = 0; i < count; i++) prop->rooms[i] = (u8)rooms[i];
+    prop->rooms[i] = (u8)-1;
+}
+
+f32 chrpropSumMatrixPosX(struct ModelRoData_BoundingBoxRecord *bbox,
+                         Mtxf *arg1)
+{
+    f32 result = 0.0f;
+    result += (arg1->m[0][0] >= 0.0f ? bbox->Bounds.xmin
+                                     : bbox->Bounds.xmax) * arg1->m[0][0];
+    result += (arg1->m[1][0] >= 0.0f ? bbox->Bounds.ymin
+                                     : bbox->Bounds.ymax) * arg1->m[1][0];
+    result += (arg1->m[2][0] >= 0.0f ? bbox->Bounds.zmin
+                                     : bbox->Bounds.zmax) * arg1->m[2][0];
+    return result;
+}
+
+f32 chrpropSumMatrixNegX(struct ModelRoData_BoundingBoxRecord *bbox,
+                         Mtxf *arg1)
+{
+    f32 result = 0.0f;
+    result += (arg1->m[0][0] <= 0.0f ? bbox->Bounds.xmin
+                                     : bbox->Bounds.xmax) * arg1->m[0][0];
+    result += (arg1->m[1][0] <= 0.0f ? bbox->Bounds.ymin
+                                     : bbox->Bounds.ymax) * arg1->m[1][0];
+    result += (arg1->m[2][0] <= 0.0f ? bbox->Bounds.zmin
+                                     : bbox->Bounds.zmax) * arg1->m[2][0];
+    return result;
+}
+
+f32 chrpropSumMatrixPosZ(struct ModelRoData_BoundingBoxRecord *bbox,
+                         Mtxf *arg1)
+{
+    f32 result = 0.0f;
+    result += (arg1->m[0][2] >= 0.0f ? bbox->Bounds.xmin
+                                     : bbox->Bounds.xmax) * arg1->m[0][2];
+    result += (arg1->m[1][2] >= 0.0f ? bbox->Bounds.ymin
+                                     : bbox->Bounds.ymax) * arg1->m[1][2];
+    result += (arg1->m[2][2] >= 0.0f ? bbox->Bounds.zmin
+                                     : bbox->Bounds.zmax) * arg1->m[2][2];
+    return result;
+}
+
+f32 chrpropSumMatrixNegZ(struct ModelRoData_BoundingBoxRecord *bbox,
+                         Mtxf *arg1)
+{
+    f32 result = 0.0f;
+    result += (arg1->m[0][2] <= 0.0f ? bbox->Bounds.xmin
+                                     : bbox->Bounds.xmax) * arg1->m[0][2];
+    result += (arg1->m[1][2] <= 0.0f ? bbox->Bounds.ymin
+                                     : bbox->Bounds.ymax) * arg1->m[1][2];
+    result += (arg1->m[2][2] <= 0.0f ? bbox->Bounds.zmin
+                                     : bbox->Bounds.zmax) * arg1->m[2][2];
+    return result;
+}
+
+f32 chrpropSumMatrixPosY(struct ModelRoData_BoundingBoxRecord *bbox, Mtxf *arg1)
+{
+    f32 phi_f2;
+
+    phi_f2 = 0.0f;
+
+    if (arg1->m[0][1] >= 0.0f)
+    {
+        phi_f2 += (bbox->Bounds.xmin * arg1->m[0][1]);
+    }
+    else
+    {
+        phi_f2 += (bbox->Bounds.xmax * arg1->m[0][1]);
+    }
+
+    if (arg1->m[1][1] >= 0.0f)
+    {
+        phi_f2 += (bbox->Bounds.ymin * arg1->m[1][1]);
+    }
+    else
+    {
+        phi_f2 += (bbox->Bounds.ymax * arg1->m[1][1]);
+    }
+
+    if (arg1->m[2][1] >= 0.0f)
+    {
+        phi_f2 += (bbox->Bounds.zmin * arg1->m[2][1]);
+    }
+    else
+    {
+        phi_f2 += (bbox->Bounds.zmax * arg1->m[2][1]);
+    }
+
+    return phi_f2;
+}
+
+f32 chrpropSumMatrixNegY(struct ModelRoData_BoundingBoxRecord *bbox, Mtxf *arg1)
+{
+    f32 phi_f2;
+
+    phi_f2 = 0.0f;
+
+    if (arg1->m[0][1] <= 0.0f)
+    {
+        phi_f2 += (bbox->Bounds.xmin * arg1->m[0][1]);
+    }
+    else
+    {
+        phi_f2 += (bbox->Bounds.xmax * arg1->m[0][1]);
+    }
+
+    if (arg1->m[1][1] <= 0.0f)
+    {
+        phi_f2 += (bbox->Bounds.ymin * arg1->m[1][1]);
+    }
+    else
+    {
+        phi_f2 += (bbox->Bounds.ymax * arg1->m[1][1]);
+    }
+
+    if (arg1->m[2][1] <= 0.0f)
+    {
+        phi_f2 += (bbox->Bounds.zmin * arg1->m[2][1]);
+    }
+    else
+    {
+        phi_f2 += (bbox->Bounds.zmax * arg1->m[2][1]);
+    }
+
+    return phi_f2;
+}
+
+void sub_GAME_7F03ECC0(f32 x1, f32 x2, f32 y1, f32 y2, f32 z1, f32 z2, Mtxf *m, struct rect4f *poly, struct collision_data *collision)
+{
+    coord2d *points = (coord2d *)poly;
+    f64 pts[8][2];
+    s32 i;
+    s32 lim;
+    s32 minxi = 0;
+    s32 maxxi = 0;
+    s32 minzi;
+    s32 maxzi = 0;
+    s32 rem[4];
+    s32 cnt;
+    f64 x1d = x1;
+    f64 x2d = x2;
+    f64 y1d = y1;
+    f64 y2d = y2;
+    f64 z1d = z1;
+    f64 z2d = z2;
+    f64 m00 = m->m[0][0];
+    f64 m02 = m->m[0][2];
+    f64 m10 = m->m[1][0];
+    f64 m12 = m->m[1][2];
+    f64 m20 = m->m[2][0];
+    f64 m22 = m->m[2][2];
+    minzi = 0;
+    pts[0][0] = ((m00 * x1d) + (m10 * y1d)) + (m20 * z1d);
+    pts[0][1] = ((m02 * x1d) + (m12 * y1d)) + (m22 * z1d);
+    pts[1][0] = ((m00 * x1d) + (m10 * y1d)) + (m20 * z2d);
+    pts[1][1] = ((m02 * x1d) + (m12 * y1d)) + (m22 * z2d);
+    pts[2][0] = ((m00 * x1d) + (m10 * y2d)) + (m20 * z1d);
+    pts[2][1] = ((m02 * x1d) + (m12 * y2d)) + (m22 * z1d);
+    pts[3][0] = ((m00 * x1d) + (m10 * y2d)) + (m20 * z2d);
+    pts[3][1] = ((m02 * x1d) + (m12 * y2d)) + (m22 * z2d);
+    pts[4][0] = ((m00 * x2d) + (m10 * y1d)) + (m20 * z1d);
+    pts[4][1] = ((m02 * x2d) + (m12 * y1d)) + (m22 * z1d);
+    pts[5][0] = ((m00 * x2d) + (m10 * y1d)) + (m20 * z2d);
+    pts[5][1] = ((m02 * x2d) + (m12 * y1d)) + (m22 * z2d);
+    pts[6][0] = ((m00 * x2d) + (m10 * y2d)) + (m20 * z1d);
+    pts[6][1] = ((m02 * x2d) + (m12 * y2d)) + (m22 * z1d);
+    pts[7][0] = ((m00 * x2d) + (m10 * y2d)) + (m20 * z2d);
+    pts[7][1] = ((m02 * x2d) + (m12 * y2d)) + (m22 * z2d);
+
+    for (i = 1; i < 8; i++)
+    {
+        if ((pts[i][0] < pts[minxi][0]) || ((pts[i][0] == pts[minxi][0]) && (pts[i][1] < pts[minxi][1])))
+        {
+            minxi = i;
+        }
+    }
+
+    for (i = 1; i < 8; i++)
+    {
+        if ((pts[maxzi][1] < pts[i][1]) || ((pts[i][1] == pts[maxzi][1]) && (pts[i][0] < pts[maxzi][0])))
+        {
+            maxzi = i;
+        }
+    }
+
+    for (i = 1; i < 8; i++)
+    {
+        if ((pts[maxxi][0] < pts[i][0]) || ((pts[i][0] == pts[maxxi][0]) && (pts[maxxi][1] < pts[i][1])))
+        {
+            maxxi = i;
+        }
+    }
+
+    for (i = 1; i < 8; i++)
+    {
+        if ((pts[i][1] < pts[minzi][1]) || ((pts[i][1] == pts[minzi][1]) && (pts[minzi][0] < pts[i][0])))
+        {
+            minzi = i;
+        }
+    }
+
+    lim = 8;
+    cnt = 0;
+    i = 0;
+
+filterloop:
+    if ((((i != minxi) && (i != maxxi)) && (i != maxzi)) && (i != minzi))
+    {
+        rem[cnt] = i;
+        cnt++;
+    }
+
+    i++;
+
+    if (i < lim)
+    {
+        goto filterloop;
+    }
+
+    cnt = 0;
+    points[cnt].x = pts[minxi][0];
+    points[cnt].y = pts[minxi][1];
+    cnt++;
+
+    for (i = 0; i < 4; i++)
+    {
+        s32 index = rem[i];
+
+        if (((pts[index][0] - pts[minzi][0]) * (pts[minxi][1] - pts[minzi][1])) < ((pts[minxi][0] - pts[minzi][0]) * (pts[index][1] - pts[minzi][1])))
+        {
+            points[cnt].x = pts[index][0];
+            points[cnt].y = pts[index][1];
+            cnt++;
+            break;
+        }
+    }
+
+    points[cnt].x = pts[minzi][0];
+    points[cnt].y = pts[minzi][1];
+    cnt++;
+
+    for (i = 0; i < 4; i++)
+    {
+        s32 index = rem[i];
+
+        if (((pts[index][0] - pts[maxxi][0]) * (pts[minzi][1] - pts[maxxi][1])) < ((pts[minzi][0] - pts[maxxi][0]) * (pts[index][1] - pts[maxxi][1])))
+        {
+            points[cnt].x = pts[index][0];
+            points[cnt].y = pts[index][1];
+            cnt++;
+            break;
+        }
+    }
+
+    points[cnt].x = pts[maxxi][0];
+    points[cnt].y = pts[maxxi][1];
+    cnt++;
+
+    for (i = 0; i < 4; i++)
+    {
+        s32 index = rem[i];
+
+        if (((pts[index][0] - pts[maxzi][0]) * (pts[maxxi][1] - pts[maxzi][1])) < ((pts[maxxi][0] - pts[maxzi][0]) * (pts[index][1] - pts[maxzi][1])))
+        {
+            points[cnt].x = pts[index][0];
+            points[cnt].y = pts[index][1];
+            cnt++;
+            break;
+        }
+    }
+
+    points[cnt].x = pts[maxzi][0];
+    points[cnt].y = pts[maxzi][1];
+    cnt++;
+
+    for (i = 0; i < 4; i++)
+    {
+        s32 index = rem[i];
+
+        if (((pts[index][0] - pts[minxi][0]) * (pts[maxzi][1] - pts[minxi][1])) < ((pts[maxzi][0] - pts[minxi][0]) * (pts[index][1] - pts[minxi][1])))
+        {
+            points[cnt].x = pts[index][0];
+            points[cnt].y = pts[index][1];
+            cnt++;
+            break;
+        }
+    }
+
+    collision->edges = cnt;
+
+    for (i = 0; i < cnt; i++)
+    {
+        points[i].x += m->m[3][0];
+        points[i].y += m->m[3][2];
+    }
+}
+
+void sub_GAME_7F03F540(struct ModelRoData_BoundingBoxRecord *bbox, Mtxf* arg1, struct rect4f* arg2, struct collision_data* arg3)
+{
+    sub_GAME_7F03ECC0(bbox->Bounds.xmin, bbox->Bounds.xmax, bbox->Bounds.ymin, bbox->Bounds.ymax, bbox->Bounds.zmin, bbox->Bounds.zmax, arg1, arg2, arg3);
+}
+
+s32 ge_original_point_in_object_polygon_slice(
+    coord3d *point, coord2d *polygon, s32 edges)
+{
+    f32 diff;
+    s32 i;
+    s32 ret = -1;
+
+    if (edges <= 0)
+    {
+        return 0;
+    }
+
+    for (i=0; i<edges; i++)
+    {
+        diff = (    (polygon[(i+1) % edges].f[1] - polygon[i].f[1]) * (point->f[0] - polygon[i].f[0]))
+                 - ((polygon[(i+1) % edges].f[0] - polygon[i].f[0]) * (point->f[2] - polygon[i].f[1]));
+
+        if (diff != 0.0f)
+        {
+            if (i == 0 || ret < 0)
+            {
+                ret = (diff > 0.0f);
+
+                continue;
+            }
+
+            if ((ret != 0) && (diff < 0.0f))
+            {
+                return 0;
+            }
+
+            if ((ret == 0) && (diff > 0.0f))
+            {
+                return 0;
+            }
+        }
+    }
+
+    return 1;
+}
+
+ObjectRecord *ge_original_room_object_at_position_slice(
+    struct coord3d *pos, s32 RoomID, f32 *top, f32 *bottom)
+{
+    coord2d *polygon;
+    s32 edges;
+    PropRecord *prop;
+
+    prop = chrpropGetActiveTail();
+    while (prop != NULL)
+    {
+        if ((prop->type == PROP_TYPE_OBJ) && prop->stan != NULL
+                && (RoomID == prop->stan->room))
+        {
+            ge_original_object_collision_bounds_slice(
+                prop, &polygon, &edges, top, bottom);
+            if (ge_original_point_in_object_polygon_slice(
+                    pos, polygon, edges) != 0)
+            {
+                return (ObjectRecord *) prop->chr;
+            }
+        }
+        prop = prop->prev;
+    }
+
+    return NULL;
+}
+
+#else
+
 #include <ultra64.h>
 #include <assert.h>
 #include <bondgame.h>
@@ -3854,3 +4517,4 @@ ObjectRecord * sub_GAME_7F03FAB0(struct coord3d *pos, s32 RoomID)
     return NULL;
 }
 
+#endif /* GE_PORT_CHRPROP_STATE_SLICE */

@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 RUN echo ">> install distro packages ..." &&  \
     apt update && \
-    apt -y install bash-completion sudo binutils-mips-linux-gnu wget make git python3 build-essential
+    apt -y install bash-completion sudo binutils-mips-linux-gnu wget make git python3 build-essential libglib2.0-0
 
 # Hint: comment out qemu installation, if you're using ido recomp
 RUN echo ">> install qemu ..." &&  \

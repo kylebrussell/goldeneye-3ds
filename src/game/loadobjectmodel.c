@@ -1,12 +1,46 @@
+#ifdef GE_PORT_GETPOSSTAN_ZERO_RADIUS_SLICE
+
 #include <ultra64.h>
 #include <bondtypes.h>
+
+#include "ge_original_default_object_internal.h"
+
+/*
+ * Exact radius-zero path through getposstan. The full positive-radius path
+ * remains coupled to the native collision volume implementation.
+ */
+s32 ge_original_getposstan_zero_radius_slice(
+    struct coord3d *pos, StandTile *stan,
+    struct coord3d *posReturn, StandTile **stanReturn)
+{
+    posReturn->f[0] = pos->f[0];
+    posReturn->f[1] = pos->f[1];
+    posReturn->f[2] = pos->f[2];
+
+    *stanReturn = stan;
+
+    if (stan == 0)
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+#else
+
+#include <ultra64.h>
+#include <bondtypes.h>
+#ifndef GE_PORT_PROPDEF_SIZE_SLICE
 #include "chrai.h"
 #include "chrobjdata.h"
 #include "propobj.h"
 #include "loadobjectmodel.h"
 #include "stan.h"
 #include "model.h"
+#endif
 
+#ifndef GE_PORT_PROPDEF_SIZE_SLICE
 /**
  * Address 0x7F056850.
  * @brief getposstan
@@ -37,6 +71,7 @@ s32 getposstan(struct coord3d *pos, StandTile *stan, f32 radius, struct coord3d 
 
     return 1;
 }
+#endif
 
 //Todo: finish this func
 /**
@@ -243,6 +278,8 @@ s32 sizepropdef(PropDefHeaderRecord *pdef)
     #endif
 }
 
+#ifndef GE_PORT_PROPDEF_SIZE_SLICE
+
 
 
 
@@ -270,10 +307,6 @@ ObjectRecord *setupGetPtrToCommandByIndex(s32 index) //#MATCH
 
     return NULL;
 }
-
-
-
-
 /**
  * Address 0x7F056B1C.
 */
@@ -545,4 +578,6 @@ ObjectRecord *setupFindObjForReuse(s32 wanttype, ObjectRecord **offscreenobjptr,
 
     return NULL;
 }
+#endif /* GE_PORT_PROPDEF_SIZE_SLICE */
 
+#endif /* GE_PORT_GETPOSSTAN_ZERO_RADIUS_SLICE */

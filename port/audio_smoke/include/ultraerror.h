@@ -1,0 +1,4 @@
+#ifndef GE_AUDIO_SMOKE_ULTRAERROR_H
+#define GE_AUDIO_SMOKE_ULTRAERROR_H
+
+#endif

@@ -245,7 +245,7 @@ OBJCOPY := $(TOOLCHAIN)objcopy
 .NOTPARALLEL: print_info create_directories $(APPROM) checksum
 
 # Phony Recipes - These targets are not files, Get Make to do something
-.PHONY: print_info create_directories build_tools prerequisites checksum all_p1 all default commonclean setupclean stanclean dataclean libultraclean codeclean clean nuke help cmdbuidler test  context extractassets forceextractassets textures convert_props convert_chrs convert_guns extract_u extract_e extract_j force_extract_u force_extract_e force_extract_j extract_rsp
+.PHONY: print_info create_directories build_tools prerequisites checksum all_p1 all default commonclean setupclean stanclean dataclean libultraclean codeclean clean nuke help cmdbuidler test context extractassets forceextractassets textures convert_props convert_chrs convert_guns extract_u extract_e extract_j force_extract_u force_extract_e force_extract_j extract_rsp 3ds 3ds-assets 3ds-stage 3ds-link 3ds-clean test-3ds-port
 
 
 # this file references variables defined above: BUILD_DIR, CFLAGWARNING, INCLUDE, LCDEFS
@@ -365,6 +365,30 @@ endif
 all_p1: prerequisites
 all: all_p1 $(APPROM) checksum
 	@echo "Rom File Generated in Build Directory."
+
+3ds:
+	./scripts/build_3ds.sh
+
+3ds-assets:
+	./scripts/build_3ds_assets.sh
+
+3ds-stage: 3ds 3ds-assets
+	mkdir -p build/3ds-sd/3ds/goldeneye-3ds
+	cp platform/3ds/goldeneye-3ds.3dsx platform/3ds/goldeneye-3ds.smdh \
+		build/3ds-assets/goldeneye.u.gepack build/3ds-sd/3ds/goldeneye-3ds/
+
+3ds-link:
+	@if [ -z "$(N3DS_IP)" ]; then \
+		echo "Set N3DS_IP to the address shown by Homebrew Menu netloader."; \
+		exit 2; \
+	fi
+	./scripts/deploy_3ds.sh --ip "$(N3DS_IP)"
+
+3ds-clean:
+	./scripts/build_3ds.sh clean
+
+test-3ds-port:
+	./scripts/test_port.sh
 
 commonclean:
 	rm -f $(APPELF) $(APPROM) $(APPBIN) $(BUILD_DIR)/ge007.$(OUTCODE).map

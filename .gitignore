@@ -67,6 +67,13 @@ bin/*
 build/*
 build-*/*
 notes/*
+platform/3ds/build/
+platform/3ds/build-*/
+platform/3ds/*.3dsx
+platform/3ds/*.elf
+platform/3ds/*.map
+platform/3ds/*.smdh
+*.gepack
 !build/test.c
 !notes/StyleGuide.md
 #tools
@@ -112,3 +119,5 @@ assets/obseg/em/data/under.seg
 scripts/local/
 scripts/make/local/
 scripts/__pycache__/generate_prop_model_c.cpython-310.pyc
+__pycache__/
+*.py[cod]

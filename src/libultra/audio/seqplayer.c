@@ -37,7 +37,11 @@
  */
 
 #include <libaudio.h>
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+#include <os.h>
+#else
 #include <os_internal.h>
+#endif
 #include <ultraerror.h>
 #include "include/assert.h"
 #include "seqp.h"

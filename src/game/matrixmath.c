@@ -3,6 +3,19 @@
 #include <PR/gu.h>
 #include <math.h>
 
+/* Native standard libraries do not provide the project-local N64 math
+ * extension header ahead of their system math.h. Keep these original helper
+ * constants available when this exact source is compiled for a native port. */
+#ifndef FLT_EPSILON
+#include <float.h>
+#endif
+#ifndef M_U16_MAX_VALUE_F
+#define M_U16_MAX_VALUE_F 65536.0f
+#endif
+#ifndef SQR
+#define SQR(x) ((x) * (x))
+#endif
+
 /* Avoid Gimble Lock? */
 #define EPSILON FLT_EPSILON * 16
 

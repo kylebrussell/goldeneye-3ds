@@ -932,7 +932,12 @@ typedef enum ANIMATIONS
     ANIM_credits_natalya_kissing,
     ANIM_MAX
 } ANIMATIONS;
-#ifdef AIPARSE
+/*
+ * Generated setup translation units need AIPARSE's dependency pruning, but
+ * not its tool-only global string tables.  Keep ordinary AIPARSE builds
+ * byte-for-byte equivalent unless the native data-only guard is requested.
+ */
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *ANIMATIONS_ToString[] = {
     "ANIM_idle",
     "ANIM_fire_standing",
@@ -1127,7 +1132,7 @@ typedef enum AIRCRAFT_ANIMATION
     AIRCRAFT_ANIMATION_MAX
 } AIRCRAFT_ANIMATION;
 
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *AIRCRAFT_ANIMATION_ToString[] = {
     "AIRCRAFT_ANIMATION_helicopter_cradle",
     "AIRCRAFT_ANIMATION_plane_runway",
@@ -1325,7 +1330,7 @@ typedef enum CUFF_TYPES
     CUFF_MOORE,
     CUFF_FOLDER
 } CUFF_TYPES;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *CUFF_TYPES_ToString[] = {
     "CUFF_BLUE",
     "CUFF_BROSNAN",
@@ -1444,7 +1449,7 @@ typedef enum DIFFICULTY
     DIFFICULTY_007,
     DIFFICULTY_MAX
 } DIFFICULTY;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 // Add 1 to ID for correct string
 char *DIFFICULTY_ToString[] = {
     "DIFFICULTY_MULTI", //-1
@@ -1683,7 +1688,7 @@ typedef enum LEVELID
     LEVELID_FACILITY_MP = LEVELID_FACILITY + ENVIRONMENTDATA_PLAYERS_4,
     LEVELID_EGYPT_MP    = LEVELID_EGYPT + ENVIRONMENTDATA_PLAYERS_4
 } LEVELID;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *LEVELID_ToString[] = {
     "LEVELID_NONE",
     "LEVELID_DEFAULT",
@@ -2763,7 +2768,7 @@ typedef enum TEXTBANK_LEVEL_INDEX
     LOPTIONS,    /* Solo in-game menus */
     LMISC        /* Cheat options */
 } TEXTBANK_LEVEL_INDEX;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
 char *TEXTBANK_LEVEL_INDEX_ToString[] =
     {
         "LNULL",      /* Null (unused) */
@@ -3431,7 +3436,7 @@ enum CCRMLUT
         PROP_BOLLARD,             /* Bollard                                                            */
         PROP_MAX
     } PROP;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *PROP_ToString[] = {
         "PROP_ALARM1",              /* Beta Alarm / Default Multi Weapon         */
         "PROP_ALARM2",              /* Alarm                */
@@ -4019,7 +4024,7 @@ typedef enum PROJECTILES
         AMMO_TOKEN,
         AMMOTYPE_MAX
     } AMMOTYPE;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *AMMOTYPE_ToString[] = {
         "AMMO_NONE",
         "AMMO_9MM",
@@ -4185,7 +4190,7 @@ typedef enum PROJECTILES
         ITEM_TOKEN,
         ITEM_IDS_MAX
     } ITEM_IDS;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *ITEM_IDS_ToString[] = {
         "ITEM_UNARMED",
         "ITEM_FIST",
@@ -4333,7 +4338,7 @@ typedef enum PROJECTILES
         PROPDEF_END,
         PROPDEF_MAX
     } PROPDEF_TYPE;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *PROPDEF_TYPE_ToString[] = {
         "PROPDEF_NOTHING",
         "PROPDEF_DOOR",
@@ -4412,7 +4417,7 @@ typedef enum PROJECTILES
         CAMERAMODE_FADE_TO_TITLE,
         CAMERAMODE_COUNT
     } CAMERAMODE;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *CAMERAMODE_ToString[] = {
         "CAMERAMODE_NONE",
         "CAMERAMODE_INTRO",
@@ -4443,7 +4448,7 @@ typedef enum PROJECTILES
         INTROTYPE_END,
         INTROTYPE_MAX
     } INTRO_TYPE;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *INTRO_TYPE_ToString[] = {
         "INTROTYPE_SPAWN",
         "INTROTYPE_ITEM",
@@ -4475,7 +4480,7 @@ typedef enum PROJECTILES
         MISSION_STATE_5,
         MISSION_STATE_6
     } MISSION_STATE_ID;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *MISSION_STATE_IDS_ToString[] = {
         "MISSION_STATE_0",
         "MISSION_STATE_1",
@@ -4494,7 +4499,7 @@ typedef enum PROJECTILES
         OBJECTIVESTATUS_COMPLETE,
         OBJECTIVESTATUS_FAILED
     } OBJECTIVESTATUS;
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     char *OBJECTIVESTATUS_ToString[] = {
         "OBJECTIVESTATUS_INCOMPLETE",
         "OBJECTIVESTATUS_COMPLETE",
@@ -4577,7 +4582,7 @@ typedef enum PROJECTILES
     /* private chr ID, cannot be accessed with ai commands */
 #define CHR_OBJECTIVE        -2    /* objective ai list chr ID */
 #define CHR_FREE             -1    /* chr IDs when free'd (killed or removed from level) */
-#ifdef AIPARSE
+#if defined(AIPARSE) && !defined(GE_PORT_SETUP_DATA)
     /* CHR to String needs a sign flipped number */
     char *CHR_ToString[] = {
         "",
@@ -4851,4 +4856,3 @@ typedef enum PROJECTILES
 #pragma endregion
 
 #endif
-

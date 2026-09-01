@@ -441,19 +441,37 @@ static void texChannelsToPixels(uint8_t *src, int width, int height, uint8_t *ds
 	case PDFORMAT_IA4:
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x += 2) {
-				dst[x >> 1] = src[pos] << 5 | src[pos + mult * 3] << 4 | src[pos + 1] << 1 | src[pos + mult * 3 + 1];
-				pos += 2;
-			}
-			if (width & 1) {
-				pos--;
+				uint8_t first = src[pos] << 1 | src[pos + mult * 3];
+				uint8_t second = 0;
+
+				if (x + 1 < width) {
+					second = src[pos + 1] << 1
+						| src[pos + mult * 3 + 1];
+					pos += 2;
+				} else {
+					pos++;
+				}
+				dst[x >> 1] = first << 4 | second;
 			}
 
-			dst += width;
+			dst += (width + 1) >> 1;
 		}
 
 		break;
 	case PDFORMAT_I4:
-		memcpy(dst, src, width * height);
+		/* Match the game decoder: channel decompression produces one
+		 * four-bit sample per byte, while the final N64 image packs two
+		 * texels into each byte. Keeping that packed representation also
+		 * makes every compression path agree before PNG conversion. */
+		for (y = 0; y < height; y++) {
+			for (x = 0; x < width; x += 2) {
+				uint8_t second = x + 1 < width ? src[pos + 1] : 0;
+
+				dst[x >> 1] = src[pos] << 4 | second;
+				pos += x + 1 < width ? 2 : 1;
+			}
+			dst += (width + 1) >> 1;
+		}
 		break;
 	}
 }
@@ -532,14 +550,16 @@ static void texInflateLookup(int width, int height, uint8_t *dst, uint8_t *looku
 	case PDFORMAT_I4:
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x += 2) {
-				dst[x >> 1] = lookup[texReadBits(bitspercolour) * 2 + 1] << 4;
+				dst[x >> 1] = (lookup[texReadBits(bitspercolour) * 2 + 1]
+					& 0x0f) << 4;
 
 				if (x + 1 < width) {
-					dst[x >> 1] |= lookup[(texReadBits(bitspercolour) * 2) + 1];
+					dst[x >> 1] |= lookup[(texReadBits(bitspercolour) * 2) + 1]
+						& 0x0f;
 				}
 			}
 
-			dst += width >> 1;
+			dst += (width + 1) >> 1;
 		}
 
 		break;
@@ -620,7 +640,10 @@ static void texInflateLookupFromBuffer(uint8_t *src, int width, int height, uint
 	case PDFORMAT_I8:
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x++) {
-				dst[x] = lookup[indexes[x] * 2];
+				/* texBuildLookup stores <=16-bit entries in big-endian byte
+				 * order. IA8/I8 occupies the low byte of that u16. Using the
+				 * high byte made every lookup-compressed I8 texture black. */
+				dst[x] = lookup[indexes[x] * 2 + 1];
 			}
 
 			dst += width;
@@ -632,10 +655,15 @@ static void texInflateLookupFromBuffer(uint8_t *src, int width, int height, uint
 	case PDFORMAT_I4:
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x += 2) {
-				dst[x >> 1] = lookup[indexes[x] * 2] << 4 | lookup[indexes[x + 1] * 2];
+				dst[x >> 1] = (lookup[indexes[x] * 2 + 1] & 0x0f) << 4;
+
+				if (x + 1 < width) {
+					dst[x >> 1] |= lookup[indexes[x + 1] * 2 + 1]
+						& 0x0f;
+				}
 			}
 
-			dst += width >> 1;
+			dst += (width + 1) >> 1;
 			indexes += width;
 		}
 

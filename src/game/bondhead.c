@@ -1,3 +1,11 @@
+#if defined(GE_PORT_BOND_HEAD_UPDATE_SLICE)
+#include "ge_original_bond_update_internal.h"
+#elif defined(GE_PORT_BOND_HEAD_MOTION_SLICE) && \
+    defined(GE_PORT_BOND_HEAD_ANIMATION_SLICE)
+#include "ge_original_bond_animation_internal.h"
+#elif defined(GE_PORT_BOND_HEAD_MOTION_SLICE)
+#include "ge_original_bond_movement_internal.h"
+#else
 #include <ultra64.h>
 #include <limits.h>
 #include <assets/animationtable_data.h>
@@ -11,17 +19,21 @@
 #include "player.h"
 #include "bondhead.h"
 #include "model.h"
+#endif
 
 
 /**
  * Address 0x80036AD0.
 */
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_ANIMATION_SLICE)
 struct init_bond_anim_unk g_BondMoveAnimationSetup[2] = {
     // address 0x80036AD0 = g_BondMoveAnimationSetup + 0
     {PTR_ANIM_bond_eye_walk, 9.5f, 27.0f, 0.0f, 0.0f, 1.5f},
     // address 0x80036AE8 = g_BondMoveAnimationSetup + 24
     {PTR_ANIM_sprinting, 7.5f, 17.0f, 0.0f, 1.5f, 100.0f}
 };
+#endif
 
 
 
@@ -29,9 +41,15 @@ struct init_bond_anim_unk g_BondMoveAnimationSetup[2] = {
 
 // forward declarations
 
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_ANIMATION_SLICE)
 void bheadUpdatePos(coord3d *vel);
+#endif
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_UPDATE_SLICE)
 void bheadUpdateRot(coord3d *lookvel, coord3d *upvel);
 void bheadSetdamp(f32 headdamp);
+#endif
 
 // end forward declarations
 
@@ -39,11 +57,16 @@ void bheadSetdamp(f32 headdamp);
 
 
 
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_ANIMATION_SLICE)
 void bheadFlipAnimation()
 {
     g_CurrentPlayer->animFlipFlag = !g_CurrentPlayer->animFlipFlag;
 }
+#endif
 
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_UPDATE_SLICE)
 void bheadUpdateIdleRoll()
 {
     f32 mult = 1.0f / UINT_MAX;
@@ -66,6 +89,7 @@ void bheadUpdateIdleRoll()
 
 	g_CurrentPlayer->standcnt = 1 - g_CurrentPlayer->standcnt;
 }
+#endif
 
 void bheadUpdatePos(coord3d *vel)
 {
@@ -98,6 +122,8 @@ void bheadUpdatePos(coord3d *vel)
 #undef CURRENTPLAYERUPDATEHEADPOS_SCALE
 }
 
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_UPDATE_SLICE)
 void bheadUpdateRot(coord3d *lookvel, coord3d *upvel)
 {
 	s32 i;
@@ -387,6 +413,10 @@ void bheadUpdate(f32 percent_speed, f32 speedsideways)
 
 
 
+#endif /* head rotation/update bodies */
+
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_ANIMATION_SLICE)
  // 0x7F08E8BC.
 /**
  * Adjusts Bond's head animation based on movement speed.
@@ -418,8 +448,12 @@ void bheadAdjustAnimation(f32 speed)
 
                 modelSetAnimation(
                     &g_CurrentPlayer->model,
+#ifdef GE_PORT_BOND_HEAD_ANIMATION_SLICE
+                    ge_port_bond_animation_lookup(i),
+#else
                     // match hack: addu address backwards
                     (struct ModelAnimation *) ((s32)g_BondMoveAnimationSetup[i].anim_id + (s32)&ptr_animation_table->data),
+#endif
                     (s32) g_CurrentPlayer->animFlipFlag,
                     startframe,
                     0.5f,
@@ -438,7 +472,10 @@ void bheadAdjustAnimation(f32 speed)
         }
     }
 }
+#endif
 
+#if !defined(GE_PORT_BOND_HEAD_MOTION_SLICE) || \
+    defined(GE_PORT_BOND_HEAD_UPDATE_SLICE)
 
 // 0x7F08EA48
 /**
@@ -494,4 +531,4 @@ f32 bheadGetBreathingValue(void)
 
 	return 0;
 }
-
+#endif

@@ -1,0 +1,246 @@
+{
+  "schema": 2,
+  "authored_setup": {
+    "path": "assets/obseg/setup/UsetupdamZ.c",
+    "stage_list_symbol": "ai_20",
+    "stage_list_id": "0x1000",
+    "ailist_record_index": 20,
+    "sha256": "a6ae558c58b9a38e061d5dfb8b1e9d23702bf3bc13da4cb3f8636cbe8b60570d",
+    "command_count": 39,
+    "command_names": [
+      "label",
+      "ai_sleep",
+      "if_objective_bitfield_is_set_on",
+      "if_object_not_destroyed",
+      "goto_next",
+      "label",
+      "if_object_not_destroyed",
+      "goto_next",
+      "label",
+      "if_objective_bitfield_is_set_on",
+      "if_objective_bitfield_is_set_on",
+      "if_item_is_attached_to_object",
+      "if_item_is_stationary_within_level",
+      "label",
+      "goto_first",
+      "label",
+      "objective_bitfield_set_on",
+      "text_print_top",
+      "sfx_play",
+      "sfx_emit_from_object",
+      "goto_first",
+      "label",
+      "objective_bitfield_set_on",
+      "text_print_top",
+      "goto_first",
+      "label",
+      "label",
+      "text_print_top",
+      "objective_bitfield_set_on",
+      "goto_next",
+      "label",
+      "text_print_top",
+      "objective_bitfield_set_on",
+      "objective_bitfield_set_on",
+      "goto_next",
+      "label",
+      "ai_sleep",
+      "goto_first",
+      "ai_list_end"
+    ]
+  },
+  "canonical_interpreter": {
+    "path": "src/game/chrai.c",
+    "slice_macros": [
+      "GE_PORT_DAM_MISSION_FLOW_SLICE",
+      "GE_PORT_DAM_MISSION_SFX_SLICE"
+    ],
+    "functions": [
+      {
+        "name": "chraiitemsize",
+        "sha256": "bd0817c1ceb9ff94662ec6e3a41010688e960e3fa91394fd0625c77698c64495"
+      },
+      {
+        "name": "chraiGetAIListID",
+        "sha256": "82584f17328dcdddc76a5562821fee0cfdb779d4b1304c5c71ac6f26bd88612b"
+      },
+      {
+        "name": "chraiGoToLabel",
+        "sha256": "3b64651d31a3b7400063639e259a065c96ae78c0a09db9ba0952139be0df337f"
+      },
+      {
+        "name": "ailistFindById",
+        "sha256": "d880a60431afeed80c5a6033d9a81b424a46f3d95ab53ef284d03a3a23522b77"
+      },
+      {
+        "name": "ai",
+        "sha256": "b4a237165109a30de62ddef2b395221590f6d69014876d7450bac187399e9f71"
+      }
+    ],
+    "linked_commands": [
+      {
+        "name": "goto_next",
+        "id": "0x00"
+      },
+      {
+        "name": "goto_first",
+        "id": "0x01"
+      },
+      {
+        "name": "label",
+        "id": "0x02"
+      },
+      {
+        "name": "ai_sleep",
+        "id": "0x03"
+      },
+      {
+        "name": "ai_list_end",
+        "id": "0x04"
+      },
+      {
+        "name": "if_item_is_stationary_within_level",
+        "id": "0x57"
+      },
+      {
+        "name": "if_item_is_attached_to_object",
+        "id": "0x58"
+      },
+      {
+        "name": "if_object_not_destroyed",
+        "id": "0x5b"
+      },
+      {
+        "name": "set_objective_bitfield",
+        "id": "0x9a"
+      },
+      {
+        "name": "if_objective_bitfield_is_set_on",
+        "id": "0x9c"
+      },
+      {
+        "name": "text_print_top",
+        "id": "0xc3"
+      },
+      {
+        "name": "sfx_play",
+        "id": "0xc4"
+      },
+      {
+        "name": "sfx_emit_from_object",
+        "id": "0xc5"
+      }
+    ]
+  },
+  "canonical_stage_actor_allocation": {
+    "path": "src/game/deb_loadallmodels.c",
+    "slice_macro": "GE_PORT_DAM_STAGE_AI_ALLOC_SLICE",
+    "function": "alloc_false_GUARDdata_to_exec_global_action",
+    "sha256": "e2f1cf5cbaf0105f6397661ba5c6a42437a732cd7fd63ca95c4bb317e9b55a8f",
+    "dam_background_actor_count": 8,
+    "storage_dependency": "MEMPOOL_STAGE"
+  },
+  "verified_transitions": [
+    {
+      "name": "initial_yield",
+      "entry_offset": 0,
+      "published_yield_offset": 3,
+      "commands": [
+        "label(0x2a)",
+        "ai_sleep"
+      ]
+    },
+    {
+      "name": "objective_complete_terminal_loop",
+      "entry_offset": 3,
+      "published_yield_offset": 113,
+      "commands": [
+        "if_objective_bitfield_is_set_on(0x00040000, 0x04)",
+        "label(0x04)",
+        "ai_sleep"
+      ],
+      "authored_objective_argument": "0x00040000",
+      "runtime_objective_bit": "0x00000400"
+    },
+    {
+      "name": "healthy_tag_normal_loop",
+      "entry_offset": 3,
+      "published_yield_offset": 3,
+      "commands": [
+        "if_objective_bitfield_is_set_on(0x00040000, 0x04)",
+        "if_object_not_destroyed(0x05, 0x07)",
+        "if_object_not_destroyed(0x04, 0x07)",
+        "if_objective_bitfield_is_set_on(0x00010000, 0x07)",
+        "if_objective_bitfield_is_set_on(0x00200000, 0x07)",
+        "if_item_is_attached_to_object(0x2f, 0x05, 0x0a)",
+        "if_item_is_stationary_within_level(0x2f, 0x0d)",
+        "goto_first(0x2a)",
+        "ai_sleep"
+      ],
+      "authored_tags": [
+        5,
+        4
+      ]
+    },
+    {
+      "name": "tracker_attached_normal_loop",
+      "entry_offset": 3,
+      "published_yield_offset": 3,
+      "condition": "item 0x2f is attached to authored tag 5",
+      "commands": [
+        "if_item_is_attached_to_object(0x2f, 0x05, 0x0a)",
+        "set_objective_bitfield(0x00010000)",
+        "text_print_top(LdamE[8])",
+        "sfx_play(0xe300, 0x00)",
+        "sfx_emit_from_object(0x00, 0x05, 0x0000)",
+        "goto_first(0x2a)",
+        "ai_sleep"
+      ],
+      "runtime_objective_bit": "0x00000100",
+      "hud_text": "LdamE[8]",
+      "runtime_sfx_id": "0x00e3",
+      "emitter_tag": 5
+    },
+    {
+      "name": "tag5_destroyed_terminal_transition",
+      "entry_offset": 3,
+      "published_yield_offset": 113,
+      "condition": "objIsHealthy(objFindByTagId(5)) == FALSE",
+      "commands": [
+        "if_object_not_destroyed(0x05, 0x07)",
+        "set_objective_bitfield(0x00080000)",
+        "text_print_top(LdamE[14])",
+        "set_objective_bitfield(0x00020000)",
+        "goto_next(0x04)",
+        "label(0x04)",
+        "ai_sleep"
+      ],
+      "authored_tag": 5,
+      "authored_objective_arguments": [
+        "0x00080000",
+        "0x00020000"
+      ],
+      "runtime_objective_bits": [
+        "0x00000800",
+        "0x00000200"
+      ],
+      "runtime_objective_result": "0x00000a00",
+      "hud_text": "LdamE[14]",
+      "damage_boundary": "completed PropDef destroyed state"
+    }
+  ],
+  "next_dependency_frontier": [
+    {
+      "condition": "tag 5/4 objects enter the visible object lifecycle",
+      "canonical_dependencies": [
+        "native model 335/70 relocation",
+        "unchanged setup object constructors",
+        "projectile/object damage publication"
+      ]
+    }
+  ],
+  "later_side_effect_families": [
+    "native projectile/object damage path",
+    "remaining Dam background AI lists 0x1001-0x1007"
+  ]
+}

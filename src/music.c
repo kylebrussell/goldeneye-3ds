@@ -810,6 +810,20 @@ void musicTrack1Play(s32 track)
 
     g_musicXTrack1CurrentTrackNum = track;
 
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+    /* Native ports keep the canonical music state machine live before the
+     * libultra CSeq backend has been replaced. Do not dereference its absent
+     * player/ROM tables; play/stop/fade state still changes exactly below. */
+    if (g_musicXTrack1SeqPlayer == NULL || g_musicDataTable == NULL
+            || g_musicXTrack1SeqData == NULL)
+    {
+#if defined(GE_PORT_MUSIC_NULL_GUARD_NOTIFY)
+        GE_PORT_MUSIC_NULL_GUARD_NOTIFY(1, track);
+#endif
+        return;
+    }
+#endif
+
     while (alCSPGetState(g_musicXTrack1SeqPlayer))
         ;
 
@@ -855,7 +869,11 @@ void musicTrack1Stop(void)
 
     g_musicXTrack1Fade = MUSIC_FADESTATE_UNSET;
 
-    if (g_musicXTrack1CurrentTrackNum != 0)
+    if (g_musicXTrack1CurrentTrackNum != 0
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+            && g_musicXTrack1SeqPlayer != NULL
+#endif
+            )
     {
         if (alCSPGetState(g_musicXTrack1SeqPlayer) == 1)
         {
@@ -894,7 +912,10 @@ void musicTrack1ApplySeqpVol(u16 volume)
     // but it's hard to say if it's related here or not.
     t1 >>= 15;
 
-    alCSPSetVol(g_musicXTrack1SeqPlayer, t1);
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+    if (g_musicXTrack1SeqPlayer != NULL)
+#endif
+        alCSPSetVol(g_musicXTrack1SeqPlayer, t1);
 }
 
 /**
@@ -949,7 +970,10 @@ void musicTrack1FadeIn(f32 fadeTime, u16 volume)
 {
     if (g_musicXTrack1Fade <= MUSIC_FADESTATE_UNSET)
     {
-        alCSPPlay(g_musicXTrack1SeqPlayer);
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+        if (g_musicXTrack1SeqPlayer != NULL)
+#endif
+            alCSPPlay(g_musicXTrack1SeqPlayer);
 
         if (volume == 0xffff)
         {
@@ -999,6 +1023,17 @@ void musicTrack2Play(s32 track)
 
     g_musicXTrack2CurrentTrackNum = track;
 
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+    if (g_musicXTrack2SeqPlayer == NULL || g_musicDataTable == NULL
+            || g_musicXTrack2SeqData == NULL)
+    {
+#if defined(GE_PORT_MUSIC_NULL_GUARD_NOTIFY)
+        GE_PORT_MUSIC_NULL_GUARD_NOTIFY(2, track);
+#endif
+        return;
+    }
+#endif
+
     while (alCSPGetState(g_musicXTrack2SeqPlayer))
         ;
 
@@ -1044,7 +1079,11 @@ void musicTrack2Stop(void)
 
     g_musicXTrack2Fade = MUSIC_FADESTATE_UNSET;
 
-    if (g_musicXTrack2CurrentTrackNum != 0)
+    if (g_musicXTrack2CurrentTrackNum != 0
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+            && g_musicXTrack2SeqPlayer != NULL
+#endif
+            )
     {
         if (alCSPGetState(g_musicXTrack2SeqPlayer) == 1)
         {
@@ -1083,7 +1122,10 @@ void musicTrack2ApplySeqpVol(u16 volume)
     // but it's hard to say if it's related here or not.
     t1 >>= 15;
 
-    alCSPSetVol(g_musicXTrack2SeqPlayer, t1);
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+    if (g_musicXTrack2SeqPlayer != NULL)
+#endif
+        alCSPSetVol(g_musicXTrack2SeqPlayer, t1);
 }
 
 /**
@@ -1138,7 +1180,10 @@ void musicTrack2FadeIn(f32 fadeTime, u16 volume)
 {
     if (g_musicXTrack2Fade <= MUSIC_FADESTATE_UNSET)
     {
-        alCSPPlay(g_musicXTrack2SeqPlayer);
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+        if (g_musicXTrack2SeqPlayer != NULL)
+#endif
+            alCSPPlay(g_musicXTrack2SeqPlayer);
 
         if (volume == 0xffff)
         {
@@ -1188,6 +1233,17 @@ void musicTrack3Play(s32 track)
 
     g_musicXTrack3CurrentTrackNum = track;
 
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+    if (g_musicXTrack3SeqPlayer == NULL || g_musicDataTable == NULL
+            || g_musicXTrack3SeqData == NULL)
+    {
+#if defined(GE_PORT_MUSIC_NULL_GUARD_NOTIFY)
+        GE_PORT_MUSIC_NULL_GUARD_NOTIFY(3, track);
+#endif
+        return;
+    }
+#endif
+
     while (alCSPGetState(g_musicXTrack3SeqPlayer))
         ;
 
@@ -1233,7 +1289,11 @@ void musicTrack3Stop(void)
 
     g_musicXTrack3Fade = MUSIC_FADESTATE_UNSET;
 
-    if (g_musicXTrack3CurrentTrackNum != 0)
+    if (g_musicXTrack3CurrentTrackNum != 0
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+            && g_musicXTrack3SeqPlayer != NULL
+#endif
+            )
     {
         if (alCSPGetState(g_musicXTrack3SeqPlayer) == 1)
         {
@@ -1272,7 +1332,10 @@ void musicTrack3ApplySeqpVol(u16 volume)
     // but it's hard to say if it's related here or not.
     t1 >>= 15;
 
-    alCSPSetVol(g_musicXTrack3SeqPlayer, t1);
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+    if (g_musicXTrack3SeqPlayer != NULL)
+#endif
+        alCSPSetVol(g_musicXTrack3SeqPlayer, t1);
 }
 
 /**
@@ -1327,7 +1390,10 @@ void musicTrack3FadeIn(f32 fadeTime, u16 volume)
 {
     if (g_musicXTrack3Fade <= MUSIC_FADESTATE_UNSET)
     {
-        alCSPPlay(g_musicXTrack3SeqPlayer);
+#if defined(GE_PORT_MUSIC_NULL_GUARD)
+        if (g_musicXTrack3SeqPlayer != NULL)
+#endif
+            alCSPPlay(g_musicXTrack3SeqPlayer);
 
         if (volume == 0xffff)
         {

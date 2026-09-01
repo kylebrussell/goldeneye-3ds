@@ -1,5 +1,9 @@
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+#include "ge_original_stan_slice.h"
+#else
 #include <ultra64.h>
 #include "bondtypes.h"
+#endif
 #include "limits.h"
 
 // rodata
@@ -30,6 +34,8 @@ f32 calculateSegmentIntersectionFraction(coord2d *start1, coord2d *end1, coord2d
 }
 
 
+#if !defined(GE_PORT_STAN_GEOMETRY_SLICE) \
+    || defined(GE_PORT_BOND_MOVEMENT_SLICE)
 /*
 * Address: 0x7F0B32D8
 */
@@ -200,3 +206,4 @@ handlezero:
 
     return (f32) intersectionFactor * (1.0f / directionLength );
 }
+#endif

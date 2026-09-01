@@ -1,0 +1,3268 @@
+{
+  "authored_intro_frequency": [
+    {
+      "authored_intro_occurrences": 12,
+      "first_person_resource": "GwppksilZ",
+      "held_prop": "PROP_CHRWPPKSIL",
+      "item": "ITEM_WPPKSIL",
+      "item_id": 5
+    },
+    {
+      "authored_intro_occurrences": 11,
+      "first_person_resource": "GwppkZ",
+      "held_prop": "PROP_CHRWPPK",
+      "item": "ITEM_WPPK",
+      "item_id": 4
+    },
+    {
+      "authored_intro_occurrences": 5,
+      "first_person_resource": "Gak47Z",
+      "held_prop": "PROP_CHRKALASH",
+      "item": "ITEM_AK47",
+      "item_id": 8
+    },
+    {
+      "authored_intro_occurrences": 4,
+      "first_person_resource": "GremotemineZ",
+      "held_prop": "PROP_CHRREMOTEMINE",
+      "item": "ITEM_REMOTEMINE",
+      "item_id": 29
+    },
+    {
+      "authored_intro_occurrences": 3,
+      "first_person_resource": "GsniperrifleZ",
+      "held_prop": "PROP_CHRSNIPERRIFLE",
+      "item": "ITEM_SNIPERRIFLE",
+      "item_id": 17
+    },
+    {
+      "authored_intro_occurrences": 3,
+      "first_person_resource": "GtriggerZ",
+      "held_prop": null,
+      "item": "ITEM_TRIGGER",
+      "item_id": 30
+    },
+    {
+      "authored_intro_occurrences": 3,
+      "first_person_resource": "GbugZ",
+      "held_prop": null,
+      "item": "ITEM_BUG",
+      "item_id": 47
+    },
+    {
+      "authored_intro_occurrences": 2,
+      "first_person_resource": "GfistZ",
+      "held_prop": null,
+      "item": "ITEM_FIST",
+      "item_id": 1
+    },
+    {
+      "authored_intro_occurrences": 2,
+      "first_person_resource": "Gmp5ksilZ",
+      "held_prop": "PROP_CHRMP5KSIL",
+      "item": "ITEM_MP5KSIL",
+      "item_id": 11
+    },
+    {
+      "authored_intro_occurrences": 2,
+      "first_person_resource": "GplastiqueZ",
+      "held_prop": null,
+      "item": "ITEM_PLASTIQUE",
+      "item_id": 34
+    },
+    {
+      "authored_intro_occurrences": 2,
+      "first_person_resource": "GcameraZ",
+      "held_prop": null,
+      "item": "ITEM_CAMERA",
+      "item_id": 40
+    },
+    {
+      "authored_intro_occurrences": 2,
+      "first_person_resource": "GwatchmagnetattractZ",
+      "held_prop": null,
+      "item": "ITEM_WATCHMAGNETATTRACT",
+      "item_id": 60
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": "GuziZ",
+      "held_prop": "PROP_CHRUZI",
+      "item": "ITEM_UZI",
+      "item_id": 9
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": "GwatchlaserZ",
+      "held_prop": null,
+      "item": "ITEM_WATCHLASER",
+      "item_id": 23
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": "GgrenadelaunchZ",
+      "held_prop": "PROP_CHRGRENADELAUNCH",
+      "item": "ITEM_GRENADELAUNCH",
+      "item_id": 24
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": "GgrenadeZ",
+      "held_prop": "PROP_CHRGRENADE",
+      "item": "ITEM_GRENADE",
+      "item_id": 26
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": "GtimedmineZ",
+      "held_prop": "PROP_CHRTIMEDMINE",
+      "item": "ITEM_TIMEDMINE",
+      "item_id": 27
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": null,
+      "held_prop": null,
+      "item": "ITEM_BOMBDEFUSER",
+      "item_id": 39
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": null,
+      "held_prop": null,
+      "item": "ITEM_KEYANALYSERCASE",
+      "item_id": 46
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": null,
+      "held_prop": null,
+      "item": "ITEM_EXPLOSIVEFLOPPY",
+      "item_id": 50
+    },
+    {
+      "authored_intro_occurrences": 1,
+      "first_person_resource": null,
+      "held_prop": null,
+      "item": "ITEM_DATATHIEF",
+      "item_id": 55
+    }
+  ],
+  "authored_setup_collectable_frequency": [
+    {
+      "authored_setup_occurrences": 19,
+      "first_person_resource": "Gfnp90Z",
+      "has_first_person_model": true,
+      "item": "ITEM_FNP90",
+      "item_id": 14,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 19,
+      "first_person_resource": "GrugerZ",
+      "has_first_person_model": true,
+      "item": "ITEM_RUGER",
+      "item_id": 18,
+      "solo_stage_count": 18,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 18,
+      "first_person_resource": "GuziZ",
+      "has_first_person_model": true,
+      "item": "ITEM_UZI",
+      "item_id": 9,
+      "solo_stage_count": 16,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 2"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 18,
+      "first_person_resource": "GspectreZ",
+      "has_first_person_model": true,
+      "item": "ITEM_SPECTRE",
+      "item_id": 12,
+      "solo_stage_count": 15,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Surface 2"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 18,
+      "first_person_resource": "GgrenadelaunchZ",
+      "has_first_person_model": true,
+      "item": "ITEM_GRENADELAUNCH",
+      "item_id": 24,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 18,
+      "first_person_resource": "GrocketlaunchZ",
+      "has_first_person_model": true,
+      "item": "ITEM_ROCKETLAUNCH",
+      "item_id": 25,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 18,
+      "first_person_resource": "GgrenadeZ",
+      "has_first_person_model": true,
+      "item": "ITEM_GRENADE",
+      "item_id": 26,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 18,
+      "first_person_resource": "GremotemineZ",
+      "has_first_person_model": true,
+      "item": "ITEM_REMOTEMINE",
+      "item_id": 29,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "Gak47Z",
+      "has_first_person_model": true,
+      "item": "ITEM_AK47",
+      "item_id": 8,
+      "solo_stage_count": 15,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Surface 2"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "Gm16Z",
+      "has_first_person_model": true,
+      "item": "ITEM_M16",
+      "item_id": 13,
+      "solo_stage_count": 16,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "GshotgunZ",
+      "has_first_person_model": true,
+      "item": "ITEM_SHOTGUN",
+      "item_id": 15,
+      "solo_stage_count": 16,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "GsniperrifleZ",
+      "has_first_person_model": true,
+      "item": "ITEM_SNIPERRIFLE",
+      "item_id": 17,
+      "solo_stage_count": 16,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "GgoldengunZ",
+      "has_first_person_model": true,
+      "item": "ITEM_GOLDENGUN",
+      "item_id": 19,
+      "solo_stage_count": 16,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "GtimedmineZ",
+      "has_first_person_model": true,
+      "item": "ITEM_TIMEDMINE",
+      "item_id": 27,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 17,
+      "first_person_resource": "GproximitymineZ",
+      "has_first_person_model": true,
+      "item": "ITEM_PROXIMITYMINE",
+      "item_id": 28,
+      "solo_stage_count": 17,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 1",
+        "Surface 2",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 16,
+      "first_person_resource": "GwppksilZ",
+      "has_first_person_model": true,
+      "item": "ITEM_WPPKSIL",
+      "item_id": 5,
+      "solo_stage_count": 15,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 16,
+      "first_person_resource": "Gmp5kZ",
+      "has_first_person_model": true,
+      "item": "ITEM_MP5K",
+      "item_id": 10,
+      "solo_stage_count": 15,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Surface 2"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 16,
+      "first_person_resource": "Gmp5ksilZ",
+      "has_first_person_model": true,
+      "item": "ITEM_MP5KSIL",
+      "item_id": 11,
+      "solo_stage_count": 15,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Surface 2"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 16,
+      "first_person_resource": "GautoshotZ",
+      "has_first_person_model": true,
+      "item": "ITEM_AUTOSHOT",
+      "item_id": 16,
+      "solo_stage_count": 15,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Egyptian",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 16,
+      "first_person_resource": "GsilverwppkZ",
+      "has_first_person_model": true,
+      "item": "ITEM_SILVERWPPK",
+      "item_id": 20,
+      "solo_stage_count": 16,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 16,
+      "first_person_resource": "GwatchlaserZ",
+      "has_first_person_model": true,
+      "item": "ITEM_WATCHLASER",
+      "item_id": 23,
+      "solo_stage_count": 14,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 15,
+      "first_person_resource": "Gtt33Z",
+      "has_first_person_model": true,
+      "item": "ITEM_TT33",
+      "item_id": 6,
+      "solo_stage_count": 14,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 15,
+      "first_person_resource": "GtriggerZ",
+      "has_first_person_model": true,
+      "item": "ITEM_TRIGGER",
+      "item_id": 30,
+      "solo_stage_count": 14,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 14,
+      "first_person_resource": "GknifeZ",
+      "has_first_person_model": true,
+      "item": "ITEM_KNIFE",
+      "item_id": 2,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Archives",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 14,
+      "first_person_resource": "GthrowknifeZ",
+      "has_first_person_model": true,
+      "item": "ITEM_THROWKNIFE",
+      "item_id": 3,
+      "solo_stage_count": 14,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 14,
+      "first_person_resource": "GwppkZ",
+      "has_first_person_model": true,
+      "item": "ITEM_WPPK",
+      "item_id": 4,
+      "solo_stage_count": 14,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 14,
+      "first_person_resource": "GskorpionZ",
+      "has_first_person_model": true,
+      "item": "ITEM_SKORPION",
+      "item_id": 7,
+      "solo_stage_count": 13,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Egyptian",
+        "Facility",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Statue"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 14,
+      "first_person_resource": "GgoldwppkZ",
+      "has_first_person_model": true,
+      "item": "ITEM_GOLDWPPK",
+      "item_id": 21,
+      "solo_stage_count": 14,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Depot",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 13,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_UNARMED",
+      "item_id": 0,
+      "solo_stage_count": 11,
+      "solo_stages": [
+        "Bunker 1",
+        "Caverns",
+        "Cradle",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 13,
+      "first_person_resource": "GlaserZ",
+      "has_first_person_model": true,
+      "item": "ITEM_LASER",
+      "item_id": 22,
+      "solo_stage_count": 13,
+      "solo_stages": [
+        "Archives",
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 13,
+      "first_person_resource": "GplastiqueZ",
+      "has_first_person_model": true,
+      "item": "ITEM_PLASTIQUE",
+      "item_id": 34,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 12,
+      "first_person_resource": "GtaserZ",
+      "has_first_person_model": true,
+      "item": "ITEM_TASER",
+      "item_id": 31,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 12,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_TANKSHELLS",
+      "item_id": 32,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 12,
+      "first_person_resource": "GbombcaseZ",
+      "has_first_person_model": true,
+      "item": "ITEM_BOMBCASE",
+      "item_id": 33,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 12,
+      "first_person_resource": "GcameraZ",
+      "has_first_person_model": true,
+      "item": "ITEM_CAMERA",
+      "item_id": 40,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 12,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_LOCKEXPLODER",
+      "item_id": 41,
+      "solo_stage_count": 12,
+      "solo_stages": [
+        "Aztec",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 11,
+      "first_person_resource": "GfistZ",
+      "has_first_person_model": true,
+      "item": "ITEM_FIST",
+      "item_id": 1,
+      "solo_stage_count": 11,
+      "solo_stages": [
+        "Bunker 1",
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Runway",
+        "Silo",
+        "Streets",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 11,
+      "first_person_resource": "GflarepistolZ",
+      "has_first_person_model": true,
+      "item": "ITEM_FLAREPISTOL",
+      "item_id": 35,
+      "solo_stage_count": 11,
+      "solo_stages": [
+        "Aztec",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 11,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_BOMBDEFUSER",
+      "item_id": 39,
+      "solo_stage_count": 11,
+      "solo_stages": [
+        "Aztec",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 11,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_DOOREXPLODER",
+      "item_id": 42,
+      "solo_stage_count": 10,
+      "solo_stages": [
+        "Aztec",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Frigate",
+        "Runway",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 10,
+      "first_person_resource": "GpitongunZ",
+      "has_first_person_model": true,
+      "item": "ITEM_PITONGUN",
+      "item_id": 36,
+      "solo_stage_count": 10,
+      "solo_stages": [
+        "Aztec",
+        "Caverns",
+        "Control",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 10,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_BUNGEE",
+      "item_id": 37,
+      "solo_stage_count": 10,
+      "solo_stages": [
+        "Aztec",
+        "Caverns",
+        "Control",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 10,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_DOORDECODER",
+      "item_id": 38,
+      "solo_stage_count": 10,
+      "solo_stages": [
+        "Aztec",
+        "Caverns",
+        "Control",
+        "Facility",
+        "Frigate",
+        "Jungle",
+        "Silo",
+        "Streets",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 8,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_BRIEFCASE",
+      "item_id": 43,
+      "solo_stage_count": 8,
+      "solo_stages": [
+        "Bunker 2",
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 7,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_WEAPONCASE",
+      "item_id": 44,
+      "solo_stage_count": 7,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 7,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_SAFECRACKERCASE",
+      "item_id": 45,
+      "solo_stage_count": 7,
+      "solo_stages": [
+        "Bunker 2",
+        "Caverns",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 7,
+      "first_person_resource": "GmicrocameraZ",
+      "has_first_person_model": true,
+      "item": "ITEM_MICROCAMERA",
+      "item_id": 48,
+      "solo_stage_count": 7,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 7,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_BUGDETECTOR",
+      "item_id": 49,
+      "solo_stage_count": 7,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 6,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_KEYANALYSERCASE",
+      "item_id": 46,
+      "solo_stage_count": 6,
+      "solo_stages": [
+        "Caverns",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 6,
+      "first_person_resource": "GbugZ",
+      "has_first_person_model": true,
+      "item": "ITEM_BUG",
+      "item_id": 47,
+      "solo_stage_count": 6,
+      "solo_stages": [
+        "Caverns",
+        "Dam",
+        "Facility",
+        "Silo",
+        "Surface 1",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 5,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_EXPLOSIVEFLOPPY",
+      "item_id": 50,
+      "solo_stage_count": 5,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Facility",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_POLARIZEDGLASSES",
+      "item_id": 51,
+      "solo_stage_count": 4,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_DARKGLASSES",
+      "item_id": 52,
+      "solo_stage_count": 4,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_CREDITCARD",
+      "item_id": 53,
+      "solo_stage_count": 4,
+      "solo_stages": [
+        "Caverns",
+        "Control",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_CLIPBOARD",
+      "item_id": 64,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_DOSSIERRED",
+      "item_id": 66,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_PLANS",
+      "item_id": 67,
+      "solo_stage_count": 4,
+      "solo_stages": [
+        "Caverns",
+        "Facility",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 4,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_SPYFILE",
+      "item_id": 68,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 3,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_WATCHIDENTIFIER",
+      "item_id": 56,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Bunker 1",
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 3,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_STAFFLIST",
+      "item_id": 65,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 3,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_BLUEPRINTS",
+      "item_id": 69,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 3,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_AUDIOTAPE",
+      "item_id": 71,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 3,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_VIDEOTAPE",
+      "item_id": 72,
+      "solo_stage_count": 3,
+      "solo_stages": [
+        "Caverns",
+        "Silo",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_GASKEYRING",
+      "item_id": 54,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_DATATHIEF",
+      "item_id": 55,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_WATCHCOMMUNICATOR",
+      "item_id": 57,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_WATCHGEIGERCOUNTER",
+      "item_id": 58,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_WATCHMAGNETREPEL",
+      "item_id": 59,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": "GwatchmagnetattractZ",
+      "has_first_person_model": true,
+      "item": "ITEM_WATCHMAGNETATTRACT",
+      "item_id": 60,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": "GgoldeneyekeyZ",
+      "has_first_person_model": true,
+      "item": "ITEM_GOLDENEYEKEY",
+      "item_id": 61,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_BLACKBOX",
+      "item_id": 62,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_CIRCUITBOARD",
+      "item_id": 63,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Train"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 2,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_MAP",
+      "item_id": 70,
+      "solo_stage_count": 2,
+      "solo_stages": [
+        "Caverns",
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_DATTAPE",
+      "item_id": 73,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_SPOOLTAPE",
+      "item_id": 74,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_MICROFILM",
+      "item_id": 75,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_MICROCODE",
+      "item_id": 76,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_LECTRE",
+      "item_id": 77,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_MONEY",
+      "item_id": 78,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Silo"
+      ]
+    },
+    {
+      "authored_setup_occurrences": 1,
+      "first_person_resource": null,
+      "has_first_person_model": false,
+      "item": "ITEM_TOKEN",
+      "item_id": 88,
+      "solo_stage_count": 1,
+      "solo_stages": [
+        "Caverns"
+      ]
+    }
+  ],
+  "canonical_inventory_order": [
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_UNARMED",
+      "item_id": 0,
+      "record_source": null,
+      "resource": null
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/fist/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_FIST",
+      "item_id": 1,
+      "record_source": "assets/obseg/gun/fist/gunFileRecord.inc.c",
+      "resource": "GfistZ",
+      "rom": {
+        "compressed_size": 5888,
+        "rom_start": 7817792
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/knife/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRKNIFE",
+      "item": "ITEM_KNIFE",
+      "item_id": 2,
+      "record_source": "assets/obseg/gun/knife/gunFileRecord.inc.c",
+      "resource": "GknifeZ",
+      "rom": {
+        "compressed_size": 6864,
+        "rom_start": 7870032
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/throwknife/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRTHROWKNIFE",
+      "item": "ITEM_THROWKNIFE",
+      "item_id": 3,
+      "record_source": "assets/obseg/gun/throwknife/gunFileRecord.inc.c",
+      "resource": "GthrowknifeZ",
+      "rom": {
+        "compressed_size": 6896,
+        "rom_start": 7949920
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/wppk/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRWPPK",
+      "item": "ITEM_WPPK",
+      "item_id": 4,
+      "record_source": "assets/obseg/gun/wppk/gunFileRecord.inc.c",
+      "resource": "GwppkZ",
+      "rom": {
+        "compressed_size": 7312,
+        "rom_start": 8023984
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/wppksil/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRWPPKSIL",
+      "item": "ITEM_WPPKSIL",
+      "item_id": 5,
+      "record_source": "assets/obseg/gun/wppksil/gunFileRecord.inc.c",
+      "resource": "GwppksilZ",
+      "rom": {
+        "compressed_size": 7488,
+        "rom_start": 8031296
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/tt33/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRTT33",
+      "item": "ITEM_TT33",
+      "item_id": 6,
+      "record_source": "assets/obseg/gun/tt33/gunFileRecord.inc.c",
+      "resource": "Gtt33Z",
+      "rom": {
+        "compressed_size": 6944,
+        "rom_start": 7972880
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/skorpion/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRSKORPION",
+      "item": "ITEM_SKORPION",
+      "item_id": 7,
+      "record_source": "assets/obseg/gun/skorpion/gunFileRecord.inc.c",
+      "resource": "GskorpionZ",
+      "rom": {
+        "compressed_size": 4608,
+        "rom_start": 7928016
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/ak47/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRKALASH",
+      "item": "ITEM_AK47",
+      "item_id": 8,
+      "record_source": "assets/obseg/gun/ak47/gunFileRecord.inc.c",
+      "resource": "Gak47Z",
+      "rom": {
+        "compressed_size": 2576,
+        "rom_start": 7782256
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/uzi/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRUZI",
+      "item": "ITEM_UZI",
+      "item_id": 9,
+      "record_source": "assets/obseg/gun/uzi/gunFileRecord.inc.c",
+      "resource": "GuziZ",
+      "rom": {
+        "compressed_size": 2320,
+        "rom_start": 7979824
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/mp5k/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRMP5K",
+      "item": "ITEM_MP5K",
+      "item_id": 10,
+      "record_source": "assets/obseg/gun/mp5k/gunFileRecord.inc.c",
+      "resource": "Gmp5kZ",
+      "rom": {
+        "compressed_size": 3040,
+        "rom_start": 7889136
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/mp5ksil/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRMP5KSIL",
+      "item": "ITEM_MP5KSIL",
+      "item_id": 11,
+      "record_source": "assets/obseg/gun/mp5ksil/gunFileRecord.inc.c",
+      "resource": "Gmp5ksilZ",
+      "rom": {
+        "compressed_size": 3328,
+        "rom_start": 7892176
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/spectre/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRSPECTRE",
+      "item": "ITEM_SPECTRE",
+      "item_id": 12,
+      "record_source": "assets/obseg/gun/spectre/gunFileRecord.inc.c",
+      "resource": "GspectreZ",
+      "rom": {
+        "compressed_size": 3200,
+        "rom_start": 7936832
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/m16/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRM16",
+      "item": "ITEM_M16",
+      "item_id": 13,
+      "record_source": "assets/obseg/gun/m16/gunFileRecord.inc.c",
+      "resource": "Gm16Z",
+      "rom": {
+        "compressed_size": 2592,
+        "rom_start": 7882160
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/fnp90/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRFNP90",
+      "item": "ITEM_FNP90",
+      "item_id": 14,
+      "record_source": "assets/obseg/gun/fnp90/gunFileRecord.inc.c",
+      "resource": "Gfnp90Z",
+      "rom": {
+        "compressed_size": 3232,
+        "rom_start": 7824528
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/shotgun/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRSHOTGUN",
+      "item": "ITEM_SHOTGUN",
+      "item_id": 15,
+      "record_source": "assets/obseg/gun/shotgun/gunFileRecord.inc.c",
+      "resource": "GshotgunZ",
+      "rom": {
+        "compressed_size": 3808,
+        "rom_start": 7917712
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/autoshot/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRAUTOSHOT",
+      "item": "ITEM_AUTOSHOT",
+      "item_id": 16,
+      "record_source": "assets/obseg/gun/autoshot/gunFileRecord.inc.c",
+      "resource": "GautoshotZ",
+      "rom": {
+        "compressed_size": 6160,
+        "rom_start": 7785744
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/sniperrifle/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRSNIPERRIFLE",
+      "item": "ITEM_SNIPERRIFLE",
+      "item_id": 17,
+      "record_source": "assets/obseg/gun/sniperrifle/gunFileRecord.inc.c",
+      "resource": "GsniperrifleZ",
+      "rom": {
+        "compressed_size": 4208,
+        "rom_start": 7932624
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/ruger/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRRUGER",
+      "item": "ITEM_RUGER",
+      "item_id": 18,
+      "record_source": "assets/obseg/gun/ruger/gunFileRecord.inc.c",
+      "resource": "GrugerZ",
+      "rom": {
+        "compressed_size": 7568,
+        "rom_start": 7908208
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/goldengun/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRGOLDEN",
+      "item": "ITEM_GOLDENGUN",
+      "item_id": 19,
+      "record_source": "assets/obseg/gun/goldengun/gunFileRecord.inc.c",
+      "resource": "GgoldengunZ",
+      "rom": {
+        "compressed_size": 6112,
+        "rom_start": 7833696
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/silverwppk/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRWPPK",
+      "item": "ITEM_SILVERWPPK",
+      "item_id": 20,
+      "record_source": "assets/obseg/gun/silverwppk/gunFileRecord.inc.c",
+      "resource": "GsilverwppkZ",
+      "rom": {
+        "compressed_size": 6496,
+        "rom_start": 7921520
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/goldwppk/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRWPPK",
+      "item": "ITEM_GOLDWPPK",
+      "item_id": 21,
+      "record_source": "assets/obseg/gun/goldwppk/gunFileRecord.inc.c",
+      "resource": "GgoldwppkZ",
+      "rom": {
+        "compressed_size": 6496,
+        "rom_start": 7839808
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/laser/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRLASER",
+      "item": "ITEM_LASER",
+      "item_id": 22,
+      "record_source": "assets/obseg/gun/laser/gunFileRecord.inc.c",
+      "resource": "GlaserZ",
+      "rom": {
+        "compressed_size": 3568,
+        "rom_start": 7876896
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/watchlaser/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_WATCHLASER",
+      "item_id": 23,
+      "record_source": "assets/obseg/gun/watchlaser/gunFileRecord.inc.c",
+      "resource": "GwatchlaserZ",
+      "rom": {
+        "compressed_size": 13312,
+        "rom_start": 7998320
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/grenadelaunch/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRGRENADELAUNCH",
+      "item": "ITEM_GRENADELAUNCH",
+      "item_id": 24,
+      "record_source": "assets/obseg/gun/grenadelaunch/gunFileRecord.inc.c",
+      "resource": "GgrenadelaunchZ",
+      "rom": {
+        "compressed_size": 4224,
+        "rom_start": 7848912
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/rocketlaunch/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRROCKETLAUNCH",
+      "item": "ITEM_ROCKETLAUNCH",
+      "item_id": 25,
+      "record_source": "assets/obseg/gun/rocketlaunch/gunFileRecord.inc.c",
+      "resource": "GrocketlaunchZ",
+      "rom": {
+        "compressed_size": 4640,
+        "rom_start": 7903568
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/grenade/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRGRENADE",
+      "item": "ITEM_GRENADE",
+      "item_id": 26,
+      "record_source": "assets/obseg/gun/grenade/gunFileRecord.inc.c",
+      "resource": "GgrenadeZ",
+      "rom": {
+        "compressed_size": 2608,
+        "rom_start": 7846304
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/timedmine/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRTIMEDMINE",
+      "item": "ITEM_TIMEDMINE",
+      "item_id": 27,
+      "record_source": "assets/obseg/gun/timedmine/gunFileRecord.inc.c",
+      "resource": "GtimedmineZ",
+      "rom": {
+        "compressed_size": 2752,
+        "rom_start": 7956816
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/proximitymine/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRPROXIMITYMINE",
+      "item": "ITEM_PROXIMITYMINE",
+      "item_id": 28,
+      "record_source": "assets/obseg/gun/proximitymine/gunFileRecord.inc.c",
+      "resource": "GproximitymineZ",
+      "rom": {
+        "compressed_size": 2032,
+        "rom_start": 7899040
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/remotemine/ModelFileHeader.inc.c",
+      "held_prop": "PROP_CHRREMOTEMINE",
+      "item": "ITEM_REMOTEMINE",
+      "item_id": 29,
+      "record_source": "assets/obseg/gun/remotemine/gunFileRecord.inc.c",
+      "resource": "GremotemineZ",
+      "rom": {
+        "compressed_size": 2496,
+        "rom_start": 7901072
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/trigger/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_TRIGGER",
+      "item_id": 30,
+      "record_source": "assets/obseg/gun/trigger/gunFileRecord.inc.c",
+      "resource": "GtriggerZ",
+      "rom": {
+        "compressed_size": 13312,
+        "rom_start": 7959568
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/taser/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_TASER",
+      "item_id": 31,
+      "record_source": "assets/obseg/gun/taser/gunFileRecord.inc.c",
+      "resource": "GtaserZ",
+      "rom": {
+        "compressed_size": 7776,
+        "rom_start": 7942144
+      }
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_TANKSHELLS",
+      "item_id": 32,
+      "record_source": null,
+      "resource": null
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/bombcase/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_BOMBCASE",
+      "item_id": 33,
+      "record_source": "assets/obseg/gun/bombcase/gunFileRecord.inc.c",
+      "resource": "GbombcaseZ",
+      "rom": {
+        "compressed_size": 1936,
+        "rom_start": 7793696
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/plastique/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_PLASTIQUE",
+      "item_id": 34,
+      "record_source": "assets/obseg/gun/plastique/gunFileRecord.inc.c",
+      "resource": "GplastiqueZ",
+      "rom": {
+        "compressed_size": 848,
+        "rom_start": 7896816
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/flarepistol/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_FLAREPISTOL",
+      "item_id": 35,
+      "record_source": "assets/obseg/gun/flarepistol/gunFileRecord.inc.c",
+      "resource": "GflarepistolZ",
+      "rom": {
+        "compressed_size": 848,
+        "rom_start": 7823680
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/pitongun/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_PITONGUN",
+      "item_id": 36,
+      "record_source": "assets/obseg/gun/pitongun/gunFileRecord.inc.c",
+      "resource": "GpitongunZ",
+      "rom": {
+        "compressed_size": 848,
+        "rom_start": 7895504
+      }
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_BUNGEE",
+      "item_id": 37,
+      "record_source": "assets/obseg/gun/bungee/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_DOORDECODER",
+      "item_id": 38,
+      "record_source": "assets/obseg/gun/doordecoder/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_BOMBDEFUSER",
+      "item_id": 39,
+      "record_source": "assets/obseg/gun/bombdefuser/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/camera/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_CAMERA",
+      "item_id": 40,
+      "record_source": "assets/obseg/gun/camera/gunFileRecord.inc.c",
+      "resource": "GcameraZ",
+      "rom": {
+        "compressed_size": 1152,
+        "rom_start": 7803200
+      }
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_LOCKEXPLODER",
+      "item_id": 41,
+      "record_source": "assets/obseg/gun/lockexploder/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_DOOREXPLODER",
+      "item_id": 42,
+      "record_source": "assets/obseg/gun/doorexploder/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_BRIEFCASE",
+      "item_id": 43,
+      "record_source": "assets/obseg/gun/briefcase/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_WEAPONCASE",
+      "item_id": 44,
+      "record_source": "assets/obseg/gun/weaponcase/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_SAFECRACKERCASE",
+      "item_id": 45,
+      "record_source": "assets/obseg/gun/safecrackercase/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_KEYANALYSERCASE",
+      "item_id": 46,
+      "record_source": "assets/obseg/gun/keyanalysercase/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/bug/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_BUG",
+      "item_id": 47,
+      "record_source": "assets/obseg/gun/bug/gunFileRecord.inc.c",
+      "resource": "GbugZ",
+      "rom": {
+        "compressed_size": 2416,
+        "rom_start": 7799088
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/microcamera/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_MICROCAMERA",
+      "item_id": 48,
+      "record_source": "assets/obseg/gun/microcamera/gunFileRecord.inc.c",
+      "resource": "GmicrocameraZ",
+      "rom": {
+        "compressed_size": 1600,
+        "rom_start": 7884992
+      }
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_BUGDETECTOR",
+      "item_id": 49,
+      "record_source": "assets/obseg/gun/bugdetector/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_EXPLOSIVEFLOPPY",
+      "item_id": 50,
+      "record_source": "assets/obseg/gun/explosivefloppy/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_POLARIZEDGLASSES",
+      "item_id": 51,
+      "record_source": "assets/obseg/gun/polarizedglasses/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_DARKGLASSES",
+      "item_id": 52,
+      "record_source": "assets/obseg/gun/darkglasses/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_CREDITCARD",
+      "item_id": 53,
+      "record_source": "assets/obseg/gun/creditcard/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_GASKEYRING",
+      "item_id": 54,
+      "record_source": "assets/obseg/gun/gaskeyring/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_DATATHIEF",
+      "item_id": 55,
+      "record_source": "assets/obseg/gun/datathief/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_WATCHIDENTIFIER",
+      "item_id": 56,
+      "record_source": "assets/obseg/gun/watchidentifier/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_WATCHCOMMUNICATOR",
+      "item_id": 57,
+      "record_source": "assets/obseg/gun/watchcommunicator/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_WATCHGEIGERCOUNTER",
+      "item_id": 58,
+      "record_source": "assets/obseg/gun/watchgeigercounter/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_WATCHMAGNETREPEL",
+      "item_id": 59,
+      "record_source": "assets/obseg/gun/watchmagnetrepel/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/watchmagnetattract/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_WATCHMAGNETATTRACT",
+      "item_id": 60,
+      "record_source": "assets/obseg/gun/watchmagnetattract/gunFileRecord.inc.c",
+      "resource": "GwatchmagnetattractZ",
+      "rom": {
+        "compressed_size": 5200,
+        "rom_start": 8011632
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/goldeneyekey/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_GOLDENEYEKEY",
+      "item_id": 61,
+      "record_source": "assets/obseg/gun/goldeneyekey/gunFileRecord.inc.c",
+      "resource": "GgoldeneyekeyZ",
+      "rom": {
+        "compressed_size": 2480,
+        "rom_start": 7831216
+      }
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_BLACKBOX",
+      "item_id": 62,
+      "record_source": "assets/obseg/gun/blackbox/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_CIRCUITBOARD",
+      "item_id": 63,
+      "record_source": "assets/obseg/gun/circuitboard/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_CLIPBOARD",
+      "item_id": 64,
+      "record_source": "assets/obseg/gun/clipboard/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_STAFFLIST",
+      "item_id": 65,
+      "record_source": "assets/obseg/gun/stafflist/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_DOSSIERRED",
+      "item_id": 66,
+      "record_source": "assets/obseg/gun/dossierred/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_PLANS",
+      "item_id": 67,
+      "record_source": "assets/obseg/gun/plans/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_SPYFILE",
+      "item_id": 68,
+      "record_source": "assets/obseg/gun/spyfile/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_BLUEPRINTS",
+      "item_id": 69,
+      "record_source": "assets/obseg/gun/blueprints/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_MAP",
+      "item_id": 70,
+      "record_source": "assets/obseg/gun/map/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_AUDIOTAPE",
+      "item_id": 71,
+      "record_source": "assets/obseg/gun/audiotape/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_VIDEOTAPE",
+      "item_id": 72,
+      "record_source": "assets/obseg/gun/videotape/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_DATTAPE",
+      "item_id": 73,
+      "record_source": "assets/obseg/gun/dattape/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_SPOOLTAPE",
+      "item_id": 74,
+      "record_source": "assets/obseg/gun/spooltape/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_MICROFILM",
+      "item_id": 75,
+      "record_source": "assets/obseg/gun/microfilm/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_MICROCODE",
+      "item_id": 76,
+      "record_source": "assets/obseg/gun/microcode/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_LECTRE",
+      "item_id": 77,
+      "record_source": "assets/obseg/gun/lectre/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_MONEY",
+      "item_id": 78,
+      "record_source": "assets/obseg/gun/money/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_GOLDBAR",
+      "item_id": 79,
+      "record_source": "assets/obseg/gun/goldbar/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_HEROIN",
+      "item_id": 80,
+      "record_source": "assets/obseg/gun/heroin/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_KEYCARD",
+      "item_id": 81,
+      "record_source": "assets/obseg/gun/keycard/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_KEYYALE",
+      "item_id": 82,
+      "record_source": "assets/obseg/gun/keyyale/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_KEYBOLT",
+      "item_id": 83,
+      "record_source": "assets/obseg/gun/keybolt/gunFileRecord.inc.c",
+      "resource": null
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/chr/suit_lf_hand/modelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_SUIT_LF_HAND",
+      "item_id": 84,
+      "record_source": "assets/obseg/gun/gunModelFileRecord.inc.c",
+      "resource": "Csuit_lf_handZ",
+      "rom": {
+        "compressed_size": 12832,
+        "rom_start": 7677104
+      }
+    },
+    {
+      "has_first_person_model": true,
+      "header_source": "assets/obseg/gun/joypad/ModelFileHeader.inc.c",
+      "held_prop": null,
+      "item": "ITEM_JOYPAD",
+      "item_id": 85,
+      "record_source": "assets/obseg/gun/joypad/gunFileRecord.inc.c",
+      "resource": "GjoypadZ",
+      "rom": {
+        "compressed_size": 7856,
+        "rom_start": 7853984
+      }
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_ROCKETROUND",
+      "item_id": 86,
+      "record_source": null,
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": null,
+      "item": "ITEM_GRENADEROUND",
+      "item_id": 87,
+      "record_source": null,
+      "resource": null
+    },
+    {
+      "has_first_person_model": false,
+      "held_prop": "PROP_FLAG",
+      "item": "ITEM_TOKEN",
+      "item_id": 88,
+      "record_source": null,
+      "resource": null
+    }
+  ],
+  "evidence": [
+    "src/bondconstants.h",
+    "src/boss.c",
+    "src/game/chraidata.c",
+    "src/game/player.c",
+    "assets/obseg/gun/gunModelFileRecord.inc.c",
+    "assets/obseg/prop/propItemModelFileRecord.inc.c",
+    "scripts/filelist.u.csv",
+    "scripts/extract_3ds_first_person_pp7.py",
+    "port/src/ge_original_first_person_item_model.c"
+  ],
+  "region": "u",
+  "runtime_cache_coverage": {
+    "canonical_modeled_items": 42,
+    "complete": true,
+    "packaged_rom_resources": 42,
+    "provider_relations": 42
+  },
+  "schema": 1,
+  "scope": "all 20 solo stages, all authored intro demo slots, and canonical inventory order",
+  "semantics": {
+    "authored_intro_occurrences": "right and explicit left items in every StartWeapon command, including demo slots",
+    "authored_setup_collectable_frequency": "valid ITEM_IDS in PROPDEF_COLLECTABLE records across the 20 solo setup streams",
+    "canonical_inventory_order": "ITEM_IDS numeric order used by bondinvSortInv",
+    "held_prop": "exact getPropForHeldItem relation into PitemZ_entries; null means the canonical function publishes no held prop",
+    "runtime_cache_coverage": "exact equality between modeled canonical gitem entries, ROM package entries, and generic item/model provider relations"
+  },
+  "stage_count": 20,
+  "stages": [
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 19,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 21,
+          "right_item": "ITEM_BUG",
+          "right_item_id": 47
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 24,
+          "right_item": "ITEM_AK47",
+          "right_item_id": 8
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 26,
+          "right_item": "ITEM_BUG",
+          "right_item_id": 47
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 29,
+          "right_item": "ITEM_SNIPERRIFLE",
+          "right_item_id": 17
+        }
+      ],
+      "level_id": "LEVELID_DAM",
+      "setup_source": "assets/obseg/setup/UsetupdamZ.c",
+      "solo_sequence_index": 0,
+      "stage": "Dam"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 6,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_REMOTEMINE",
+          "right_item_id": 29
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 8,
+          "right_item": "ITEM_TRIGGER",
+          "right_item_id": 30
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 12,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 13,
+          "right_item": "ITEM_REMOTEMINE",
+          "right_item_id": 29
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 14,
+          "right_item": "ITEM_TRIGGER",
+          "right_item_id": 30
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 18,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 3,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 21,
+          "right_item": "ITEM_AK47",
+          "right_item_id": 8
+        }
+      ],
+      "level_id": "LEVELID_FACILITY",
+      "setup_source": "assets/obseg/setup/UsetuparkZ.c",
+      "solo_sequence_index": 1,
+      "stage": "Facility"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 8,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 11,
+          "right_item": "ITEM_GRENADE",
+          "right_item_id": 26
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 14,
+          "right_item": "ITEM_AK47",
+          "right_item_id": 8
+        }
+      ],
+      "level_id": "LEVELID_RUNWAY",
+      "setup_source": "assets/obseg/setup/UsetuprunZ.c",
+      "solo_sequence_index": 2,
+      "stage": "Runway"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_SNIPERRIFLE",
+          "right_item_id": 17
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 10,
+          "right_item": "ITEM_SNIPERRIFLE",
+          "right_item_id": 17
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 13,
+          "right_item": "ITEM_GRENADELAUNCH",
+          "right_item_id": 24
+        }
+      ],
+      "level_id": "LEVELID_SURFACE",
+      "setup_source": "assets/obseg/setup/UsetupsevxZ.c",
+      "solo_sequence_index": 3,
+      "stage": "Surface 1"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 9,
+          "right_item": "ITEM_KEYANALYSERCASE",
+          "right_item_id": 46
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 10,
+          "right_item": "ITEM_CAMERA",
+          "right_item_id": 40
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 12,
+          "right_item": "ITEM_DATATHIEF",
+          "right_item_id": 55
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 14,
+          "right_item": "ITEM_AK47",
+          "right_item_id": 8
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 17,
+          "right_item": "ITEM_AK47",
+          "right_item_id": 8
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 19,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        }
+      ],
+      "level_id": "LEVELID_BUNKER1",
+      "setup_source": "assets/obseg/setup/UsetupsevbunkerZ.c",
+      "solo_sequence_index": 4,
+      "stage": "Bunker 1"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 3,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_PLASTIQUE",
+          "right_item_id": 34
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_CAMERA",
+          "right_item_id": 40
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 10,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 13,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 2,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 15,
+          "right_item": "ITEM_PLASTIQUE",
+          "right_item_id": 34
+        }
+      ],
+      "level_id": "LEVELID_SILO",
+      "setup_source": "assets/obseg/setup/u/UsetupsiloZ.c",
+      "solo_sequence_index": 5,
+      "stage": "Silo"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_MP5KSIL",
+          "right_item_id": 11
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 9,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 11,
+          "right_item": "ITEM_BOMBDEFUSER",
+          "right_item_id": 39
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 12,
+          "right_item": "ITEM_BUG",
+          "right_item_id": 47
+        },
+        {
+          "demo_slot": 1,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 15,
+          "right_item": "ITEM_MP5KSIL",
+          "right_item_id": 11
+        }
+      ],
+      "level_id": "LEVELID_FRIGATE",
+      "setup_source": "assets/obseg/setup/u/UsetupdestZ.c",
+      "solo_sequence_index": 6,
+      "stage": "Frigate"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WPPKSIL",
+          "right_item_id": 5
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_REMOTEMINE",
+          "right_item_id": 29
+        }
+      ],
+      "level_id": "LEVELID_SURFACE2",
+      "setup_source": "assets/obseg/setup/UsetupsevxbZ.c",
+      "solo_sequence_index": 7,
+      "stage": "Surface 2"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_FIST",
+          "right_item_id": 1
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 6,
+          "right_item": "ITEM_WATCHMAGNETATTRACT",
+          "right_item_id": 60
+        }
+      ],
+      "level_id": "LEVELID_BUNKER2",
+      "setup_source": "assets/obseg/setup/UsetupsevbZ.c",
+      "solo_sequence_index": 8,
+      "stage": "Bunker 2"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        }
+      ],
+      "level_id": "LEVELID_STATUE",
+      "setup_source": "assets/obseg/setup/u/UsetupstatueZ.c",
+      "solo_sequence_index": 9,
+      "stage": "Statue"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 4,
+          "right_item": "ITEM_FIST",
+          "right_item_id": 1
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WATCHMAGNETATTRACT",
+          "right_item_id": 60
+        }
+      ],
+      "level_id": "LEVELID_ARCHIVES",
+      "setup_source": "assets/obseg/setup/UsetuparchZ.c",
+      "solo_sequence_index": 10,
+      "stage": "Archives"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 4,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        }
+      ],
+      "level_id": "LEVELID_STREETS",
+      "setup_source": "assets/obseg/setup/UsetuppeteZ.c",
+      "solo_sequence_index": 11,
+      "stage": "Streets"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 4,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        }
+      ],
+      "level_id": "LEVELID_DEPOT",
+      "setup_source": "assets/obseg/setup/UsetupdepoZ.c",
+      "solo_sequence_index": 12,
+      "stage": "Depot"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 3,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WATCHLASER",
+          "right_item_id": 23
+        }
+      ],
+      "level_id": "LEVELID_TRAIN",
+      "setup_source": "assets/obseg/setup/u/UsetuptraZ.c",
+      "solo_sequence_index": 13,
+      "stage": "Train"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_REMOTEMINE",
+          "right_item_id": 29
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 8,
+          "right_item": "ITEM_TRIGGER",
+          "right_item_id": 30
+        }
+      ],
+      "level_id": "LEVELID_JUNGLE",
+      "setup_source": "assets/obseg/setup/u/UsetupjunZ.c",
+      "solo_sequence_index": 14,
+      "stage": "Jungle"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 4,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        }
+      ],
+      "level_id": "LEVELID_CONTROL",
+      "setup_source": "assets/obseg/setup/UsetupcontrolZ.c",
+      "solo_sequence_index": 15,
+      "stage": "Control"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 2,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        }
+      ],
+      "level_id": "LEVELID_CRADLE",
+      "setup_source": "assets/obseg/setup/u/UsetupcradZ.c",
+      "solo_sequence_index": 16,
+      "stage": "Cradle"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 6,
+          "right_item": "ITEM_UZI",
+          "right_item_id": 9
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 8,
+          "right_item": "ITEM_TIMEDMINE",
+          "right_item_id": 27
+        }
+      ],
+      "level_id": "LEVELID_CAVERNS",
+      "setup_source": "assets/obseg/setup/UsetupcaveZ.c",
+      "solo_sequence_index": 17,
+      "stage": "Caverns"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 5,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        },
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 7,
+          "right_item": "ITEM_EXPLOSIVEFLOPPY",
+          "right_item_id": 50
+        }
+      ],
+      "level_id": "LEVELID_AZTEC",
+      "setup_source": "assets/obseg/setup/UsetupaztZ.c",
+      "solo_sequence_index": 18,
+      "stage": "Aztec"
+    },
+    {
+      "authored_start_weapon_records": [
+        {
+          "demo_slot": 0,
+          "left_item": null,
+          "left_item_id": -1,
+          "record_index": 4,
+          "right_item": "ITEM_WPPK",
+          "right_item_id": 4
+        }
+      ],
+      "level_id": "LEVELID_EGYPT",
+      "setup_source": "assets/obseg/setup/UsetupcrypZ.c",
+      "solo_sequence_index": 19,
+      "stage": "Egyptian"
+    }
+  ]
+}

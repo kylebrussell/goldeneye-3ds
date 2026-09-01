@@ -4157,7 +4157,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
                 if (temp_v0_8 != NULL)
                 {
+#ifdef GE_PORT_USE_ORIGINAL_TYPES
+                    ((PropDefHeaderRecord *)temp_v0_8->obj)->state |= 0x40;
+#else
                     temp_v0_8->obj->state |= 0x40;
+#endif
                 }
             }
         }

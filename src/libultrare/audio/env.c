@@ -20,7 +20,11 @@
 
 #include <PR/libaudio.h>
 #include <audio/synthInternals.h>
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+#include <os.h>
+#else
 #include <PR/os.h>
+#endif
 #include <assert.h>
 
 #ifdef AUD_PROFILE
@@ -506,7 +510,6 @@ static s16 _getRate(f32 vol, f32 tgt, s32 count, u16* ratel)
     *ratel = (s16)(0xffff * (tempf2 - (f32) s));
     return (s16)tempf2;
 }
-
 
 
 

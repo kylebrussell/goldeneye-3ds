@@ -1,0 +1,4496 @@
+{
+  "count_semantics": {
+    "models": "direct ObjectRecord.obj ids plus guard body/head ids; transitive model internals are not claimed",
+    "rooms": "original background room slots, with room 0 called out as dummy",
+    "spawn": "the unique intro spawn whose original demo slot is zero",
+    "textures": "unique 12-bit Rare texture ids referenced by room display lists"
+  },
+  "evidence": [
+    "src/bondconstants.h",
+    "src/boss.c",
+    "src/game/chraidata.c",
+    "src/game/bg.c"
+  ],
+  "existing_stage_predecessors": [
+    "Dam",
+    "Facility"
+  ],
+  "region": "u",
+  "schema": 1,
+  "scope": "solo missions after Dam and Facility",
+  "stage_count": 18,
+  "stages": [
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_run_all_p.bin",
+            "sha256": "8611d916d84ba321766487519c312d4f1a844cf9a4f3e2b427ca795a13f57488",
+            "size": 41936
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_run_all_p.c",
+            "sha256": "e341cfdf7825d2864b70b9d8df21129687097ab31563981da9d81bfd9ab38795",
+            "size": 133569
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetuprunZ.bin",
+            "sha256": "af3cdcc23c7a6e35a0b7697ffbfc2ff2262e247f9913f640b6a51d734b17e3a8",
+            "size": 31072
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetuprunZ.c",
+            "sha256": "0adeec6162dca204c7e90bfa2addb11f48b945642a5c1e84304f54705ad5ab4c",
+            "size": 83376
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_run_all_p_stanZ.bin",
+            "sha256": "051b8271552fc59bc9d6ccce84b460936d4a1347d3375f9c192952ddc5de943d",
+            "size": 16112
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_run_all_p_stanZ.c",
+            "sha256": "0562c7dac19b270a3a63fc606233c292973fcfe79590d6e9a969e0e81d3091ef",
+            "size": 108056
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 1508,
+        "stan_tile_count": 495
+      },
+      "decomp_keys": {
+        "background": "run",
+        "setup": "UsetuprunZ",
+        "stan": "Tbg_run_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_RUNWAY",
+        "value": 35
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 1,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "runway",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 91,
+          "guard_count": 10,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            5
+          ],
+          "prop_record_count_including_end": 140,
+          "prop_record_type_counts": {
+            "Aircraft": 1,
+            "AmmoBox": 3,
+            "Collectable": 36,
+            "Cutscene": 1,
+            "Door": 6,
+            "Drone": 3,
+            "EndProps": 1,
+            "Guard": 10,
+            "Hat": 25,
+            "Key": 1,
+            "ObjectiveCollectObject": 1,
+            "ObjectiveCompleteCondition": 1,
+            "ObjectiveDestroyObject": 4,
+            "ObjectiveEnd": 4,
+            "ObjectiveFailCondition": 1,
+            "ObjectiveStart": 4,
+            "Rename": 4,
+            "SetGuardAttribute": 6,
+            "SingleMonitor": 1,
+            "StandardProp": 14,
+            "Tag": 7,
+            "Tank": 1,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 1,
+          "unique_guard_body_ids": [
+            37
+          ],
+          "unique_prop_model_count": 18,
+          "unique_prop_model_ids": [
+            4,
+            5,
+            43,
+            45,
+            50,
+            62,
+            75,
+            85,
+            103,
+            114,
+            149,
+            155,
+            184,
+            214,
+            243,
+            288,
+            291,
+            292
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.06976,
+            0.0,
+            -0.997564
+          ],
+          "pad_index": 53,
+          "position": [
+            654.0,
+            -29.0,
+            -485.0
+          ],
+          "record_index": 7,
+          "room": 1,
+          "stan_blob_tile_index": 458,
+          "stan_name": "p459a",
+          "stan_packed_id": 117504,
+          "stan_tile_index": 458,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 176
+      },
+      "solo_sequence_index": 2,
+      "stage": "Runway",
+      "world": {
+        "playable_room_slot_count": 17,
+        "portal_count": 27,
+        "room_count_including_dummy_room_0": 18,
+        "room_display_list_command_count": 1992,
+        "room_vertex_count": 5041,
+        "unique_rare_texture_count": 68,
+        "unique_rare_texture_ids": [
+          8,
+          22,
+          154,
+          197,
+          226,
+          229,
+          240,
+          253,
+          261,
+          286,
+          289,
+          290,
+          291,
+          293,
+          294,
+          303,
+          304,
+          307,
+          308,
+          319,
+          401,
+          434,
+          439,
+          450,
+          459,
+          494,
+          675,
+          676,
+          677,
+          685,
+          686,
+          687,
+          688,
+          692,
+          694,
+          695,
+          713,
+          722,
+          789,
+          790,
+          791,
+          792,
+          922,
+          948,
+          949,
+          981,
+          1130,
+          1144,
+          1145,
+          1146,
+          1147,
+          1148,
+          1149,
+          1150,
+          1151,
+          1152,
+          1155,
+          1156,
+          1157,
+          1159,
+          1193,
+          1263,
+          1264,
+          1266,
+          1267,
+          1473,
+          1494,
+          2476
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_sevx_all_p.bin",
+            "sha256": "443bd4bf3a073e8bc6725d167c032c5043e68ede121714e4650e990be1e1502e",
+            "size": 116176
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_sevx_all_p.c",
+            "sha256": "a5eba347b8995f47d197e15c8c8cc67e36b4148b1fa82ec97265aebf2752b3fc",
+            "size": 370913
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupsevxZ.bin",
+            "sha256": "ef2b85c2e00e85c3ff055e8bb4a72a7f985a02b7eaf3d57e55b62f0b302091a3",
+            "size": 73136
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupsevxZ.c",
+            "sha256": "30df679ef6345f02e920617c6f88fd2ce0a64f0b3bff7db99116532e989d858c",
+            "size": 186931
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_sevx_all_p_stanZ.bin",
+            "sha256": "448b053cd3343800fee38e34e1ef7144e12f3da8c7f727cb0984bdda94bc06df",
+            "size": 82128
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_sevx_all_p_stanZ.c",
+            "sha256": "b59f16ef3004b678473c4aa1dbfe753235947deee288dbd94297567a8d2ce420",
+            "size": 559974
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 7705,
+        "stan_tile_count": 2555
+      },
+      "decomp_keys": {
+        "background": "sevx",
+        "setup": "UsetupsevxZ",
+        "stan": "Tbg_sevx_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_SURFACE",
+        "value": 36
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 2,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "surface1",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 203,
+          "guard_count": 9,
+          "normal_intro_item_count": 2,
+          "normal_intro_item_ids": [
+            5,
+            17
+          ],
+          "prop_record_count_including_end": 248,
+          "prop_record_type_counts": {
+            "Alarm": 1,
+            "AmmoBox": 4,
+            "Cctv": 1,
+            "Collectable": 39,
+            "Cutscene": 1,
+            "Door": 16,
+            "Drone": 1,
+            "EndProps": 1,
+            "Glass": 1,
+            "Guard": 9,
+            "Key": 2,
+            "LockDoor": 4,
+            "ObjectiveCollectObject": 2,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveEnd": 4,
+            "ObjectiveFailCondition": 1,
+            "ObjectiveStart": 4,
+            "Rename": 4,
+            "Safe": 1,
+            "SafeItem": 1,
+            "SingleMonitor": 2,
+            "StandardProp": 83,
+            "Tag": 7,
+            "TintedGlass": 52,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            18,
+            21
+          ],
+          "unique_prop_model_count": 36,
+          "unique_prop_model_ids": [
+            1,
+            5,
+            10,
+            11,
+            24,
+            33,
+            40,
+            44,
+            45,
+            50,
+            62,
+            63,
+            72,
+            75,
+            82,
+            85,
+            104,
+            166,
+            167,
+            168,
+            169,
+            184,
+            185,
+            193,
+            210,
+            223,
+            243,
+            244,
+            254,
+            260,
+            287,
+            293,
+            295,
+            296,
+            301,
+            311
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -1.0,
+            0.0,
+            0.0
+          ],
+          "pad_index": 45,
+          "position": [
+            -4837.0,
+            128.0,
+            -11570.0
+          ],
+          "record_index": 4,
+          "room": 18,
+          "stan_blob_tile_index": 489,
+          "stan_name": "p2019a",
+          "stan_packed_id": 516864,
+          "stan_tile_index": 489,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 299
+      },
+      "solo_sequence_index": 3,
+      "stage": "Surface 1",
+      "world": {
+        "playable_room_slot_count": 39,
+        "portal_count": 101,
+        "room_count_including_dummy_room_0": 40,
+        "room_display_list_command_count": 4664,
+        "room_vertex_count": 14697,
+        "unique_rare_texture_count": 66,
+        "unique_rare_texture_ids": [
+          7,
+          22,
+          149,
+          151,
+          203,
+          205,
+          238,
+          239,
+          240,
+          241,
+          254,
+          257,
+          259,
+          261,
+          290,
+          291,
+          294,
+          295,
+          296,
+          299,
+          302,
+          308,
+          315,
+          440,
+          505,
+          548,
+          549,
+          550,
+          617,
+          619,
+          647,
+          806,
+          844,
+          901,
+          912,
+          915,
+          1158,
+          1159,
+          1163,
+          1164,
+          1166,
+          1167,
+          1194,
+          1198,
+          1199,
+          1200,
+          1201,
+          1202,
+          1203,
+          1204,
+          1242,
+          1263,
+          1264,
+          1265,
+          1266,
+          1267,
+          1373,
+          1383,
+          1463,
+          1482,
+          1499,
+          1500,
+          1509,
+          1534,
+          1535,
+          1536
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_sev_all_p.bin",
+            "sha256": "816251f8fea4792633c638d50ea197c52f5b675890b9b24bf780b2bd379bee18",
+            "size": 69104
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_sev_all_p.c",
+            "sha256": "0750ffcaa00577931e0ca8748d1a1006fa357ef5d340b16d5d67bcac0480dc31",
+            "size": 219827
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupsevbunkerZ.bin",
+            "sha256": "01a79c9ad08b592d9ad12c9319f3e4bf6b0e17d16ee86bacaab3da4fbaafa95a",
+            "size": 41056
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupsevbunkerZ.c",
+            "sha256": "d90a31436d60ab8f44cd8b7251db4a7fc7a757e8e73723a7da6039b0d3cf1dcf",
+            "size": 100733
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_sev_all_p_stanZ.bin",
+            "sha256": "d182ed0b41e45fdb7ab635bd8100b65aa559cb1a8d0fe9394941cb259121d0e0",
+            "size": 35328
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_sev_all_p_stanZ.c",
+            "sha256": "4bc6ff7c8039408d062b06f05230dc0bfdc61600182785e8a26d82f4188f337b",
+            "size": 231963
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 3344,
+        "stan_tile_count": 1066
+      },
+      "decomp_keys": {
+        "background": "sev",
+        "setup": "UsetupsevbunkerZ",
+        "stan": "Tbg_sev_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_BUNKER1",
+        "value": 9
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 3,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "bunker1",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 135,
+          "guard_count": 24,
+          "normal_intro_item_count": 4,
+          "normal_intro_item_ids": [
+            5,
+            40,
+            46,
+            55
+          ],
+          "prop_record_count_including_end": 206,
+          "prop_record_type_counts": {
+            "Alarm": 2,
+            "AmmoBox": 1,
+            "Armour": 2,
+            "Cctv": 4,
+            "Collectable": 25,
+            "Cutscene": 1,
+            "Door": 17,
+            "EndProps": 1,
+            "Glass": 1,
+            "Guard": 24,
+            "HangingMonitor": 2,
+            "Hat": 23,
+            "Key": 2,
+            "MultiMonitor": 1,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveCopy_Item": 1,
+            "ObjectiveDestroyObject": 4,
+            "ObjectiveEnd": 5,
+            "ObjectiveFailCondition": 3,
+            "ObjectivePhotograph": 1,
+            "ObjectiveStart": 5,
+            "Rename": 2,
+            "SetGuardAttribute": 7,
+            "SingleMonitor": 31,
+            "StandardProp": 24,
+            "Tag": 10,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 3,
+          "unique_guard_body_ids": [
+            2,
+            6,
+            18
+          ],
+          "unique_prop_model_count": 38,
+          "unique_prop_model_ids": [
+            1,
+            3,
+            19,
+            23,
+            24,
+            32,
+            33,
+            34,
+            38,
+            45,
+            48,
+            49,
+            51,
+            53,
+            73,
+            75,
+            76,
+            77,
+            78,
+            79,
+            83,
+            85,
+            86,
+            104,
+            115,
+            116,
+            138,
+            139,
+            140,
+            169,
+            184,
+            191,
+            193,
+            216,
+            220,
+            222,
+            223,
+            248
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "pad_index": 102,
+          "position": [
+            -745.0,
+            238.0,
+            1232.0
+          ],
+          "record_index": 6,
+          "room": 29,
+          "stan_blob_tile_index": 245,
+          "stan_name": "p120d2",
+          "stan_packed_id": 30746,
+          "stan_tile_index": 245,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 105
+      },
+      "solo_sequence_index": 4,
+      "stage": "Bunker 1",
+      "world": {
+        "playable_room_slot_count": 30,
+        "portal_count": 30,
+        "room_count_including_dummy_room_0": 31,
+        "room_display_list_command_count": 3084,
+        "room_vertex_count": 8498,
+        "unique_rare_texture_count": 61,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          22,
+          151,
+          154,
+          186,
+          202,
+          203,
+          205,
+          238,
+          254,
+          257,
+          259,
+          270,
+          294,
+          295,
+          296,
+          298,
+          299,
+          308,
+          311,
+          315,
+          399,
+          440,
+          505,
+          596,
+          597,
+          607,
+          619,
+          665,
+          773,
+          777,
+          857,
+          888,
+          901,
+          915,
+          923,
+          982,
+          1024,
+          1164,
+          1196,
+          1198,
+          1199,
+          1200,
+          1201,
+          1218,
+          1258,
+          1263,
+          1264,
+          1265,
+          1266,
+          1267,
+          1369,
+          1383,
+          1461,
+          1463,
+          1482,
+          1509,
+          1510,
+          1522,
+          1525
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_silo_all_p.bin",
+            "sha256": "6e250b60ceb8200d9d0f037ca1b8e6457e9f4e03cd67172d1842bac750d8b8a3",
+            "size": 331584
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_silo_all_p.c",
+            "sha256": "4fe28d54c006cc295f51f1e56215bc8110fcd39558744a6d6ff04f0febecd549",
+            "size": 1043396
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupsiloZ.bin",
+            "sha256": "e856c85dc01d077889d12a853b09896d50c7b8a83abaeb29fbed376e61fe0fdc",
+            "size": 75136
+          },
+          "source": {
+            "path": "assets/obseg/setup/u/UsetupsiloZ.c",
+            "sha256": "c2d2d68d8e26f759faed6856819f099a418cd70c2ae8c35c24067c53f4e33372",
+            "size": 200355
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_silo_all_p_stanZ.bin",
+            "sha256": "8b25f40ba610ab611d96050fff442b2cdd32882872d1b1cd4286882edb134901",
+            "size": 83504
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_silo_all_p_stanZ.c",
+            "sha256": "27bb3f547e159b5e99149a9e3bdb919cbb2981ce01b6a05f3994be20d91e92a1",
+            "size": 565483
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 7858,
+        "stan_tile_count": 2570
+      },
+      "decomp_keys": {
+        "background": "silo",
+        "setup": "UsetupsiloZ",
+        "stan": "Tbg_silo_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_SILO",
+        "value": 20
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 4,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "silo",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 198,
+          "guard_count": 77,
+          "normal_intro_item_count": 3,
+          "normal_intro_item_ids": [
+            5,
+            34,
+            40
+          ],
+          "prop_record_count_including_end": 336,
+          "prop_record_type_counts": {
+            "Armour": 3,
+            "Collectable": 71,
+            "Cutscene": 2,
+            "Door": 33,
+            "EndProps": 1,
+            "Guard": 77,
+            "Key": 4,
+            "MultiMonitor": 31,
+            "ObjectiveCollectObject": 5,
+            "ObjectiveCompleteCondition": 1,
+            "ObjectiveDepositObjectInRoom": 4,
+            "ObjectiveEnd": 5,
+            "ObjectiveFailCondition": 5,
+            "ObjectivePhotograph": 1,
+            "ObjectiveStart": 5,
+            "Rename": 9,
+            "SingleMonitor": 6,
+            "StandardProp": 50,
+            "Tag": 18,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 3,
+          "unique_guard_body_ids": [
+            3,
+            7,
+            35
+          ],
+          "unique_prop_model_count": 22,
+          "unique_prop_model_ids": [
+            25,
+            26,
+            27,
+            38,
+            53,
+            62,
+            69,
+            86,
+            91,
+            92,
+            93,
+            94,
+            115,
+            116,
+            141,
+            144,
+            181,
+            184,
+            198,
+            205,
+            259,
+            272
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -1e-06,
+            0.0,
+            1.0
+          ],
+          "pad_index": 209,
+          "position": [
+            -18.0,
+            -879.0,
+            1124.0
+          ],
+          "record_index": 2,
+          "room": 26,
+          "stan_blob_tile_index": 2014,
+          "stan_name": "p1495d2",
+          "stan_packed_id": 382746,
+          "stan_tile_index": 2014,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 233
+      },
+      "solo_sequence_index": 5,
+      "stage": "Silo",
+      "world": {
+        "playable_room_slot_count": 86,
+        "portal_count": 94,
+        "room_count_including_dummy_room_0": 87,
+        "room_display_list_command_count": 14374,
+        "room_vertex_count": 43328,
+        "unique_rare_texture_count": 74,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          50,
+          57,
+          59,
+          152,
+          199,
+          202,
+          203,
+          205,
+          239,
+          254,
+          258,
+          284,
+          296,
+          299,
+          300,
+          302,
+          400,
+          411,
+          414,
+          416,
+          417,
+          423,
+          455,
+          456,
+          505,
+          618,
+          657,
+          805,
+          844,
+          857,
+          858,
+          902,
+          915,
+          982,
+          1134,
+          1138,
+          1166,
+          1230,
+          1231,
+          1232,
+          1233,
+          1235,
+          1236,
+          1237,
+          1238,
+          1239,
+          1240,
+          1241,
+          1242,
+          1243,
+          1244,
+          1245,
+          1246,
+          1247,
+          1248,
+          1249,
+          1250,
+          1251,
+          1252,
+          1253,
+          1254,
+          1255,
+          1258,
+          1269,
+          1373,
+          1382,
+          1383,
+          1386,
+          1463,
+          1489,
+          1495,
+          1498
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_dest_all_p.bin",
+            "sha256": "3b2fc0ed3b821a32a164a3286eff8bf026729e42be4ca97f69e414e0f6678bca",
+            "size": 186816
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_dest_all_p.c",
+            "sha256": "bb37de5a9f234b9ba54476e95d6686f3ccfa69a9445bbaa4ff02dc4bbc0a8e12",
+            "size": 597094
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupdestZ.bin",
+            "sha256": "53ff8828bc49953611f66a2cb14f139cf15ca3802bfb53a14f216000e91a604a",
+            "size": 58624
+          },
+          "source": {
+            "path": "assets/obseg/setup/u/UsetupdestZ.c",
+            "sha256": "84683ccb658ba80846609ab73c36fbff2df3469bc4a45ba5ab25f5daa4f00bc6",
+            "size": 141625
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_dest_all_p_stanZ.bin",
+            "sha256": "1b9463118f9b2a37b4e4b9c341dd00629781b9585652ea2d2cc39ff3da35500b",
+            "size": 61040
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_dest_all_p_stanZ.c",
+            "sha256": "f4403ec8df56c9f895e294af295b36f57dfab8ba9f8f271408c889f1440e1b7a",
+            "size": 408710
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 5778,
+        "stan_tile_count": 1844
+      },
+      "decomp_keys": {
+        "background": "dest",
+        "setup": "UsetupdestZ",
+        "stan": "Tbg_dest_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_FRIGATE",
+        "value": 26
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 5,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "frigate",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 176,
+          "guard_count": 47,
+          "normal_intro_item_count": 4,
+          "normal_intro_item_ids": [
+            4,
+            11,
+            39,
+            47
+          ],
+          "prop_record_count_including_end": 260,
+          "prop_record_type_counts": {
+            "Aircraft": 1,
+            "Armour": 2,
+            "Collectable": 50,
+            "Cutscene": 1,
+            "Door": 29,
+            "DoorScale": 1,
+            "EndProps": 1,
+            "Guard": 47,
+            "Hat": 29,
+            "MultiMonitor": 8,
+            "ObjectiveCompleteCondition": 8,
+            "ObjectiveEnd": 4,
+            "ObjectiveFailCondition": 4,
+            "ObjectiveStart": 4,
+            "Rename": 1,
+            "SetGuardAttribute": 3,
+            "SingleMonitor": 8,
+            "StandardProp": 49,
+            "Tag": 5,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            17,
+            20
+          ],
+          "unique_prop_model_count": 31,
+          "unique_prop_model_ids": [
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            28,
+            29,
+            30,
+            31,
+            38,
+            50,
+            53,
+            65,
+            66,
+            67,
+            68,
+            82,
+            99,
+            100,
+            101,
+            103,
+            115,
+            116,
+            152,
+            189,
+            194,
+            220,
+            273,
+            283,
+            325
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            2e-06,
+            0.0,
+            -1.0
+          ],
+          "pad_index": 176,
+          "position": [
+            -436.0,
+            434.0,
+            126.0
+          ],
+          "record_index": 6,
+          "room": 57,
+          "stan_blob_tile_index": 12,
+          "stan_name": "p147i2",
+          "stan_packed_id": 37698,
+          "stan_tile_index": 12,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 177
+      },
+      "solo_sequence_index": 6,
+      "stage": "Frigate",
+      "world": {
+        "playable_room_slot_count": 58,
+        "portal_count": 94,
+        "room_count_including_dummy_room_0": 59,
+        "room_display_list_command_count": 9990,
+        "room_vertex_count": 28155,
+        "unique_rare_texture_count": 116,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          25,
+          46,
+          60,
+          83,
+          152,
+          196,
+          203,
+          204,
+          205,
+          211,
+          212,
+          255,
+          399,
+          470,
+          471,
+          472,
+          473,
+          474,
+          475,
+          476,
+          477,
+          478,
+          480,
+          481,
+          482,
+          483,
+          484,
+          485,
+          486,
+          487,
+          488,
+          489,
+          490,
+          491,
+          492,
+          494,
+          495,
+          496,
+          497,
+          498,
+          499,
+          501,
+          503,
+          505,
+          506,
+          507,
+          513,
+          514,
+          515,
+          516,
+          517,
+          518,
+          519,
+          520,
+          521,
+          522,
+          523,
+          524,
+          525,
+          526,
+          527,
+          528,
+          529,
+          530,
+          531,
+          532,
+          533,
+          534,
+          535,
+          536,
+          538,
+          598,
+          599,
+          600,
+          601,
+          602,
+          603,
+          604,
+          605,
+          615,
+          623,
+          655,
+          727,
+          728,
+          729,
+          730,
+          731,
+          762,
+          770,
+          773,
+          787,
+          816,
+          895,
+          915,
+          926,
+          1011,
+          1013,
+          1078,
+          1138,
+          1139,
+          1220,
+          1277,
+          1382,
+          1383,
+          1384,
+          1463,
+          1548,
+          2477,
+          2478,
+          2479,
+          2480,
+          2481,
+          2482,
+          2483
+        ],
+        "visibility_record_count": 74
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_sevx_all_p.bin",
+            "sha256": "443bd4bf3a073e8bc6725d167c032c5043e68ede121714e4650e990be1e1502e",
+            "size": 116176
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_sevx_all_p.c",
+            "sha256": "a5eba347b8995f47d197e15c8c8cc67e36b4148b1fa82ec97265aebf2752b3fc",
+            "size": 370913
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupsevxbZ.bin",
+            "sha256": "289e5b8ce6c3d51bbbd25561e181bfd6b6092f1e8be3d5ea3898f8e587a7ceb5",
+            "size": 63136
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupsevxbZ.c",
+            "sha256": "149034c6003f5a00b54c94b8c613b5a27b91c863541eea6646d5930bb2afba4c",
+            "size": 170586
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_sevx_all_p_stanZ.bin",
+            "sha256": "448b053cd3343800fee38e34e1ef7144e12f3da8c7f727cb0984bdda94bc06df",
+            "size": 82128
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_sevx_all_p_stanZ.c",
+            "sha256": "b59f16ef3004b678473c4aa1dbfe753235947deee288dbd94297567a8d2ce420",
+            "size": 559974
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 7705,
+        "stan_tile_count": 2555
+      },
+      "decomp_keys": {
+        "background": "sevx",
+        "setup": "UsetupsevxbZ",
+        "stan": "Tbg_sevx_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_SURFACE2",
+        "value": 43
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 6,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "surface2",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 125,
+          "guard_count": 7,
+          "normal_intro_item_count": 2,
+          "normal_intro_item_ids": [
+            5,
+            29
+          ],
+          "prop_record_count_including_end": 181,
+          "prop_record_type_counts": {
+            "Aircraft": 2,
+            "Armour": 2,
+            "Cctv": 4,
+            "Collectable": 15,
+            "Cutscene": 3,
+            "Door": 21,
+            "Drone": 1,
+            "EndProps": 1,
+            "Guard": 7,
+            "Hat": 1,
+            "Key": 1,
+            "LockDoor": 1,
+            "ObjectiveCompleteCondition": 1,
+            "ObjectiveDestroyObject": 6,
+            "ObjectiveEnd": 4,
+            "ObjectiveEnterRoom": 1,
+            "ObjectiveFailCondition": 2,
+            "ObjectiveStart": 4,
+            "Rename": 2,
+            "SetGuardAttribute": 1,
+            "SingleMonitor": 1,
+            "StandardProp": 25,
+            "Tag": 18,
+            "TintedGlass": 52,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            21,
+            38
+          ],
+          "unique_prop_model_count": 26,
+          "unique_prop_model_ids": [
+            11,
+            24,
+            38,
+            40,
+            43,
+            50,
+            62,
+            65,
+            75,
+            82,
+            104,
+            115,
+            116,
+            119,
+            139,
+            166,
+            167,
+            168,
+            169,
+            184,
+            193,
+            222,
+            244,
+            284,
+            295,
+            296
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -1.0,
+            0.0,
+            0.0
+          ],
+          "pad_index": 30,
+          "position": [
+            -4837.0,
+            128.0,
+            -11570.0
+          ],
+          "record_index": 4,
+          "room": 18,
+          "stan_blob_tile_index": 489,
+          "stan_name": "p2019a",
+          "stan_packed_id": 516864,
+          "stan_tile_index": 489,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 290
+      },
+      "solo_sequence_index": 7,
+      "stage": "Surface 2",
+      "world": {
+        "playable_room_slot_count": 39,
+        "portal_count": 101,
+        "room_count_including_dummy_room_0": 40,
+        "room_display_list_command_count": 4664,
+        "room_vertex_count": 14697,
+        "unique_rare_texture_count": 66,
+        "unique_rare_texture_ids": [
+          7,
+          22,
+          149,
+          151,
+          203,
+          205,
+          238,
+          239,
+          240,
+          241,
+          254,
+          257,
+          259,
+          261,
+          290,
+          291,
+          294,
+          295,
+          296,
+          299,
+          302,
+          308,
+          315,
+          440,
+          505,
+          548,
+          549,
+          550,
+          617,
+          619,
+          647,
+          806,
+          844,
+          901,
+          912,
+          915,
+          1158,
+          1159,
+          1163,
+          1164,
+          1166,
+          1167,
+          1194,
+          1198,
+          1199,
+          1200,
+          1201,
+          1202,
+          1203,
+          1204,
+          1242,
+          1263,
+          1264,
+          1265,
+          1266,
+          1267,
+          1373,
+          1383,
+          1463,
+          1482,
+          1499,
+          1500,
+          1509,
+          1534,
+          1535,
+          1536
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_sevb_all_p.bin",
+            "sha256": "0ba9b98cc26876deb3e4227070caf1f49aea0455a8359043929193c924232fd9",
+            "size": 109984
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_sevb_all_p.c",
+            "sha256": "6326353c6259155cf1ee08241581193baf417fc2a8d6ed0597a65332dd2c9808",
+            "size": 354465
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupsevbZ.bin",
+            "sha256": "19e4e993f32086ceada52672986162533ec5c53fe95cbbac5dfab5587c729f8d",
+            "size": 65424
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupsevbZ.c",
+            "sha256": "8d6a6dc50f7cebfaadc0120c0b0a5051d72ba7318616baa9d5a408edd06bdd49",
+            "size": 161057
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_sevb_all_p_stanZ.bin",
+            "sha256": "c839fb89b5b44f110d64f563c7c1b5f0a6bd4a9e30d8ae2920e1744fe5d288c8",
+            "size": 45216
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_sevb_all_p_stanZ.c",
+            "sha256": "5dea96f78fcb76cf96a88a9d6be02a5c0919d3ba68a6aa64a0be7b7b6ef10906",
+            "size": 297117
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 4281,
+        "stan_tile_count": 1365
+      },
+      "decomp_keys": {
+        "background": "sevb",
+        "setup": "UsetupsevbZ",
+        "stan": "Tbg_sevb_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_BUNKER2",
+        "value": 27
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 7,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "bunker2",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 227,
+          "guard_count": 37,
+          "normal_intro_item_count": 2,
+          "normal_intro_item_ids": [
+            1,
+            60
+          ],
+          "prop_record_count_including_end": 346,
+          "prop_record_type_counts": {
+            "Armour": 2,
+            "Cctv": 6,
+            "Collectable": 55,
+            "Cutscene": 1,
+            "Door": 38,
+            "Drone": 3,
+            "EndProps": 1,
+            "Glass": 1,
+            "Guard": 37,
+            "HangingMonitor": 2,
+            "Hat": 36,
+            "Key": 6,
+            "LinkItems": 1,
+            "ObjectiveCollectObject": 2,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveDestroyObject": 6,
+            "ObjectiveEnd": 5,
+            "ObjectiveEnterRoom": 1,
+            "ObjectiveFailCondition": 2,
+            "ObjectiveStart": 5,
+            "Rename": 11,
+            "Safe": 1,
+            "SafeItem": 3,
+            "SingleMonitor": 37,
+            "StandardProp": 40,
+            "Tag": 37,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            16,
+            38
+          ],
+          "unique_prop_model_count": 40,
+          "unique_prop_model_ids": [
+            24,
+            32,
+            33,
+            34,
+            36,
+            38,
+            45,
+            46,
+            48,
+            49,
+            75,
+            76,
+            77,
+            83,
+            86,
+            98,
+            104,
+            115,
+            116,
+            136,
+            138,
+            139,
+            140,
+            169,
+            182,
+            184,
+            193,
+            204,
+            209,
+            214,
+            220,
+            243,
+            244,
+            254,
+            269,
+            270,
+            271,
+            275,
+            293,
+            294
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "pad_index": 49,
+          "position": [
+            -1836.0,
+            49.0,
+            2448.0
+          ],
+          "record_index": 4,
+          "room": 40,
+          "stan_blob_tile_index": 553,
+          "stan_name": "p2807c2",
+          "stan_packed_id": 718610,
+          "stan_tile_index": 553,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 121
+      },
+      "solo_sequence_index": 8,
+      "stage": "Bunker 2",
+      "world": {
+        "playable_room_slot_count": 68,
+        "portal_count": 75,
+        "room_count_including_dummy_room_0": 69,
+        "room_display_list_command_count": 5358,
+        "room_vertex_count": 12625,
+        "unique_rare_texture_count": 68,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          22,
+          151,
+          154,
+          173,
+          186,
+          202,
+          203,
+          205,
+          206,
+          238,
+          252,
+          254,
+          256,
+          257,
+          259,
+          270,
+          294,
+          295,
+          296,
+          298,
+          299,
+          308,
+          315,
+          399,
+          412,
+          415,
+          440,
+          505,
+          596,
+          597,
+          607,
+          619,
+          665,
+          773,
+          777,
+          857,
+          888,
+          901,
+          915,
+          923,
+          982,
+          1017,
+          1137,
+          1164,
+          1196,
+          1198,
+          1199,
+          1200,
+          1201,
+          1218,
+          1242,
+          1252,
+          1258,
+          1263,
+          1264,
+          1265,
+          1266,
+          1267,
+          1277,
+          1383,
+          1461,
+          1463,
+          1482,
+          1483,
+          1509,
+          1510
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_stat_all_p.bin",
+            "sha256": "4a9bf5342c966ca284c7cdf4b1479aec2007a177ee4cc69d6918efa169fae146",
+            "size": 139472
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_stat_all_p.c",
+            "sha256": "948cf4206ac288a7db65f7e767c1d5e568894bd849d146d7a8739e3da2dd0516",
+            "size": 440360
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupstatueZ.bin",
+            "sha256": "73e152a420da245032e3af08a95ebe7d282fcd1de55110f19ad62455cc98e39c",
+            "size": 33952
+          },
+          "source": {
+            "path": "assets/obseg/setup/u/UsetupstatueZ.c",
+            "sha256": "419be8467ddc9ee08e7cbc58968ec45277453465ee4393cbebc4bea169cd4005",
+            "size": 109927
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_stat_all_p_stanZ.bin",
+            "sha256": "9aa7bbda4cc28e2fa4f854c7988faf0296849e73d6234885f317e365d1cefcb5",
+            "size": 44272
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_stat_all_p_stanZ.c",
+            "sha256": "8a5c8a956e8eadbfdab5516a21ee3e783d32cc269cdc3b0d01beae9a9d8ad3e1",
+            "size": 289399
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 4153,
+        "stan_tile_count": 1374
+      },
+      "decomp_keys": {
+        "background": "stat",
+        "setup": "UsetupstatueZ",
+        "stan": "Tbg_stat_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_STATUE",
+        "value": 22
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 8,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "statue",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 19,
+          "guard_count": 5,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            4
+          ],
+          "prop_record_count_including_end": 65,
+          "prop_record_type_counts": {
+            "Aircraft": 1,
+            "Armour": 1,
+            "Collectable": 10,
+            "Cutscene": 1,
+            "Door": 2,
+            "EndProps": 1,
+            "Guard": 5,
+            "Hat": 4,
+            "ObjectiveCollectObject": 1,
+            "ObjectiveCompleteCondition": 4,
+            "ObjectiveEnd": 5,
+            "ObjectiveFailCondition": 7,
+            "ObjectiveStart": 5,
+            "Rename": 1,
+            "StandardProp": 1,
+            "Tag": 11,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            3,
+            10
+          ],
+          "unique_prop_model_count": 7,
+          "unique_prop_model_ids": [
+            115,
+            119,
+            183,
+            184,
+            217,
+            274,
+            283
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.999739,
+            0.0,
+            -0.022853
+          ],
+          "pad_index": 21,
+          "position": [
+            -1841.0,
+            140.0,
+            381.0
+          ],
+          "record_index": 4,
+          "room": 11,
+          "stan_blob_tile_index": 1042,
+          "stan_name": "p4213b",
+          "stan_packed_id": 1078536,
+          "stan_tile_index": 1042,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 228
+      },
+      "solo_sequence_index": 9,
+      "stage": "Statue",
+      "world": {
+        "playable_room_slot_count": 27,
+        "portal_count": 43,
+        "room_count_including_dummy_room_0": 28,
+        "room_display_list_command_count": 5532,
+        "room_vertex_count": 17390,
+        "unique_rare_texture_count": 134,
+        "unique_rare_texture_ids": [
+          9,
+          10,
+          176,
+          177,
+          183,
+          211,
+          272,
+          321,
+          322,
+          323,
+          324,
+          325,
+          326,
+          327,
+          328,
+          394,
+          419,
+          449,
+          450,
+          451,
+          452,
+          459,
+          588,
+          589,
+          590,
+          591,
+          592,
+          593,
+          594,
+          595,
+          748,
+          749,
+          750,
+          787,
+          1022,
+          1060,
+          1171,
+          1193,
+          1204,
+          1223,
+          1224,
+          1226,
+          1285,
+          1286,
+          1287,
+          1288,
+          1289,
+          1290,
+          1291,
+          1292,
+          1293,
+          1294,
+          1295,
+          1296,
+          1297,
+          1298,
+          1299,
+          1300,
+          1301,
+          1302,
+          1303,
+          1304,
+          1305,
+          1306,
+          1307,
+          1308,
+          1309,
+          1310,
+          1311,
+          1312,
+          1313,
+          1314,
+          1315,
+          1316,
+          1317,
+          1318,
+          1319,
+          1320,
+          1321,
+          1322,
+          1323,
+          1324,
+          1325,
+          1326,
+          1327,
+          1328,
+          1329,
+          1330,
+          1331,
+          1332,
+          1333,
+          1334,
+          1335,
+          1336,
+          1337,
+          1338,
+          1339,
+          1340,
+          1341,
+          1342,
+          1343,
+          1344,
+          1345,
+          1346,
+          1347,
+          1348,
+          1349,
+          1350,
+          1351,
+          1352,
+          1353,
+          1354,
+          1355,
+          1357,
+          1358,
+          1359,
+          1360,
+          1361,
+          1362,
+          1363,
+          1364,
+          1368,
+          1521,
+          1523,
+          1526,
+          1535,
+          1547,
+          1611,
+          1612,
+          1615,
+          1618,
+          1621,
+          2696,
+          2697
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_arch_all_p.bin",
+            "sha256": "156d09b59fdcda4224a0111db8c91061144e065b38f88656ec38a3df7d5b2cb2",
+            "size": 154352
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_arch_all_p.c",
+            "sha256": "579b603e1c1a0134073578fd2066f864add5ae437318cb0f41b1d8cee9b05383",
+            "size": 491513
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetuparchZ.bin",
+            "sha256": "8a96b194a89f1bf80dc0442943fa403f3564ca0b529597e126b080c123b88516",
+            "size": 99792
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetuparchZ.c",
+            "sha256": "d0abc69f576e6353c3ff739dbc5b74636183cc401b8b66bdedd8d327a89a5f21",
+            "size": 228780
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_arch_all_p_stanZ.bin",
+            "sha256": "afc8264cc6ffa475b23b2f682b5bea4f0088130e654dbb582b10c666391d54fe",
+            "size": 54640
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_arch_all_p_stanZ.c",
+            "sha256": "ae79d0bb292a5e79a351c39f0d12d35be44212135ccbf4ba93ffef51358d67f6",
+            "size": 364446
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 5187,
+        "stan_tile_count": 1636
+      },
+      "decomp_keys": {
+        "background": "arch",
+        "setup": "UsetuparchZ",
+        "stan": "Tbg_arch_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_ARCHIVES",
+        "value": 24
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 9,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "archives",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 341,
+          "guard_count": 30,
+          "normal_intro_item_count": 2,
+          "normal_intro_item_ids": [
+            1,
+            60
+          ],
+          "prop_record_count_including_end": 416,
+          "prop_record_type_counts": {
+            "AmmoMag": 6,
+            "Armour": 2,
+            "Collectable": 34,
+            "Cutscene": 1,
+            "Door": 35,
+            "DoorScale": 1,
+            "EndProps": 1,
+            "Glass": 28,
+            "Guard": 30,
+            "Hat": 28,
+            "Key": 2,
+            "ObjectiveCollectObject": 1,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveEnd": 4,
+            "ObjectiveEnterRoom": 2,
+            "ObjectiveFailCondition": 2,
+            "ObjectiveStart": 4,
+            "Rename": 4,
+            "Safe": 1,
+            "SafeItem": 1,
+            "SetGuardAttribute": 11,
+            "StandardProp": 205,
+            "Tag": 6,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 1,
+          "unique_explicit_guard_head_ids": [
+            69
+          ],
+          "unique_guard_body_count": 3,
+          "unique_guard_body_ids": [
+            2,
+            16,
+            19
+          ],
+          "unique_prop_model_count": 30,
+          "unique_prop_model_ids": [
+            11,
+            18,
+            40,
+            43,
+            50,
+            85,
+            104,
+            105,
+            106,
+            107,
+            115,
+            116,
+            133,
+            134,
+            143,
+            184,
+            191,
+            193,
+            205,
+            214,
+            216,
+            220,
+            222,
+            243,
+            244,
+            254,
+            274,
+            293,
+            297,
+            298
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -0.916412,
+            0.0,
+            0.400236
+          ],
+          "pad_index": 192,
+          "position": [
+            132.0,
+            20.0,
+            488.0
+          ],
+          "record_index": 3,
+          "room": 14,
+          "stan_blob_tile_index": 1465,
+          "stan_name": "p1522b",
+          "stan_packed_id": 389640,
+          "stan_tile_index": 1465,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 210
+      },
+      "solo_sequence_index": 10,
+      "stage": "Archives",
+      "world": {
+        "playable_room_slot_count": 65,
+        "portal_count": 103,
+        "room_count_including_dummy_room_0": 66,
+        "room_display_list_command_count": 7066,
+        "room_vertex_count": 20608,
+        "unique_rare_texture_count": 99,
+        "unique_rare_texture_ids": [
+          20,
+          149,
+          153,
+          157,
+          179,
+          195,
+          206,
+          235,
+          258,
+          273,
+          274,
+          275,
+          276,
+          277,
+          278,
+          295,
+          296,
+          299,
+          308,
+          373,
+          374,
+          375,
+          376,
+          377,
+          378,
+          379,
+          380,
+          381,
+          385,
+          399,
+          400,
+          413,
+          415,
+          431,
+          505,
+          576,
+          632,
+          651,
+          772,
+          809,
+          810,
+          896,
+          897,
+          898,
+          899,
+          1017,
+          1050,
+          1051,
+          1052,
+          1053,
+          1055,
+          1056,
+          1057,
+          1058,
+          1087,
+          1135,
+          1136,
+          1137,
+          1158,
+          1168,
+          1214,
+          1224,
+          1245,
+          1246,
+          1247,
+          1256,
+          1268,
+          1277,
+          1280,
+          1281,
+          1282,
+          1368,
+          1369,
+          1468,
+          1469,
+          1471,
+          1472,
+          1473,
+          1474,
+          1475,
+          1476,
+          1477,
+          1478,
+          1479,
+          1480,
+          1484,
+          1515,
+          1516,
+          1518,
+          1519,
+          1523,
+          1524,
+          1527,
+          1532,
+          2372,
+          2374,
+          2376,
+          2378,
+          2381
+        ],
+        "visibility_record_count": 28
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_pete_all_p.bin",
+            "sha256": "f6b518434f3158b9675420240d3cd7538e62249947a687ac4beaeaf2599fd3e0",
+            "size": 105520
+          },
+          "source": {
+            "path": "assets/obseg/bg/u/bg_pete_all_p.c",
+            "sha256": "461e0321a79c40054abea4ba2d3441c9c7204126ca6a546d4e9c6b66cb4fda98",
+            "size": 336827
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetuppeteZ.bin",
+            "sha256": "196cffa99c7fb9c1b775ebde12f4a7c41aca9aced11eabfff41109d6b9d69299",
+            "size": 57392
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetuppeteZ.c",
+            "sha256": "064e998306f07791b668ce80a17b52e5edd80c70defe83c0eebb4bd4363e286d",
+            "size": 152329
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_pete_all_p_stanZ.bin",
+            "sha256": "ee4efeee77a8268d8b0517493dd6b34002d4acabbd5659bba77187ee99e05a34",
+            "size": 41072
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_pete_all_p_stanZ.c",
+            "sha256": "85740ea298600a26660311d17484bd691eecc69d51110996735160dca8bea0e3",
+            "size": 274715
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 3892,
+        "stan_tile_count": 1235
+      },
+      "decomp_keys": {
+        "background": "pete",
+        "setup": "UsetuppeteZ",
+        "stan": "Tbg_pete_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_STREETS",
+        "value": 29
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 10,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "streets",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 148,
+          "guard_count": 39,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            4
+          ],
+          "prop_record_count_including_end": 219,
+          "prop_record_type_counts": {
+            "AmmoBox": 1,
+            "Armour": 5,
+            "Collectable": 28,
+            "Cutscene": 1,
+            "EndProps": 1,
+            "Guard": 39,
+            "ObjectiveCompleteCondition": 3,
+            "ObjectiveEnd": 3,
+            "ObjectiveFailCondition": 3,
+            "ObjectiveStart": 3,
+            "SetGuardAttribute": 10,
+            "StandardProp": 105,
+            "Tag": 3,
+            "Tank": 1,
+            "Vehicle": 8,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            2,
+            10
+          ],
+          "unique_prop_model_count": 16,
+          "unique_prop_model_ids": [
+            5,
+            115,
+            184,
+            185,
+            196,
+            280,
+            288,
+            303,
+            304,
+            313,
+            320,
+            321,
+            322,
+            323,
+            324,
+            334
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -0.016799,
+            0.0,
+            0.999859
+          ],
+          "pad_index": 245,
+          "position": [
+            -450.0,
+            89.0,
+            -926.0
+          ],
+          "record_index": 3,
+          "room": 7,
+          "stan_blob_tile_index": 1027,
+          "stan_name": "p8049a",
+          "stan_packed_id": 2060544,
+          "stan_tile_index": 1027,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 285
+      },
+      "solo_sequence_index": 11,
+      "stage": "Streets",
+      "world": {
+        "playable_room_slot_count": 55,
+        "portal_count": 61,
+        "room_count_including_dummy_room_0": 56,
+        "room_display_list_command_count": 4132,
+        "room_vertex_count": 13046,
+        "unique_rare_texture_count": 95,
+        "unique_rare_texture_ids": [
+          20,
+          178,
+          179,
+          195,
+          251,
+          277,
+          309,
+          313,
+          373,
+          374,
+          375,
+          376,
+          377,
+          378,
+          379,
+          380,
+          381,
+          385,
+          431,
+          458,
+          537,
+          576,
+          587,
+          742,
+          743,
+          744,
+          747,
+          751,
+          752,
+          753,
+          754,
+          755,
+          756,
+          757,
+          838,
+          839,
+          840,
+          841,
+          984,
+          1011,
+          1019,
+          1048,
+          1050,
+          1051,
+          1052,
+          1124,
+          1158,
+          1166,
+          1256,
+          1368,
+          1473,
+          1475,
+          1476,
+          1477,
+          1484,
+          1515,
+          1516,
+          1518,
+          1519,
+          1523,
+          1529,
+          1532,
+          1533,
+          2173,
+          2362,
+          2369,
+          2370,
+          2371,
+          2372,
+          2373,
+          2374,
+          2375,
+          2376,
+          2378,
+          2380,
+          2381,
+          2382,
+          2383,
+          2384,
+          2385,
+          2386,
+          2387,
+          2402,
+          2403,
+          2405,
+          2407,
+          2408,
+          2409,
+          2410,
+          2413,
+          2421,
+          2422,
+          2423,
+          2424,
+          2681
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_depo_all_p.bin",
+            "sha256": "2ea9ae4af06095d2d72e1b9029a8ba589c016f211634edec117b9d55f47e4b20",
+            "size": 182640
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_depo_all_p.c",
+            "sha256": "4060ad86ff810e3da53ef057bb42782917ab2a526a98c1699e46bc1fa4d5d798",
+            "size": 588747
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupdepoZ.bin",
+            "sha256": "e483b0adce904f3c15a60072318a0e9c842f7ffcce1533a0f1503735ecf76d7a",
+            "size": 56720
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupdepoZ.c",
+            "sha256": "7ccef88c58e360effbcff3c6774452791c90cb2dcb7639b7fc69177b0aac12d6",
+            "size": 145204
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_depo_all_p_stanZ.bin",
+            "sha256": "22b1cf7703201bb4bcab3c403c829d919d6d6c61846c0cede9d340d09d2d2e12",
+            "size": 66336
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_depo_all_p_stanZ.c",
+            "sha256": "51652de41a9284017d4b344bbbd456225983d363a426c37409f6dd4e3dd60fae",
+            "size": 441603
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 6278,
+        "stan_tile_count": 2007
+      },
+      "decomp_keys": {
+        "background": "depo",
+        "setup": "UsetupdepoZ",
+        "stan": "Tbg_depo_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_DEPOT",
+        "value": 30
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 11,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "depot",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 135,
+          "guard_count": 14,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            4
+          ],
+          "prop_record_count_including_end": 218,
+          "prop_record_type_counts": {
+            "AmmoBox": 1,
+            "AmmoMag": 3,
+            "Armour": 12,
+            "Collectable": 27,
+            "Cutscene": 1,
+            "Door": 24,
+            "Drone": 1,
+            "EndProps": 1,
+            "Guard": 14,
+            "Key": 1,
+            "MultiMonitor": 1,
+            "ObjectiveCollectObject": 2,
+            "ObjectiveCompleteCondition": 1,
+            "ObjectiveDestroyObject": 20,
+            "ObjectiveEnd": 5,
+            "ObjectiveStart": 5,
+            "Rename": 3,
+            "Safe": 1,
+            "SafeItem": 1,
+            "SingleMonitor": 4,
+            "StandardProp": 60,
+            "Tag": 25,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 1,
+          "unique_guard_body_ids": [
+            17
+          ],
+          "unique_prop_model_count": 26,
+          "unique_prop_model_ids": [
+            3,
+            5,
+            38,
+            45,
+            48,
+            73,
+            75,
+            78,
+            88,
+            89,
+            90,
+            98,
+            115,
+            116,
+            143,
+            149,
+            180,
+            184,
+            189,
+            202,
+            211,
+            243,
+            254,
+            258,
+            293,
+            300
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -1e-06,
+            0.0,
+            1.0
+          ],
+          "pad_index": 272,
+          "position": [
+            911.0,
+            19.0,
+            -2473.0
+          ],
+          "record_index": 3,
+          "room": 7,
+          "stan_blob_tile_index": 1893,
+          "stan_name": "p1480a2",
+          "stan_packed_id": 378882,
+          "stan_tile_index": 1893,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 354
+      },
+      "solo_sequence_index": 12,
+      "stage": "Depot",
+      "world": {
+        "playable_room_slot_count": 89,
+        "portal_count": 118,
+        "room_count_including_dummy_room_0": 90,
+        "room_display_list_command_count": 9078,
+        "room_vertex_count": 25496,
+        "unique_rare_texture_count": 147,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          60,
+          64,
+          65,
+          66,
+          68,
+          69,
+          71,
+          85,
+          86,
+          149,
+          152,
+          153,
+          175,
+          179,
+          200,
+          212,
+          226,
+          227,
+          229,
+          236,
+          237,
+          251,
+          265,
+          294,
+          296,
+          297,
+          299,
+          303,
+          308,
+          309,
+          313,
+          369,
+          370,
+          373,
+          382,
+          385,
+          400,
+          411,
+          414,
+          422,
+          431,
+          447,
+          448,
+          449,
+          450,
+          451,
+          455,
+          456,
+          457,
+          458,
+          459,
+          505,
+          579,
+          631,
+          656,
+          732,
+          733,
+          734,
+          735,
+          736,
+          737,
+          738,
+          739,
+          742,
+          743,
+          744,
+          745,
+          746,
+          747,
+          748,
+          749,
+          750,
+          751,
+          752,
+          753,
+          754,
+          755,
+          756,
+          757,
+          758,
+          759,
+          760,
+          761,
+          769,
+          831,
+          832,
+          833,
+          838,
+          839,
+          840,
+          841,
+          846,
+          857,
+          983,
+          984,
+          989,
+          991,
+          994,
+          996,
+          997,
+          998,
+          1019,
+          1026,
+          1027,
+          1029,
+          1080,
+          1081,
+          1082,
+          1085,
+          1086,
+          1087,
+          1140,
+          1158,
+          1159,
+          1163,
+          1166,
+          1168,
+          1171,
+          1204,
+          1223,
+          1225,
+          1226,
+          1227,
+          1228,
+          1256,
+          1260,
+          1276,
+          1277,
+          1280,
+          1281,
+          1282,
+          1283,
+          1368,
+          1373,
+          1375,
+          1376,
+          1380,
+          1426,
+          1433,
+          1438,
+          1447,
+          1473,
+          1515,
+          1540,
+          2463
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_tra_all_p.bin",
+            "sha256": "30b611e65599f83b13ae5aad5c0ff3fd2dae0cbc07d2d1f8ee7cbf466b7fd3b2",
+            "size": 132464
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_tra_all_p.c",
+            "sha256": "d035d917a13a3391bc911072fe6528ad7ffd878658a84f5c24c44520c7eb749a",
+            "size": 427313
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetuptraZ.bin",
+            "sha256": "44e77eec6bf815fd6c87f2f1b8efceadbcfbcf4fe1076aef61a99d1e7e8db7f6",
+            "size": 82032
+          },
+          "source": {
+            "path": "assets/obseg/setup/u/UsetuptraZ.c",
+            "sha256": "ecf330dedfc3954f37c68c16b06f97c8a10c7f62a06b79c1452ac7923382c220",
+            "size": 212954
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_tra_all_p_stanZ.bin",
+            "sha256": "952f472901aa4db8a3f6804b5efd831c889c9bd5b5b6420ec2552f6a65eabc72",
+            "size": 22336
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_tra_all_p_stanZ.c",
+            "sha256": "124e87608b27464c2cef6a5515d8b01b812776bc9f64a8cc691204a6ca99837e",
+            "size": 148273
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 2090,
+        "stan_tile_count": 694
+      },
+      "decomp_keys": {
+        "background": "tra",
+        "setup": "UsetuptraZ",
+        "stan": "Tbg_tra_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_TRAIN",
+        "value": 25
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 12,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "train",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 302,
+          "guard_count": 40,
+          "normal_intro_item_count": 2,
+          "normal_intro_item_ids": [
+            4,
+            23
+          ],
+          "prop_record_count_including_end": 438,
+          "prop_record_type_counts": {
+            "Collectable": 86,
+            "Cutscene": 1,
+            "Door": 53,
+            "EndProps": 1,
+            "Glass": 12,
+            "Guard": 40,
+            "Hat": 62,
+            "Key": 1,
+            "LockDoor": 20,
+            "ObjectiveCompleteCondition": 4,
+            "ObjectiveDestroyObject": 6,
+            "ObjectiveEnd": 5,
+            "ObjectiveFailCondition": 1,
+            "ObjectiveStart": 5,
+            "Rename": 1,
+            "SingleMonitor": 1,
+            "StandardProp": 87,
+            "Tag": 47,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 6,
+          "unique_guard_body_ids": [
+            4,
+            7,
+            8,
+            11,
+            16,
+            17
+          ],
+          "unique_prop_model_count": 19,
+          "unique_prop_model_ids": [
+            45,
+            53,
+            75,
+            82,
+            85,
+            104,
+            119,
+            120,
+            161,
+            162,
+            177,
+            189,
+            195,
+            197,
+            205,
+            220,
+            221,
+            243,
+            325
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            1e-06,
+            0.0,
+            -1.0
+          ],
+          "pad_index": 186,
+          "position": [
+            117.0,
+            45.0,
+            -9.0
+          ],
+          "record_index": 2,
+          "room": 2,
+          "stan_blob_tile_index": 687,
+          "stan_name": "p885a1",
+          "stan_packed_id": 226561,
+          "stan_tile_index": 687,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 206
+      },
+      "solo_sequence_index": 13,
+      "stage": "Train",
+      "world": {
+        "playable_room_slot_count": 57,
+        "portal_count": 64,
+        "room_count_including_dummy_room_0": 58,
+        "room_display_list_command_count": 5634,
+        "room_vertex_count": 16321,
+        "unique_rare_texture_count": 62,
+        "unique_rare_texture_ids": [
+          5,
+          6,
+          8,
+          147,
+          175,
+          194,
+          197,
+          226,
+          227,
+          228,
+          229,
+          257,
+          265,
+          266,
+          284,
+          299,
+          452,
+          579,
+          662,
+          760,
+          787,
+          824,
+          848,
+          861,
+          862,
+          863,
+          864,
+          865,
+          867,
+          869,
+          980,
+          1066,
+          1067,
+          1075,
+          1076,
+          1080,
+          1082,
+          1204,
+          1256,
+          1261,
+          1268,
+          1384,
+          1426,
+          1427,
+          1428,
+          1429,
+          1430,
+          1431,
+          1432,
+          1433,
+          1434,
+          1435,
+          1436,
+          1438,
+          1485,
+          1486,
+          1509,
+          1530,
+          1532,
+          1537,
+          1538,
+          1539
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_jun_all_p.bin",
+            "sha256": "bd84f89c2f2ea08b6f73b9afe23a351bf2f9f4547466c9952929d794885ba20e",
+            "size": 86352
+          },
+          "source": {
+            "path": "assets/obseg/bg/u/bg_jun_all_p.c",
+            "sha256": "311e473fdb8c19774ba5703985c0649887bf71a304d3daeb050b0c197d18038e",
+            "size": 279905
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupjunZ.bin",
+            "sha256": "e00566b2c488fdb748e85fde2f56f069c82305a79a17893f170d4b11cbbd99b7",
+            "size": 103424
+          },
+          "source": {
+            "path": "assets/obseg/setup/u/UsetupjunZ.c",
+            "sha256": "7e67bee61e7e9901ebc71a7a117213eaadb0976feb9a76c4ca72d53ffba82661",
+            "size": 242118
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_jun_all_p_stanZ.bin",
+            "sha256": "c6dd2139892c2e71bc9a13e5aa2a3bfbbd24b08fbc876c3456db8ba8a2dc051f",
+            "size": 67424
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_jun_all_p_stanZ.c",
+            "sha256": "ed373c889ec4acc8733e8eb05b730f05125d086dc1d7fee9d01ac2b561ecccd4",
+            "size": 447712
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 6318,
+        "stan_tile_count": 2104
+      },
+      "decomp_keys": {
+        "background": "jun",
+        "setup": "UsetupjunZ",
+        "stan": "Tbg_jun_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_JUNGLE",
+        "value": 37
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 13,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "jungle",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 466,
+          "guard_count": 42,
+          "normal_intro_item_count": 3,
+          "normal_intro_item_ids": [
+            4,
+            29,
+            30
+          ],
+          "prop_record_count_including_end": 571,
+          "prop_record_type_counts": {
+            "Armour": 3,
+            "Collectable": 43,
+            "Cutscene": 1,
+            "Door": 2,
+            "Drone": 7,
+            "EndProps": 1,
+            "Guard": 42,
+            "Hat": 40,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveDestroyObject": 16,
+            "ObjectiveEnd": 4,
+            "ObjectiveFailCondition": 1,
+            "ObjectiveStart": 4,
+            "SetGuardAttribute": 6,
+            "StandardProp": 371,
+            "Tag": 23,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 3,
+          "unique_guard_body_ids": [
+            0,
+            11,
+            79
+          ],
+          "unique_prop_model_count": 21,
+          "unique_prop_model_ids": [
+            3,
+            53,
+            62,
+            82,
+            108,
+            109,
+            110,
+            111,
+            115,
+            116,
+            144,
+            185,
+            188,
+            190,
+            197,
+            217,
+            299,
+            314,
+            315,
+            316,
+            317
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.392014,
+            0.0,
+            -0.919959
+          ],
+          "pad_index": 514,
+          "position": [
+            -80.0,
+            2.0,
+            137.0
+          ],
+          "record_index": 4,
+          "room": 2,
+          "stan_blob_tile_index": 1986,
+          "stan_name": "p4719a",
+          "stan_packed_id": 1208064,
+          "stan_tile_index": 1986,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 593
+      },
+      "solo_sequence_index": 14,
+      "stage": "Jungle",
+      "world": {
+        "playable_room_slot_count": 44,
+        "portal_count": 59,
+        "room_count_including_dummy_room_0": 45,
+        "room_display_list_command_count": 3816,
+        "room_vertex_count": 10618,
+        "unique_rare_texture_count": 62,
+        "unique_rare_texture_ids": [
+          7,
+          187,
+          198,
+          227,
+          254,
+          258,
+          384,
+          407,
+          408,
+          618,
+          825,
+          826,
+          827,
+          828,
+          829,
+          830,
+          857,
+          858,
+          866,
+          916,
+          930,
+          933,
+          934,
+          939,
+          1024,
+          1032,
+          1033,
+          1034,
+          1035,
+          1036,
+          1037,
+          1038,
+          1039,
+          1040,
+          1041,
+          1042,
+          1043,
+          1044,
+          1046,
+          1047,
+          1138,
+          1148,
+          1370,
+          1371,
+          1536,
+          1540,
+          2264,
+          2265,
+          2266,
+          2267,
+          2268,
+          2269,
+          2270,
+          2271,
+          2345,
+          2407,
+          2475,
+          2486,
+          2509,
+          2534,
+          2535,
+          2536
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_arec_all_p.bin",
+            "sha256": "e73fb44f1438f268d22719546a0562f6a4900179d838584e6c633e5e3979677d",
+            "size": 189312
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_arec_all_p.c",
+            "sha256": "749dedfae17975ad328134c198c29dd330c3bd280d061ec9f0496cfdccc59ac4",
+            "size": 604256
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupcontrolZ.bin",
+            "sha256": "aa22978104cc029a61f9c328f39f35042aabdcd3eb5b9d7e9f47ba2bbbfd821f",
+            "size": 71648
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupcontrolZ.c",
+            "sha256": "98d0689709a6b0ed51771f4371435208444b9a1fbc1480a7614f2f576d420523",
+            "size": 184631
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_arec_all_p_stanZ.bin",
+            "sha256": "c3ee22bf33b0fe78dca6b4d76c6b8ee5a240aecddda85ee301f7f7a32a598c4d",
+            "size": 73888
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_arec_all_p_stanZ.c",
+            "sha256": "3b04bab5ce7b371e434aabee7fbf9d02dfb8ea9809623c84274583490cfa3dc2",
+            "size": 490716
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 6954,
+        "stan_tile_count": 2275
+      },
+      "decomp_keys": {
+        "background": "arec",
+        "setup": "UsetupcontrolZ",
+        "stan": "Tbg_arec_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_CONTROL",
+        "value": 23
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 14,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "control",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 193,
+          "guard_count": 42,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            4
+          ],
+          "prop_record_count_including_end": 294,
+          "prop_record_type_counts": {
+            "AmmoBox": 1,
+            "Armour": 2,
+            "Collectable": 50,
+            "Cutscene": 1,
+            "Door": 18,
+            "Drone": 7,
+            "EndProps": 1,
+            "Guard": 42,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveDestroyObject": 6,
+            "ObjectiveEnd": 3,
+            "ObjectiveFailCondition": 2,
+            "ObjectiveStart": 3,
+            "SetGuardAttribute": 4,
+            "SingleMonitor": 21,
+            "StandardProp": 64,
+            "Tag": 32,
+            "TintedGlass": 30,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 4,
+          "unique_guard_body_ids": [
+            0,
+            6,
+            8,
+            79
+          ],
+          "unique_prop_model_count": 20,
+          "unique_prop_model_ids": [
+            5,
+            45,
+            48,
+            49,
+            53,
+            75,
+            77,
+            88,
+            89,
+            90,
+            95,
+            97,
+            98,
+            104,
+            115,
+            144,
+            150,
+            176,
+            189,
+            190
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.594242,
+            0.0,
+            0.804286
+          ],
+          "pad_index": 223,
+          "position": [
+            -1960.0,
+            0.0,
+            -586.0
+          ],
+          "record_index": 3,
+          "room": 91,
+          "stan_blob_tile_index": 2,
+          "stan_name": "p56n",
+          "stan_packed_id": 14440,
+          "stan_tile_index": 2,
+          "up": [
+            2e-06,
+            1.0,
+            -1e-06
+          ]
+        },
+        "pad_count": 231
+      },
+      "solo_sequence_index": 15,
+      "stage": "Control",
+      "world": {
+        "playable_room_slot_count": 91,
+        "portal_count": 141,
+        "room_count_including_dummy_room_0": 92,
+        "room_display_list_command_count": 8564,
+        "room_vertex_count": 23872,
+        "unique_rare_texture_count": 122,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          50,
+          57,
+          59,
+          148,
+          152,
+          155,
+          168,
+          173,
+          174,
+          211,
+          212,
+          214,
+          235,
+          254,
+          258,
+          279,
+          285,
+          298,
+          299,
+          306,
+          308,
+          312,
+          314,
+          315,
+          316,
+          317,
+          318,
+          371,
+          372,
+          399,
+          400,
+          401,
+          505,
+          537,
+          596,
+          597,
+          606,
+          607,
+          618,
+          619,
+          656,
+          726,
+          769,
+          773,
+          787,
+          857,
+          858,
+          900,
+          901,
+          902,
+          913,
+          915,
+          916,
+          982,
+          989,
+          990,
+          992,
+          993,
+          994,
+          995,
+          996,
+          997,
+          998,
+          1009,
+          1012,
+          1054,
+          1055,
+          1057,
+          1058,
+          1059,
+          1091,
+          1096,
+          1097,
+          1098,
+          1099,
+          1100,
+          1101,
+          1102,
+          1103,
+          1104,
+          1105,
+          1106,
+          1107,
+          1133,
+          1137,
+          1138,
+          1158,
+          1160,
+          1162,
+          1163,
+          1164,
+          1166,
+          1168,
+          1223,
+          1229,
+          1258,
+          1278,
+          1279,
+          1369,
+          1370,
+          1371,
+          1374,
+          1381,
+          1383,
+          1384,
+          1425,
+          1461,
+          1470,
+          1547,
+          2239,
+          2240,
+          2264,
+          2265,
+          2266,
+          2267,
+          2268,
+          2269,
+          2270,
+          2271,
+          2678
+        ],
+        "visibility_record_count": 81
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_crad_all_p.bin",
+            "sha256": "a64a27156e5129c63e24bc5ad4ecebb282fd185013a6b492daf0f90851a1c697",
+            "size": 66384
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_crad_all_p.c",
+            "sha256": "bd6105980eeb694f9818f7246e667269f36a380eb948c7d6f34d2dab94fa56e0",
+            "size": 207681
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupcradZ.bin",
+            "sha256": "0ba2aca7ccd17f84a2f3d7b6144ebe62d15a03e5e6011b3fbf22e6db3595680a",
+            "size": 24096
+          },
+          "source": {
+            "path": "assets/obseg/setup/u/UsetupcradZ.c",
+            "sha256": "155ba797eaee41bf715c25ccb68bbaf1d03f2a84da3a5e15456a0a0ab56a649d",
+            "size": 92193
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_crad_all_p_stanZ.bin",
+            "sha256": "eb3ab1929bc94d991ad26dd7c95d55943be9e8b73b35548fa8edddcf02b359b4",
+            "size": 24352
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_crad_all_p_stanZ.c",
+            "sha256": "1a5b769b0de14097ad638a27255077c616ed9b8ff7235af23178f5df9c1ccf8a",
+            "size": 159582
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 2287,
+        "stan_tile_count": 747
+      },
+      "decomp_keys": {
+        "background": "crad",
+        "setup": "UsetupcradZ",
+        "stan": "Tbg_crad_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_CRADLE",
+        "value": 41
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 15,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "cradle",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 14,
+          "guard_count": 6,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            4
+          ],
+          "prop_record_count_including_end": 49,
+          "prop_record_type_counts": {
+            "Aircraft": 1,
+            "Armour": 4,
+            "Collectable": 1,
+            "Cutscene": 4,
+            "Door": 5,
+            "Drone": 2,
+            "EndProps": 1,
+            "Guard": 6,
+            "ObjectiveCompleteCondition": 1,
+            "ObjectiveDestroyObject": 1,
+            "ObjectiveEnd": 2,
+            "ObjectiveFailCondition": 1,
+            "ObjectiveStart": 2,
+            "SetGuardAttribute": 1,
+            "SingleMonitor": 1,
+            "Tag": 11,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            4,
+            8
+          ],
+          "unique_prop_model_count": 6,
+          "unique_prop_model_ids": [
+            33,
+            98,
+            115,
+            169,
+            188,
+            282
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.499921,
+            0.0,
+            0.866071
+          ],
+          "pad_index": 151,
+          "position": [
+            -1661.0,
+            93.0,
+            -1748.0
+          ],
+          "record_index": 0,
+          "room": 35,
+          "stan_blob_tile_index": 38,
+          "stan_name": "p862d1",
+          "stan_packed_id": 220697,
+          "stan_tile_index": 38,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 152
+      },
+      "solo_sequence_index": 16,
+      "stage": "Cradle",
+      "world": {
+        "playable_room_slot_count": 36,
+        "portal_count": 0,
+        "room_count_including_dummy_room_0": 37,
+        "room_display_list_command_count": 3214,
+        "room_vertex_count": 9182,
+        "unique_rare_texture_count": 45,
+        "unique_rare_texture_ids": [
+          8,
+          45,
+          153,
+          156,
+          174,
+          213,
+          236,
+          308,
+          529,
+          608,
+          609,
+          610,
+          611,
+          630,
+          641,
+          642,
+          646,
+          762,
+          765,
+          789,
+          790,
+          791,
+          792,
+          793,
+          794,
+          795,
+          844,
+          1057,
+          1059,
+          1165,
+          1167,
+          1169,
+          1170,
+          1280,
+          1365,
+          1366,
+          1372,
+          1375,
+          1376,
+          1383,
+          1424,
+          1437,
+          1487,
+          1488,
+          1496
+        ],
+        "visibility_record_count": 1
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_cave_all_p.bin",
+            "sha256": "ec4f43b4509d7352f3b3d152091aa6ec689952940bd462f6b642d69cc491cafa",
+            "size": 148720
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_cave_all_p.c",
+            "sha256": "11ece88e17811e8e68c50e58c6a0a300d158f662dab8e44d3164b41867d1f943",
+            "size": 476097
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupcaveZ.bin",
+            "sha256": "237b958069c1f0e86861f57f5e61a6f86ed61f37b5bf1fba1047c9cbeae38c56",
+            "size": 93008
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupcaveZ.c",
+            "sha256": "b2288cf0d8cbe9338cf285da45b0b48ef3856844555ad5b181fc7a1a1328d032",
+            "size": 232706
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_cave_all_p_stanZ.bin",
+            "sha256": "bdfe9e1fe34b3d1bd7d5687f8bba23c79ece984b03fb04387b73cfa65bf14493",
+            "size": 46064
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_cave_all_p_stanZ.c",
+            "sha256": "1f3708098944cce19cc11f27dd3ac6fe5e34e2defdf7ad6cdfdb3a01c590f8cf",
+            "size": 311327
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 4316,
+        "stan_tile_count": 1436
+      },
+      "decomp_keys": {
+        "background": "cave",
+        "setup": "UsetupcaveZ",
+        "stan": "Tbg_cave_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_CAVERNS",
+        "value": 39
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 16,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "caverns",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 314,
+          "guard_count": 79,
+          "normal_intro_item_count": 3,
+          "normal_intro_item_ids": [
+            4,
+            9,
+            27
+          ],
+          "prop_record_count_including_end": 480,
+          "prop_record_type_counts": {
+            "AmmoMag": 28,
+            "Armour": 2,
+            "Collectable": 112,
+            "Cutscene": 1,
+            "Door": 25,
+            "Drone": 3,
+            "EndProps": 1,
+            "Glass": 3,
+            "Guard": 79,
+            "Hat": 10,
+            "Key": 3,
+            "LinkItems": 1,
+            "MultiMonitor": 10,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveDestroyObject": 9,
+            "ObjectiveEnd": 5,
+            "ObjectiveFailCondition": 5,
+            "ObjectiveStart": 5,
+            "Rename": 3,
+            "SetGuardAttribute": 11,
+            "SingleMonitor": 4,
+            "StandardProp": 92,
+            "Tag": 39,
+            "TintedGlass": 22,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 3,
+          "unique_guard_body_ids": [
+            4,
+            8,
+            35
+          ],
+          "unique_prop_model_count": 27,
+          "unique_prop_model_ids": [
+            25,
+            38,
+            53,
+            62,
+            65,
+            67,
+            75,
+            78,
+            82,
+            86,
+            96,
+            98,
+            104,
+            115,
+            116,
+            122,
+            126,
+            134,
+            144,
+            164,
+            165,
+            176,
+            188,
+            195,
+            197,
+            207,
+            221
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.0,
+            0.0,
+            -1.0
+          ],
+          "pad_index": 368,
+          "position": [
+            1465.0,
+            -733.0,
+            -222.0
+          ],
+          "record_index": 5,
+          "room": 62,
+          "stan_blob_tile_index": 10,
+          "stan_name": "p56f",
+          "stan_packed_id": 14376,
+          "stan_tile_index": 10,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 370
+      },
+      "solo_sequence_index": 17,
+      "stage": "Caverns",
+      "world": {
+        "playable_room_slot_count": 63,
+        "portal_count": 76,
+        "room_count_including_dummy_room_0": 64,
+        "room_display_list_command_count": 5678,
+        "room_vertex_count": 18241,
+        "unique_rare_texture_count": 46,
+        "unique_rare_texture_ids": [
+          7,
+          8,
+          50,
+          57,
+          59,
+          60,
+          148,
+          151,
+          187,
+          197,
+          201,
+          212,
+          240,
+          242,
+          243,
+          244,
+          254,
+          258,
+          262,
+          285,
+          299,
+          305,
+          313,
+          315,
+          428,
+          587,
+          618,
+          647,
+          650,
+          857,
+          858,
+          902,
+          915,
+          921,
+          982,
+          1138,
+          1158,
+          1160,
+          1161,
+          1163,
+          1164,
+          1166,
+          1168,
+          1368,
+          1386,
+          1508
+        ],
+        "visibility_record_count": 90
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_azt_all_p.bin",
+            "sha256": "676d730319f3ac65cf05333e5b342894b6bbd40bd6a3313b99ee8754cbb0ef1c",
+            "size": 137808
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_azt_all_p.c",
+            "sha256": "9407e6e32c442f6290dea0eee878fa5db9501650155e3f730dbf1ec405a046c0",
+            "size": 441725
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupaztZ.bin",
+            "sha256": "4063ef44e3f8781a533db0fe1b96e287d43fe0d875463d3ea4c2b542e1565793",
+            "size": 73696
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupaztZ.c",
+            "sha256": "7e273139e9ba8084776d3ce71998e3b56fd84c9a3f565f87ef0515e0da74e933",
+            "size": 168522
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_azt_all_p_stanZ.bin",
+            "sha256": "1038cb50cbd4785cbb93c50731ffc6f82fd2727578ea3c36997d200b240a72b4",
+            "size": 51504
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_azt_all_p_stanZ.c",
+            "sha256": "d71cc9959ebd537d6c1d95dff5e5520611c067bec3aaac48b616bd7f561028b0",
+            "size": 343416
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 4856,
+        "stan_tile_count": 1560
+      },
+      "decomp_keys": {
+        "background": "azt",
+        "setup": "UsetupaztZ",
+        "stan": "Tbg_azt_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_AZTEC",
+        "value": 28
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 17,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "aztec",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 233,
+          "guard_count": 40,
+          "normal_intro_item_count": 2,
+          "normal_intro_item_ids": [
+            4,
+            50
+          ],
+          "prop_record_count_including_end": 327,
+          "prop_record_type_counts": {
+            "Armour": 1,
+            "Collectable": 49,
+            "Cutscene": 1,
+            "Door": 20,
+            "Drone": 6,
+            "EndProps": 1,
+            "Guard": 40,
+            "Hat": 39,
+            "Key": 1,
+            "LinkProps": 3,
+            "ObjectiveCompleteCondition": 2,
+            "ObjectiveEnd": 2,
+            "ObjectiveStart": 2,
+            "Rename": 7,
+            "SetGuardAttribute": 9,
+            "SingleMonitor": 84,
+            "StandardProp": 30,
+            "Tag": 22,
+            "TintedGlass": 3,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            13,
+            39
+          ],
+          "unique_prop_model_count": 29,
+          "unique_prop_model_ids": [
+            33,
+            38,
+            41,
+            42,
+            45,
+            48,
+            53,
+            75,
+            77,
+            86,
+            98,
+            104,
+            115,
+            119,
+            187,
+            188,
+            219,
+            272,
+            306,
+            307,
+            325,
+            326,
+            327,
+            328,
+            329,
+            330,
+            331,
+            332,
+            337
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            -1.0,
+            0.0,
+            -2e-06
+          ],
+          "pad_index": 130,
+          "position": [
+            2405.0,
+            78.0,
+            0.0
+          ],
+          "record_index": 4,
+          "room": 2,
+          "stan_blob_tile_index": 1551,
+          "stan_name": "p907a1",
+          "stan_packed_id": 232193,
+          "stan_tile_index": 1551,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 178
+      },
+      "solo_sequence_index": 18,
+      "stage": "Aztec",
+      "world": {
+        "playable_room_slot_count": 92,
+        "portal_count": 95,
+        "room_count_including_dummy_room_0": 93,
+        "room_display_list_command_count": 7990,
+        "room_vertex_count": 21835,
+        "unique_rare_texture_count": 117,
+        "unique_rare_texture_ids": [
+          7,
+          19,
+          56,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          173,
+          254,
+          294,
+          296,
+          301,
+          308,
+          309,
+          310,
+          495,
+          497,
+          498,
+          585,
+          586,
+          619,
+          657,
+          840,
+          841,
+          902,
+          920,
+          959,
+          960,
+          961,
+          962,
+          963,
+          964,
+          965,
+          966,
+          967,
+          968,
+          969,
+          970,
+          971,
+          972,
+          973,
+          974,
+          975,
+          976,
+          977,
+          978,
+          979,
+          991,
+          1418,
+          1464,
+          1541,
+          1544,
+          1545,
+          2475,
+          2679
+        ],
+        "visibility_record_count": 26
+      }
+    },
+    {
+      "assets": {
+        "background": {
+          "compiled": {
+            "path": "build/u/assets/obseg/bg/bg_cryp_all_p.bin",
+            "sha256": "2be0895a4fdad9538f97303f3bf5b6cb8d06115eff9feaa5c8d87400f0026b81",
+            "size": 87728
+          },
+          "source": {
+            "path": "assets/obseg/bg/bg_cryp_all_p.c",
+            "sha256": "3a1f831644fd4015d61651a371d3b4ee5b29e4f33d143d135ba5df67ba3fa77c",
+            "size": 278643
+          }
+        },
+        "setup": {
+          "compiled": {
+            "path": "build/u/assets/obseg/setup/UsetupcrypZ.bin",
+            "sha256": "de95b2db32e38c9c4b6260851e943b82fbbcd79d03815e9d83d47057d169818a",
+            "size": 37728
+          },
+          "source": {
+            "path": "assets/obseg/setup/UsetupcrypZ.c",
+            "sha256": "2d9839702e4d7e159d0cbfdeb2b9b5142f32d1a682093b80e922d0c8135483a7",
+            "size": 105129
+          }
+        },
+        "stan": {
+          "compiled": {
+            "path": "build/u/assets/obseg/stan/Tbg_cryp_all_p_stanZ.bin",
+            "sha256": "17a4e4695220a7e7fda88ce474067817e659e70ea71e55765817d60dc5881357",
+            "size": 29472
+          },
+          "source": {
+            "path": "assets/obseg/stan/Tbg_cryp_all_p_stanZ.c",
+            "sha256": "2d0c38f6aef4d462912f71467d271ac8517c3381e7696578153af633e851f5aa",
+            "size": 192699
+          }
+        }
+      },
+      "collision": {
+        "stan_point_count": 2760,
+        "stan_tile_count": 918
+      },
+      "decomp_keys": {
+        "background": "cryp",
+        "setup": "UsetupcrypZ",
+        "stan": "Tbg_cryp_all_p_stanZ"
+      },
+      "level_id": {
+        "symbol": "LEVELID_EGYPT",
+        "value": 32
+      },
+      "pipeline": {
+        "next_adapter_boundary": "generic stage bundle extraction and runtime registration",
+        "order": 18,
+        "status": "authored-assets-inventoried"
+      },
+      "runtime_key": "egyptian",
+      "setup": {
+        "dependencies": {
+          "direct_prop_model_instance_count": 71,
+          "guard_count": 15,
+          "normal_intro_item_count": 1,
+          "normal_intro_item_ids": [
+            4
+          ],
+          "prop_record_count_including_end": 114,
+          "prop_record_type_counts": {
+            "AmmoBox": 1,
+            "Armour": 3,
+            "Collectable": 34,
+            "Cutscene": 2,
+            "Door": 25,
+            "Drone": 7,
+            "EndProps": 1,
+            "Guard": 15,
+            "ObjectiveCollectObject": 2,
+            "ObjectiveCompleteCondition": 1,
+            "ObjectiveEnd": 2,
+            "ObjectiveStart": 2,
+            "Safe": 1,
+            "Tag": 13,
+            "WatchMenuObjectiveText": 5
+          },
+          "unique_explicit_guard_head_count": 0,
+          "unique_explicit_guard_head_ids": [],
+          "unique_guard_body_count": 2,
+          "unique_guard_body_ids": [
+            3,
+            12
+          ],
+          "unique_prop_model_count": 14,
+          "unique_prop_model_ids": [
+            98,
+            115,
+            119,
+            131,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            195,
+            208,
+            299,
+            326
+          ]
+        },
+        "normal_intro_spawn": {
+          "demo_slot": 0,
+          "look": [
+            0.999859,
+            0.0,
+            0.016799
+          ],
+          "pad_index": 149,
+          "position": [
+            -1167.0,
+            0.0,
+            66.0
+          ],
+          "record_index": 3,
+          "room": 3,
+          "stan_blob_tile_index": 729,
+          "stan_name": "p7587a",
+          "stan_packed_id": 1942272,
+          "stan_tile_index": 729,
+          "up": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "pad_count": 191
+      },
+      "solo_sequence_index": 19,
+      "stage": "Egyptian",
+      "world": {
+        "playable_room_slot_count": 44,
+        "portal_count": 51,
+        "room_count_including_dummy_room_0": 45,
+        "room_display_list_command_count": 4014,
+        "room_vertex_count": 14688,
+        "unique_rare_texture_count": 12,
+        "unique_rare_texture_ids": [
+          402,
+          403,
+          404,
+          405,
+          406,
+          407,
+          409,
+          410,
+          1173,
+          1174,
+          1175,
+          1509
+        ],
+        "visibility_record_count": 1
+      }
+    }
+  ]
+}

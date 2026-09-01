@@ -20,7 +20,11 @@
 
 #include <PR/libaudio.h>
 #include <audio/synthInternals.h>
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+#include <os.h>
+#else
 #include <PR/os.h>
+#endif
 #include <audio/initfx.h>
 
 /*

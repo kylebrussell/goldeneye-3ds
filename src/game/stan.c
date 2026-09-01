@@ -1,3 +1,7 @@
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+#include "ge_original_stan_slice.h"
+#define GE_STAN_POINT_COUNT(tile) STAN_TAIL_E(tile)
+#else
 #include <ultra64.h>
 //#include <bondtypes.h>
 #include <deb.h>
@@ -7,10 +11,15 @@
 #include "chr.h"
 #include "stanintersection.h"
 #include "assert.h"
+#define GE_STAN_POINT_COUNT(tile) ((tile)->tail.hdrTail.pointCount & 0xf)
+#endif
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 void getTileMidPoint(StandTile *tile, coord3d *out);
+#endif
 
 // bss
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 struct StanPrefixRecord {
     //CODE.bss:8007B120
     s32 stanfile;
@@ -55,6 +64,17 @@ s32 dword_CODE_bss_8007BA08;
 StandTile * dword_CODE_bss_8007BA0C;
 //CODE.bss:8007BA10
 StandTile *bfsTileStack[352];
+#else
+struct StanPrefixRecord *stan_prefix;
+StandTile *stanSavedColl_tile;
+s32 stanSavedColl_pointI;
+StandTile *dword_CODE_bss_8007BA0C;
+s32 D_800413BC;
+coord2d stanSavedColl_pntA;
+coord2d stanSavedColl_pntB;
+f32 stanSavedColl_someMin;
+struct PropRecord *stanSavedColl_posData;
+#endif
 
 
 // data
@@ -68,7 +88,9 @@ u8 g_StanTileSpecialFlags[] = {
     0x00, 0x00, 0x00, 0x00
 };
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 s32 stan_c_debug_notice_list_entry = 0;
+#endif
 
 //D:80040F44
 f32 level_scale = 1.0;
@@ -82,6 +104,7 @@ u8 list_of_tilesizes[] = {
 };
 //D:80040F58
 struct StandTile * standTileStart = NULL;
+#if !defined(GE_PORT_STAN_GEOMETRY_SLICE)
 //D:80040F5C
 s32 ptr_firstroom_0 = 0;
 //D:80040F60
@@ -133,9 +156,11 @@ const char aCDCC[] = "%c%d%c%c";
 const char aStan_c_debug[] = "stan_c_debug";
 //D:800585BC
 const char aStanlinelog[] = "-stanlinelog";
+#endif
 
 // forward declarations
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 s32 stanIsSpecialBit1Set(StandTile *arg0, struct StandTileLocusCallbackRecord* arg1);
 s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3, s32 arg4, s32 *outFlags);
 s32 sub_GAME_7F0B21B0(StandTile **tileStack, f32 target_x, f32 target_z, f32 radius, s32 *rooms, s32 *count_rtn, s32 bufMax);
@@ -145,9 +170,19 @@ s32 stanLocusAddTileRoomIfNew(StandTile *tile, struct StandTileLocusCallbackReco
 s32 stanGetLocusField0(struct StandTileLocusCallbackRecord *arg0);
 s32 stanGetLocusCount(struct StandTileLocusCallbackRecord *arg0);
 bool stanLocusEdgeIsAboveY(StandTile *tile, s32 edgeIndex, f32 edgeDist, f32 distToPointA, f32 distToPointB, f32 *yThreshold);
+#else
+f32 getShortest2dDispToInfTripleEdge(StandTile *tile, s32 start3index, f32 p_x, f32 p_z);
+s32 stanIsSpecialBit1Set(StandTile *arg0, struct StandTileLocusCallbackRecord* arg1);
+s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3, s32 arg4, s32 *outFlags);
+StanCollisionResult sub_GAME_7F0B1DDC(StandTile**, f32, f32, f32, standTileLocusCallback_A_t, standTileLocusCallback_B_t, standTileLocusCallback_C_t, struct StandTileLocusCallbackRecord*);
+s32 stanGetLocusField0(struct StandTileLocusCallbackRecord *arg0);
+s32 stanGetLocusCount(struct StandTileLocusCallbackRecord *arg0);
+bool stanLocusEdgeIsAboveY(StandTile *tile, s32 edgeIndex, f32 edgeDist, f32 distToPointA, f32 distToPointB, f32 *yThreshold);
+#endif
 
 // end forward declarations
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 s32 stanBitwiseCastF32(f32 arg0)
 {
     // disgusting
@@ -616,6 +651,8 @@ s32 stanFillin(StandTile *starttile, u8 targetbit, StandTile **stack) // Canonic
     return count;
 }
 
+#endif /* !GE_PORT_STAN_GEOMETRY_SLICE */
+
 
 /**
  * Address: 7F0AF760
@@ -724,7 +761,9 @@ void getPointJustInsideOfTileTriple(StandTile *tile, s32 tripleIndex /*canonical
     pntIndex = (tile->tail.half >> (8 - (tripleIndex * 4))) & 0xf;
     
     if (1);
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
     if (&midPoint);
+#endif
     
     out->x = ((f32) tile->points[pntIndex].x) * inv_level_scale;
     out->y = ((f32) tile->points[pntIndex].y) * inv_level_scale;
@@ -776,7 +815,9 @@ StandTile *sub_GAME_7F0AFB78(f32 *x, f32 *y, f32 *z, f32 arg3)
     midpointIndex = 3;
     bestDist = M_U32_MAX_VALUE_F;
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
     if (&original);
+#endif
 
     tile = stan_prefix->ptr_firstroom;
 
@@ -1362,9 +1403,9 @@ bool sub_GAME_7F0B0914(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest
 
         curPoint = (StandTilePoint *) tile;
 
-        for (edgeIndex = 0; edgeIndex < (tile->tail.hdrTail.pointCount & 0xF); edgeIndex++, curPoint++)
+        for (edgeIndex = 0; edgeIndex < GE_STAN_POINT_COUNT(tile); edgeIndex++, curPoint++)
         {
-            nextPointIndex = (edgeIndex + 1) % (tile->tail.hdrTail.pointCount & 0xF);
+            nextPointIndex = (edgeIndex + 1) % GE_STAN_POINT_COUNT(tile);
             nextPoint = &((StandTilePoint *) tile)[nextPointIndex];
 
             if (((lineNegDz * (nextPoint[1].x - curPoint[1].x)) + (lineDx * (nextPoint[1].z - curPoint[1].z))) <= 0.0f)
@@ -1487,6 +1528,7 @@ void noteTileRoomIfDifferentToPrev_2(StandTile *tile, StandTile *unused, struct 
 }
 
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 /**
  * Builds a list of room IDs between a start position and a destination position.
  * Only used for objects on set paths e.g. patrolling guards.
@@ -1546,6 +1588,7 @@ s32 sub_GAME_7F0B0D0C(StandTile *tile, f32 start_x, f32 start_z, StandTile **des
 
     return count;
 }
+#endif
 
 
 /**
@@ -1597,6 +1640,11 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
     sp124 = 0;
     spCC = (unkA <= unkHeight);
     already_set = 0;
+#if defined(GE_PORT_STAN_GEOMETRY_SLICE) && \
+    !defined(GE_PORT_STAN_DYNAMIC_PROP_COLLISION)
+    (void)spCC;
+    (void)already_set;
+#endif
 
     sp154 = *pTile;
     sp14C.f[0] = p_x;
@@ -1638,6 +1686,8 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
 
     stanSavedColl_posData = NULL;
 
+#if !defined(GE_PORT_STAN_GEOMETRY_SLICE) || \
+    defined(GE_PORT_STAN_DYNAMIC_PROP_COLLISION)
     if (cdtypes != 0)
     {
         spD0[sp124] = -1;
@@ -1645,7 +1695,11 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
 
         for (spB8 = ptr_list_object_lookup_indices; *spB8 >= 0; spB8++)
         {
+#if defined(GE_PORT_STAN_DYNAMIC_PROP_COLLISION)
+            prop = ge_port_stan_prop_at_index(*spB8);
+#else
             prop = &g_Props[*spB8];
+#endif
 
             if (propIsOfCdType(prop, cdtypes) != 0)
             {
@@ -1728,6 +1782,13 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
             }
         }
     }
+#else
+    /* Do not allow callers to ghost through props before their provider lands. */
+    if (cdtypes != 0)
+    {
+        return 0;
+    }
+#endif
 
     if (sp154 == NULL)
     {
@@ -1753,6 +1814,7 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
 }
 
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 PropRecord *sub_GAME_7F0B1410(StandTile *t, f32 start_x, f32 start_z, f32 end_x, f32 end_z, s32 cdtypes)
 {
     f32 frac;
@@ -1853,6 +1915,7 @@ PropRecord *sub_GAME_7F0B1410(StandTile *t, f32 start_x, f32 start_z, f32 end_x,
 
     return bestProp;
 }
+#endif
 
 
 /**
@@ -1951,6 +2014,10 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
     s32 padding2;
 
     sp108 = (arg6 <= arg5);
+#if defined(GE_PORT_STAN_GEOMETRY_SLICE) && \
+    !defined(GE_PORT_STAN_DYNAMIC_PROP_COLLISION)
+    (void)sp108;
+#endif
 
     spFC = 0;
 
@@ -1971,6 +2038,8 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
 
     stanSavedColl_posData = NULL;
 
+#if !defined(GE_PORT_STAN_GEOMETRY_SLICE) || \
+    defined(GE_PORT_STAN_DYNAMIC_PROP_COLLISION)
     if (cdtypes)
     {
         if (sp108)
@@ -1985,7 +2054,11 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
 
         for (sp100 = ptr_list_object_lookup_indices; *sp100 >= 0; sp100++)
         {
+#if defined(GE_PORT_STAN_DYNAMIC_PROP_COLLISION)
+            prop = ge_port_stan_prop_at_index(*sp100);
+#else
             prop = &g_Props[*sp100];
+#endif
 
             if (propIsOfCdType(prop, cdtypes) != 0)
             {
@@ -2046,12 +2119,21 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
             }
         }
     }
+#else
+    /* Do not allow callers to ghost through props before their provider lands. */
+    if (cdtypes != 0)
+    {
+        return STAN_COLLISION_FOUND;
+    }
+#endif
 
     return -2;
 }
 
 
 
+#if !defined(GE_PORT_STAN_GEOMETRY_SLICE) \
+    || defined(GE_PORT_BOND_MOVEMENT_SLICE)
 //stanResetHits
 void stanResetHits(void) {
     stanSavedColl_tile = 0;
@@ -2101,6 +2183,7 @@ void getTileEdgePoints(StandTile *tile, s32 pointI, coord3d *currPntRtn, coord3d
     nextPointRtn->y = tile->points[pointI].y * scale;
     nextPointRtn->z = tile->points[pointI].z * scale;
 }
+#endif
 
 
 /**
@@ -2165,7 +2248,12 @@ StanCollisionResult sub_GAME_7F0B1DDC(StandTile **startTile, f32 x, f32 z, f32 r
                     {
                         if ((callbackB == NULL || !callbackB(tile, pointI, edgeDist, pointDistA, pointDistB, record)) && (tile->points[pointI].link >> 4))
                         {
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+                            linkedTile = (StandTile *)((u8 *)standTileStart
+                                + (tile->points[pointI].link << 3));
+#else
                             linkedTile = ((u32) standTileStart) + (tile->points[pointI].link << 3);
+#endif
                             for (i = cat - 1; i >= 0; i--)
                             {
                                 if (linkedTile == tileStack[i])
@@ -2326,7 +2414,11 @@ s32 stanIsSpecialBit1Set(StandTile *arg0, struct StandTileLocusCallbackRecord *a
     s32 val = arg0->mid.half >> 0xC;
     if (g_StanTileSpecialFlags[val] & STANTILEFLAG_FORCECROUCH)
     {
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+        arg1->rooms = (s32 *)(uintptr_t)1;
+#else
         arg1->rooms = 1;
+#endif
     }
 
     return 0;
@@ -2366,6 +2458,30 @@ s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3
     return 0;
 }
 
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+/*
+ * The original callback is declared with an s32 pointer in stan.c but is
+ * passed through a callback type whose last argument is a locus record.  The
+ * N64 soft-float ABI tolerated that source mismatch.  ARM hard-float and
+ * modern host compilers require an exact function type at the indirect call.
+ * Keep the original callback body above and adapt only its call boundary.
+ */
+static s32 stanCheckLinkedSpecialTileHardFloat(StandTile *tile, s32 pointIdx,
+    f32 edgeDist, f32 distToPointA, f32 distToPointB,
+    struct StandTileLocusCallbackRecord *record)
+{
+    s32 flags[2];
+    s32 result;
+
+    flags[0] = (s32)(uintptr_t)record->rooms;
+    flags[1] = record->count;
+    result = stanCheckLinkedSpecialTile(tile, pointIdx, (s32)edgeDist,
+        (s32)distToPointA, (s32)distToPointB, flags);
+    record->rooms = (s32 *)(uintptr_t)(u32)flags[0];
+    record->count = flags[1];
+    return result;
+}
+#endif
 
 /**
  * Address 0x7F0B2314.
@@ -2396,13 +2512,23 @@ s32 stanTileDistanceRelated(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, stru
     }
     */
 
-    return sub_GAME_7F0B1DDC(arg0, arg1, arg2, arg3, stanIsSpecialBit1Set, stanCheckLinkedSpecialTile, NULL, arg4);
+    return sub_GAME_7F0B1DDC(arg0, arg1, arg2, arg3, stanIsSpecialBit1Set,
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+        stanCheckLinkedSpecialTileHardFloat,
+#else
+        stanCheckLinkedSpecialTile,
+#endif
+        NULL, arg4);
 }
 
 
 s32 stanGetLocusField0(struct StandTileLocusCallbackRecord *arg0)
 {
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+    return (s32)(uintptr_t)arg0->rooms;
+#else
     return arg0->rooms;
+#endif
 }
 
 
@@ -2412,6 +2538,7 @@ s32 stanGetLocusCount(struct StandTileLocusCallbackRecord *arg0)
 }
 
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 /**
  * Address: 7F0B23AC
  */
@@ -2527,6 +2654,7 @@ void stanGetMoveBondCollisionTiles(StandTile **tile1, StandTile **tile2, coord3d
     osSyncPrintf("Ladder %s has no neighbouring ladder stan\n", GetStanRoomID(baseTile));
 #endif
 }
+#endif
 
 
 /**
@@ -2567,6 +2695,17 @@ bool stanLocusEdgeIsAboveY(StandTile *tile, s32 edgeIndex, f32 edgeDist, f32 dis
     return FALSE;
 }
 
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+/* Typed indirect-call boundary for the original f32 * callback payload. */
+static s32 stanLocusEdgeIsAboveYHardFloat(StandTile *tile, s32 edgeIndex,
+    f32 edgeDist, f32 distToPointA, f32 distToPointB,
+    struct StandTileLocusCallbackRecord *record)
+{
+    return stanLocusEdgeIsAboveY(tile, edgeIndex, edgeDist, distToPointA,
+        distToPointB, (f32 *)record);
+}
+#endif
+
 
 /**
  * US address 7F0B26B8.
@@ -2579,10 +2718,17 @@ s32 stanTestLocusEdgeAboveY(StandTile **tile, f32 target_x, f32 target_z, f32 ra
 
     /// TODO: Why is this cast wrong?
 
-    return sub_GAME_7F0B1DDC(tile, target_x, target_z, radius, NULL, stanLocusEdgeIsAboveY, NULL, (struct StandTileLocusCallbackRecord*)&data);
+    return sub_GAME_7F0B1DDC(tile, target_x, target_z, radius, NULL,
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+        stanLocusEdgeIsAboveYHardFloat,
+#else
+        stanLocusEdgeIsAboveY,
+#endif
+        NULL, (struct StandTileLocusCallbackRecord*)&data);
 }
 
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 typedef struct BfsSearchLocals {
     StandTile **stackptr;
     s32 pad48;
@@ -2728,6 +2874,10 @@ nextpoint:
 }
 
 
+#endif /* !GE_PORT_STAN_GEOMETRY_SLICE */
+
+#if !defined(GE_PORT_STAN_GEOMETRY_SLICE) \
+    || defined(GE_PORT_BOND_MOVEMENT_SLICE)
 /**
  * @param pntA: out parameter, will contain stanSavedColl_pntA (x,z)
  * @param pntB: out parameter, will contain stanSavedColl_pntB (x,z)
@@ -2760,8 +2910,7 @@ bool getCollisionEdge_maybe(coord3d *pntA, coord3d *pntB)
         }
     }
 }
-
-
+#endif /* full game or GE_PORT_BOND_MOVEMENT_SLICE */
 
 void setLevelScale(f32 ls)
 {
@@ -2831,6 +2980,7 @@ f32 stanGetPositionYValue(StandTile *tile, f32 p_x, f32 p_z)
 }
 
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 void copy_tile_RGB_as_24bit(StandTile *tile, f32 p_x, f32 p_z, u8 *rtn)
 {
     u8 B = (tile->mid.half >> 0x8) & 0xF;
@@ -2917,6 +3067,7 @@ void debugStanView(s8 joyX, s8 joyY, u16 joyBtns) {
 Gfx * stanRenderDebugStanView(Gfx *arg0) {
     return arg0;
 }
+#endif
 
 
  /**
@@ -3029,14 +3180,25 @@ struct StandTilePoint *stanMatchTileName(char *id)
 
     stanPackId(id, &stanIdHi, &stanIdLo);
 
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+    tile = (StandTilePoint *)stan_prefix->ptr_firstroom;
+#else
     tile = stan_prefix->ptr_firstroom;
+#endif
 
     while (*(u32 *)tile != 0) {
+#ifdef GE_PORT_STAN_GEOMETRY_SLICE
+        if (((StandTile *)tile)->id
+                == (((u32)stanIdHi << 8) | (u32)stanIdLo)) {
+            return tile;
+        }
+#else
         if ((u16)tile->x == stanIdHi) {
             if (*((u8 *)&tile->y) == stanIdLo) {
                 return tile;
             }
         }
+#endif
 
         tmp = tile->link;
         tile = (StandTilePoint *)((u8 *)tile +
@@ -3047,6 +3209,7 @@ struct StandTilePoint *stanMatchTileName(char *id)
 }
 
 
+#ifndef GE_PORT_STAN_GEOMETRY_SLICE
 #ifdef XBLADEBUG
 StandTile RemovedDebugFunctionOrXBLAUnique_7F0B2EFC()
 {
@@ -3289,6 +3452,4 @@ s32 sub_GAME_7F0B3138(StandTile *tile, StandTile **pTile, f32 p_x, f32 p_z, f32 
 void sub_GAME_7F0B31A4(s32 arg0, StandTile *arg1, f32 arg2, f32 arg3, f32 arg4, s32 arg5, f32 arg6, f32 arg7) {
     stanTestVolume(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
-
-
-
+#endif

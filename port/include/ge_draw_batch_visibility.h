@@ -1,0 +1,34 @@
+#ifndef GE_DRAW_BATCH_VISIBILITY_H
+#define GE_DRAW_BATCH_VISIBILITY_H
+
+#include "ge_dam_room.h"
+
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Returns nonzero unless an authored batch is provably wholly outside one
+ * canonical homogeneous clip plane. Invalid ranges and nonfinite clip data
+ * fail open. This is renderer publication only; it does not alter rooms,
+ * batches, vertices, portal state, collision, or gameplay visibility. */
+int ge_draw_batch_may_intersect_clip_frustum(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch);
+
+/* Variant for GPU-world source vertices whose processed.clip has not been
+ * published. Matrices follow the decomp/libultra row-vector convention:
+ * clip[j] = world.x*M[0][j] + world.y*M[1][j]
+ *         + world.z*M[2][j] + M[3][j].
+ * The source and matrix are read only. Invalid/nonfinite inputs fail open. */
+int ge_draw_batch_world_may_intersect_clip_frustum(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch,
+    const float world_to_clip[4][4]);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

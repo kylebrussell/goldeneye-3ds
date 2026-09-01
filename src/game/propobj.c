@@ -1,3 +1,932 @@
+#ifdef GE_PORT_OBJINIT_PREALLOCATED_SLICE
+
+#include "ge_original_default_object_internal.h"
+
+/*
+ * Exact successful preallocated branch of objInit. Allocation of the Model,
+ * PropRecord, collision block and PitemZ scale are explicit native provider
+ * boundaries. This ends before domakedefaultobj's move-to-pad operation.
+ */
+PropRecord *ge_original_objInitPreallocatedSlice(
+    ObjectRecord *obj, ModelFileHeader *model_header, PropRecord *prop,
+    Model *model, f32 pitem_scale, void *collision_data)
+{
+    u8 state;
+
+    if ((prop != NULL) && (model != NULL))
+    {
+        obj->model = model;
+        obj->ptr_allocated_collisiondata_block = NULL;
+
+        if (obj->flags & 0x100)
+        {
+            obj->ptr_allocated_collisiondata_block = collision_data;
+            state = ge_port_default_object_state(obj);
+            ge_port_default_object_set_state(
+                obj, (u8)(state | PROPSTATE_EXT_COLISION_BLOCK));
+        }
+        else
+        {
+            state = ge_port_default_object_state(obj);
+            ge_port_default_object_set_state(
+                obj, (u8)(state & 0xFFF7));
+        }
+
+        obj->prop = prop;
+        obj->projectile = NULL;
+
+        obj->shadecol.r = 0;
+        obj->shadecol.g = 0;
+        obj->shadecol.b = 0;
+        obj->shadecol.a = 0;
+
+        obj->nextcol.r = 0;
+        obj->nextcol.g = 0;
+        obj->nextcol.b = 0;
+        obj->nextcol.a = 0;
+
+        obj->maxdamage = 0.0f;
+        *((s16*)&obj->model->unk00) = -1;
+        obj->model->chr = NULL;
+        obj->model->scale = pitem_scale;
+        prop->type = 1;
+        prop->obj = obj;
+        prop->pos.x = 0.0f;
+        obj->runtime_pos.x = 0.0f;
+        prop->pos.y = 0.0f;
+        obj->runtime_pos.y = 0.0f;
+        prop->pos.z = 0.0f;
+        obj->runtime_pos.z = 0.0f;
+        prop->stan = NULL;
+    }
+
+    (void)model_header;
+    return prop;
+}
+
+ModelRoData_BoundingBoxRecord *chrobjGetBboxFromObjFile(ModelFileHeader *obj)
+{
+    ModelNode *mdlnext;
+
+    if (obj->RootNode->Child)
+    {
+        for (mdlnext = obj->RootNode->Child; mdlnext; mdlnext = mdlnext->Next)
+        {
+            if (mdlnext->Opcode == MODELNODE_OPCODE_BBOX)
+            {
+                return &mdlnext->Data->BoundingBox;
+            }
+        }
+
+        if (obj->RootNode->Child->Child)
+        {
+            for (mdlnext = obj->RootNode->Child->Child; mdlnext; mdlnext = mdlnext->Next)
+            {
+                if (mdlnext->Opcode == MODELNODE_OPCODE_BBOX)
+                {
+                    return &mdlnext->Data->BoundingBox;
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+struct ModelRoData_BoundingBoxRecord* chrobjGetBboxFromObjectRecord(ObjectRecord *arg0)
+{
+    return (struct ModelRoData_BoundingBoxRecord *)chrobjGetBboxFromObjFile(arg0->model->obj);
+}
+
+void chrobjCollisionRelated(ObjectRecord *obj)
+{
+    struct ModelRoData_BoundingBoxRecord *bbox;
+    Mtxf sp24;
+
+    if (obj->ptr_allocated_collisiondata_block != NULL)
+    {
+        bbox = chrobjGetBboxFromObjectRecord(obj);
+        matrix_4x4_copy(&obj->mtx, &sp24);
+        matrix_4x4_set_position(&obj->runtime_pos, &sp24);
+        sub_GAME_7F03F540(bbox, &sp24, (rect4f *)obj->ptr_allocated_collisiondata_block->polygon, obj->ptr_allocated_collisiondata_block);
+
+        obj->ptr_allocated_collisiondata_block->bottom = obj->runtime_pos.f[1] + chrpropSumMatrixPosY(bbox, &sp24);
+        obj->ptr_allocated_collisiondata_block->top = obj->runtime_pos.f[1] + chrpropSumMatrixNegY(bbox, &sp24);
+
+        if (ge_port_default_object_type(obj) == PROPDEF_AIRCRAFT)
+        {
+            obj->ptr_allocated_collisiondata_block->bottom -= 200.0f;
+        }
+    }
+}
+
+void ge_original_object_collision_bounds_slice(
+    PropRecord *prop, coord2d **polygon, s32 *edges, f32 *top, f32 *bottom)
+{
+    ObjectRecord* obj;
+    obj = prop->obj;
+
+    if ((obj->ptr_allocated_collisiondata_block != NULL)
+            && (obj->flags & PROPFLAG_00000100)
+            && !(ge_port_default_object_state(obj) & PROPSTATE_20))
+    {
+        *edges = obj->ptr_allocated_collisiondata_block->edges;
+        *polygon = obj->ptr_allocated_collisiondata_block->polygon;
+        *bottom = obj->ptr_allocated_collisiondata_block->bottom;
+        *top = obj->ptr_allocated_collisiondata_block->top;
+        return;
+    }
+
+    *edges = 0;
+}
+
+s32 ge_original_bound_pad_scale_slice(ObjectRecord *arg1, Mtxf *sp8C)
+{
+    BoundPadRecord *var_s0;
+    ModelRoData_BoundingBoxRecord *temp_v0_3;
+    f32 sp58;
+    f32 sp54;
+    f32 sp50;
+    f32 sp48;
+    f32 var_f0;
+
+    var_s0 = &g_CurrentSetup.boundpads[getBoundPadNum(arg1->pad)];
+    temp_v0_3 = chrobjGetBboxFromObjectRecord(arg1);
+    if (temp_v0_3 != NULL)
+    {
+        sp58 = 1.0f;
+        sp54 = 1.0f;
+        sp50 = 1.0f;
+        if (arg1->flags & (PROPFLAG_00000010 | PROPFLAG_00000020))
+        {
+            if (temp_v0_3->Bounds.xmin < temp_v0_3->Bounds.xmax)
+                sp58 = (var_s0->bbox.xmax - var_s0->bbox.xmin) / ((temp_v0_3->Bounds.xmax - temp_v0_3->Bounds.xmin) * arg1->model->scale);
+        }
+        if (arg1->flags & (PROPFLAG_00000010 | PROPFLAG_00000040))
+        {
+            if (temp_v0_3->Bounds.ymin < temp_v0_3->Bounds.ymax)
+            {
+                if (arg1->flags & PROPFLAG_ONSCREEN)
+                    sp50 = (var_s0->bbox.zmax - var_s0->bbox.zmin) / ((temp_v0_3->Bounds.ymax - temp_v0_3->Bounds.ymin) * arg1->model->scale);
+                else
+                    sp54 = (var_s0->bbox.ymax - var_s0->bbox.ymin) / ((temp_v0_3->Bounds.ymax - temp_v0_3->Bounds.ymin) * arg1->model->scale);
+            }
+        }
+        if (arg1->flags & (PROPFLAG_00000010 | PROPFLAG_00000080))
+        {
+            if (temp_v0_3->Bounds.zmin < temp_v0_3->Bounds.zmax)
+            {
+                if (arg1->flags & PROPFLAG_ONSCREEN)
+                    sp54 = (var_s0->bbox.ymax - var_s0->bbox.ymin) / ((temp_v0_3->Bounds.zmax - temp_v0_3->Bounds.zmin) * arg1->model->scale);
+                else
+                    sp50 = (var_s0->bbox.zmax - var_s0->bbox.zmin) / ((temp_v0_3->Bounds.zmax - temp_v0_3->Bounds.zmin) * arg1->model->scale);
+            }
+        }
+        var_f0 = sp58;
+        if (sp54 < var_f0) var_f0 = sp54;
+        if (sp50 < var_f0) var_f0 = sp50;
+        sp48 = sp58;
+        if (sp58 < sp54) sp48 = sp54;
+        if (sp48 < sp50) sp48 = sp50;
+        if (arg1->flags & PROPFLAG_00000010)
+        {
+            sp50 = var_f0; sp54 = var_f0; sp58 = var_f0;
+        }
+        else
+        {
+            if (!(arg1->flags & PROPFLAG_00000020)
+                    && temp_v0_3->Bounds.xmax == temp_v0_3->Bounds.xmin)
+                sp58 = sp48;
+            if (!(arg1->flags & PROPFLAG_00000040))
+            {
+                if (arg1->flags & PROPFLAG_ONSCREEN)
+                {
+                    if (temp_v0_3->Bounds.ymax == temp_v0_3->Bounds.ymin)
+                        sp50 = sp48;
+                }
+                else if (temp_v0_3->Bounds.ymax == temp_v0_3->Bounds.ymin)
+                    sp54 = sp48;
+            }
+            if (!(arg1->flags & PROPFLAG_00000080))
+            {
+                if (arg1->flags & PROPFLAG_ONSCREEN)
+                {
+                    if (temp_v0_3->Bounds.zmax == temp_v0_3->Bounds.zmin)
+                        sp54 = sp48;
+                }
+                else if (temp_v0_3->Bounds.zmax == temp_v0_3->Bounds.zmin)
+                    sp50 = sp48;
+            }
+        }
+        sp58 /= sp48; sp54 /= sp48; sp50 /= sp48;
+        if ((sp58 <= 0.000001f) || (sp54 <= 0.000001f) || (sp50 <= 0.000001f))
+            sp50 = sp54 = sp58 = 1.0f;
+        matrix_column_1_scalar_multiply(sp58, sp8C->m[0]);
+        matrix_column_2_scalar_multiply(sp54, sp8C->m[0]);
+        matrix_column_3_scalar_multiply_2(sp50, sp8C->m[0]);
+        arg1->model->scale *= sp48;
+    }
+    return 1;
+}
+
+static s32 ge_original_move_shading(ObjectRecord *obj, coord3d *pos,
+                                    Mtxf *matrix, StandTile *stan,
+                                    rgba_u8 *color, const u8 rgb[3])
+{
+    s32 tmp;
+    s32 min;
+    s32 med;
+    s32 max;
+    s32 tmp2;
+    s32 range;
+
+    if (obj->flags & 0x400) {
+        *color = obj->nextcol;
+    } else {
+        color->r = rgb[0]; color->g = rgb[1]; color->b = rgb[2];
+        tmp = (color->r * 79 + color->g * 156 + color->b * 21) >> 8;
+        color->a = (u8)((255 - tmp) * 0.75f);
+        max = 0; min = 0; med = 0;
+        if (color->g > color->r) max = 1; else min = 1;
+        if (color->b > color->rgba[max]) { med = max; max = 2; }
+        else if (color->b > color->rgba[min]) med = 2;
+        else { med = min; min = 2; }
+        if (color->rgba[max] > 0) {
+            tmp2 = color->rgba[med]
+                * (color->rgba[max] - color->rgba[min]) / color->rgba[max];
+            range = color->rgba[max] - color->rgba[min];
+            color->rgba[min] = 0;
+            color->rgba[med] = (u8)tmp2;
+            color->rgba[max] = (u8)range;
+        }
+        color->r >>= 1; color->g >>= 1; color->b >>= 1;
+        color->r >>= 1; color->g >>= 1; color->b >>= 1;
+    }
+
+    matrix_4x4_copy(matrix, &obj->mtx);
+    obj->runtime_pos.x = obj->prop->pos.x = pos->x;
+    obj->runtime_pos.y = obj->prop->pos.y = pos->y;
+    obj->runtime_pos.z = obj->prop->pos.z = pos->z;
+    obj->prop->stan = stan;
+    obj->nextcol = *color;
+    obj->shadecol = obj->nextcol;
+    return 1;
+}
+
+s32 ge_original_obj_change_shading_slice(
+    ObjectRecord *obj, coord3d *pos, Mtxf *matrix, StandTile *stan)
+{
+    rgba_u8 color = {0};
+    u8 rgb[3] = {0};
+
+    if (obj == NULL || obj->prop == NULL || pos == NULL || matrix == NULL
+            || stan == NULL) return 0;
+    if (!(obj->flags & 0x400)
+            && ge_port_default_object_tile_rgb(
+                stan, pos->x, pos->z, rgb) < 0) return 0;
+    return ge_original_move_shading(obj, pos, matrix, stan, &color, rgb);
+}
+
+void ge_original_setup_update_object_room_position_slice(ObjectRecord *obj)
+{
+    PropRecord *prop = obj->prop;
+    coord3d bbmin;
+    coord3d bbmax;
+    ModelRoData_BoundingBoxRecord *bbox;
+    f32 radius = 0.0f;
+
+    chrpropDeregisterRooms(prop);
+
+    if (obj->flags2 & 0x20000)
+    {
+        if (prop->stan != NULL)
+        {
+            prop->rooms[0] = prop->stan->room;
+            prop->rooms[1] = (u8)-1;
+        }
+        else
+        {
+            prop->rooms[0] = (u8)-1;
+        }
+    }
+    else
+    {
+        bbox = chrobjGetBboxFromObjectRecord(obj);
+
+        if (bbox != NULL)
+        {
+            bbmin.x = chrpropSumMatrixPosX(bbox, &obj->mtx) - 30.0f;
+            bbmin.y = chrpropSumMatrixPosY(bbox, &obj->mtx);
+            bbmin.z = chrpropSumMatrixPosZ(bbox, &obj->mtx) - 30.0f;
+            bbmax.x = chrpropSumMatrixNegX(bbox, &obj->mtx) + 30.0f;
+            bbmax.y = chrpropSumMatrixNegY(bbox, &obj->mtx);
+            bbmax.z = chrpropSumMatrixNegZ(bbox, &obj->mtx) + 30.0f;
+
+            if (radius < -bbmin.x) radius = -bbmin.x;
+            if (radius < -bbmin.z) radius = -bbmin.z;
+            if (radius < bbmax.x) radius = bbmax.x;
+            if (radius < bbmax.z) radius = bbmax.z;
+
+            bbmin.x += obj->runtime_pos.x;
+            bbmin.y += obj->runtime_pos.y;
+            bbmin.z += obj->runtime_pos.z;
+            bbmax.x += obj->runtime_pos.x;
+            bbmax.y += obj->runtime_pos.y;
+            bbmax.z += obj->runtime_pos.z;
+
+            chrpropUpdateRoomList(prop, &bbmin, &bbmax, radius);
+        }
+    }
+
+    chrpropRegisterRooms(prop);
+}
+
+s32 ge_original_move_onscreen_to_pad_slice(
+    ObjectRecord *obj, coord3d *pos, Mtxf *arg2,
+    StandTile *stan2, coord3d *pos2)
+{
+    f32 spBC;
+    coord3d posdiff;
+    coord3d shadePos;
+    StandTile *stan;
+    StandTile *shadeStan;
+    Mtxf matrix;
+    Mtxf sp2C;
+    s32 walkResult;
+    rgba_u8 color = {0};
+    u8 rgb[3];
+
+    if (obj == NULL || obj->model == NULL || obj->prop == NULL
+            || pos == NULL || arg2 == NULL || stan2 == NULL || pos2 == NULL)
+        return 0;
+    spBC = chrobjGetBboxFromObjFile(obj->model->obj)->Bounds.zmin;
+    stan = stan2;
+    matrix_4x4_set_rotation_around_x(4.712389f, &matrix);
+    matrix_4x4_set_rotation_around_y(M_PI_F, &sp2C);
+    matrix_4x4_multiply_in_place(&sp2C, &matrix);
+    matrix_4x4_multiply_in_place(arg2, &matrix);
+    posdiff.x = pos2->x - (matrix.m[2][0] * spBC);
+    posdiff.y = pos2->y - (matrix.m[2][1] * spBC);
+    posdiff.z = pos2->z - (matrix.m[2][2] * spBC);
+    walkResult = ge_port_default_object_walk(
+        &stan, pos->x, pos->z, posdiff.x, posdiff.z);
+    if (walkResult < 0) {
+        ge_port_default_object_publish_placement(
+            &posdiff, stan2, GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_NEEDS_WALK);
+        return -1;
+    }
+    if (!((s32)obj->flags2 & 1) && walkResult != 0) {
+        shadePos=posdiff; shadeStan=stan;
+    } else {
+        shadePos=*pos; shadeStan=stan2;
+    }
+    if (!(obj->flags & 0x400)
+            && ge_port_default_object_tile_rgb(
+                shadeStan, shadePos.x, shadePos.z, rgb) < 0) {
+        ge_port_default_object_publish_placement(
+            &shadePos, shadeStan,
+            GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_NEEDS_TILE_RGB);
+        return -1;
+    }
+    ge_original_move_shading(
+        obj, &shadePos, &matrix, shadeStan, &color, rgb);
+    if (((s32)obj->flags2 & 1) || walkResult == 0)
+        obj->runtime_pos=posdiff;
+    chrobjCollisionRelated(obj);
+    ge_port_default_object_publish_placement(
+        &shadePos, shadeStan, GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_COMPLETE);
+    return 1;
+}
+
+/* Exact control flow and placement arithmetic of sub_GAME_7F04088C. World
+ * queries and collision rebuilding are explicit typed platform seams. */
+s32 ge_original_move_to_pad_slice(
+    ObjectRecord *baseobj, struct coord3d *pos, Mtxf *matrix,
+    StandTile *stan, struct coord3d *pos2)
+{
+    ModelRoData_BoundingBoxRecord *modelBoundingBox;
+    f32 xmax;
+    f32 ymin;
+    coord3d newPos;
+    coord3d shadePos;
+    StandTile *mStan;
+    StandTile *shadeStan;
+    Mtxf mtxcopy;
+    f32 distfromTileCenter;
+    f32 byrefC;
+    f32 byrefD;
+    s32 roomResult;
+    s32 walkResult;
+    s32 roomBit = 0;
+    s32 overrideRuntime = 0;
+    rgba_u8 color = {0};
+    u8 rgb[3];
+
+    if (baseobj == NULL || baseobj->model == NULL || baseobj->prop == NULL
+            || pos == NULL || matrix == NULL || stan == NULL || pos2 == NULL)
+        return 0;
+    modelBoundingBox = chrobjGetBboxFromObjFile(baseobj->model->obj);
+    if (modelBoundingBox == NULL) return 0;
+    xmax = modelBoundingBox->Bounds.ymin;
+    ymin = modelBoundingBox->Bounds.ymax;
+    mStan = stan;
+
+    if (baseobj->flags & 4) {
+        matrix_4x4_set_rotation_around_z(M_PI, &mtxcopy);
+        matrix_4x4_multiply_in_place(matrix, &mtxcopy);
+        newPos.x = pos2->f[0] - (mtxcopy.m[1][0] * ymin);
+        newPos.y = pos2->f[1] - (mtxcopy.m[1][1] * ymin);
+        newPos.z = pos2->f[2] - (mtxcopy.m[1][2] * ymin);
+    } else if (baseobj->flags & 8) {
+        matrix_4x4_copy(matrix, &mtxcopy);
+        newPos.x = pos2->f[0] - (mtxcopy.m[1][0] * xmax);
+        newPos.y = pos2->f[1] - (mtxcopy.m[1][1] * xmax);
+        newPos.z = pos2->f[2] - (mtxcopy.m[1][2] * xmax);
+    } else {
+        if (ge_port_default_object_floor_y(
+                mStan, pos->f[0], pos->f[2], &distfromTileCenter) < 0) {
+            ge_port_default_object_publish_placement(
+                pos, stan, GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_NEEDS_FLOOR);
+            return -1;
+        }
+        matrix_4x4_copy(matrix, &mtxcopy);
+        newPos.x = pos2->f[0] - (mtxcopy.m[1][0] * xmax);
+        newPos.z = pos2->f[2] - (mtxcopy.m[1][2] * xmax);
+        roomResult = ge_port_default_object_room_bounds(
+            pos, stan->room, &byrefC, &byrefD);
+        if (roomResult < 0) {
+            ge_port_default_object_publish_placement(
+                pos, stan,
+                GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_NEEDS_ROOM_BOUNDS);
+            return -1;
+        }
+        if (roomResult > 0
+                && distfromTileCenter < byrefC
+                && byrefD < ((mtxcopy.m[1][1] * (ymin - xmax))
+                             + distfromTileCenter + 4.0f)) {
+            newPos.y = byrefC - (mtxcopy.m[1][1] * xmax);
+            roomBit = 1;
+        } else {
+            newPos.y = (distfromTileCenter
+                        - (mtxcopy.m[1][1] * xmax)) + 4.0f;
+        }
+    }
+
+    walkResult = ge_port_default_object_walk(
+        &mStan, pos->f[0], pos->f[2], newPos.x, newPos.z);
+    if (walkResult < 0) {
+        ge_port_default_object_publish_placement(
+            &newPos, stan, GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_NEEDS_WALK);
+        return -1;
+    }
+    if (!(baseobj->flags2 & 1) && walkResult) {
+        shadePos = newPos;
+        shadeStan = mStan;
+    } else {
+        shadePos = *pos;
+        shadeStan = stan;
+        if ((baseobj->flags2 & 1) || (baseobj->flags & 0x1000)) {
+            overrideRuntime = 1;
+        }
+    }
+    if (!(baseobj->flags & 0x400)
+            && ge_port_default_object_tile_rgb(
+                shadeStan, shadePos.x, shadePos.z, rgb) < 0) {
+        ge_port_default_object_publish_placement(
+            &shadePos, shadeStan,
+            GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_NEEDS_TILE_RGB);
+        return -1;
+    }
+    if (ge_original_move_shading(
+            baseobj, &shadePos, &mtxcopy, shadeStan, &color, rgb) < 0)
+        return -1;
+    if (roomBit) baseobj->runtime_bitflags |= 0x00008000U;
+    if (overrideRuntime) baseobj->runtime_pos = newPos;
+    chrobjCollisionRelated(baseobj);
+    ge_port_default_object_publish_placement(
+        &shadePos, shadeStan, GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_COMPLETE);
+    return 1;
+}
+
+#elif defined(GE_PORT_PROP_DOOR_RUNTIME_SLICE)
+
+#include "ge_original_door_runtime_internal.h"
+
+#define GE_DOOR_OBJECT(door) ge_port_door_runtime_object(door)
+
+/* Exact chrobjApplySpeed body, with g_ClockTimer supplied by the native
+ * timing boundary. */
+static void ge_original_door_apply_speed_slice(
+    f32 *openPosition, f32 maxFrac, f32 *speedPtr,
+    f32 accel, f32 decel, f32 maxSpeed)
+{
+    f32 speed = *speedPtr;
+    s32 i;
+    for (i = 0; i < ge_port_door_runtime_clock_timer(); i++) {
+        f32 limit = speed * speed * 0.5f / decel;
+        f32 distRemaining = maxFrac - *openPosition;
+        if (distRemaining > 0.0f) {
+            if (speed > 0.0f && distRemaining <= limit) {
+                speed -= decel;
+                if (speed < decel) speed = decel;
+            } else if (speed < maxSpeed) {
+                if (speed < 0.0f) speed += decel;
+                else speed += accel;
+                if (speed > maxSpeed) speed = maxSpeed;
+            }
+            if (speed >= distRemaining) {
+                *openPosition = maxFrac;
+                break;
+            }
+            *openPosition += speed;
+        } else {
+            if (speed < 0.0f && -distRemaining <= limit) {
+                speed += decel;
+                if (speed > -decel) speed = -decel;
+            } else if (speed > -maxSpeed) {
+                if (speed > 0.0f) speed -= decel;
+                else speed -= accel;
+                if (speed < -maxSpeed) speed = -maxSpeed;
+            }
+            if (speed <= distRemaining) {
+                *openPosition = maxFrac;
+                break;
+            }
+            *openPosition += speed;
+        }
+    }
+    *speedPtr = speed;
+}
+
+static s32 ge_original_update_door_displacement_slice(DoorRecord *door)
+{
+    s32 isMoving = 0;
+    if (door->openstate == DOORSTATE_OPENING) {
+        ge_original_door_apply_speed_slice(
+            &door->openPosition, door->maxFrac, &door->speed,
+            door->accel, door->decel, door->maxSpeed);
+        if (door->maxFrac <= door->openPosition)
+            door->openPosition = door->maxFrac;
+        else if (door->openPosition <= 0.0f) door->openPosition = 0.0f;
+        isMoving = 1;
+    } else if (door->openstate == DOORSTATE_CLOSING) {
+        ge_original_door_apply_speed_slice(
+            &door->openPosition, 0.0f, &door->speed,
+            door->accel, door->decel, door->maxSpeed);
+        if (door->maxFrac <= door->openPosition)
+            door->openPosition = door->maxFrac;
+        else if (door->openPosition <= 0.0f) door->openPosition = 0.0f;
+        isMoving = 1;
+    }
+    return isMoving;
+}
+
+void ge_original_door_matrix_slice(DoorRecord *door, Mtxf *matrix)
+{
+    Mtxf transform;
+    coord3d pivot,relative,normal,position;
+    BoundPadRecord *pad;
+    ObjectRecord *object = GE_DOOR_OBJECT(door);
+    if (door->doorType == DOORTYPE_SWINGING
+            || door->doorType == DOORTYPE_AZTECCHAIR) {
+        pad = &g_CurrentSetup.boundpads[object->pad];
+        normal.x = pad->up.y * pad->look.z - pad->up.z * pad->look.y;
+        normal.y = pad->up.z * pad->look.x - pad->up.x * pad->look.z;
+        normal.z = pad->up.x * pad->look.y - pad->up.y * pad->look.x;
+        pivot.x = pad->pos.x + pad->up.x * pad->bbox.ymin;
+        pivot.y = pad->pos.y + pad->up.y * pad->bbox.ymin;
+        pivot.z = pad->pos.z + pad->up.z * pad->bbox.ymin;
+        if (door->doorType == DOORTYPE_AZTECCHAIR
+                || (object->flags & PROPFLAG_DOOR_OPENTOFRONT)) {
+            pivot.x += normal.x * pad->bbox.xmax;
+            pivot.y += normal.y * pad->bbox.xmax;
+            pivot.z += normal.z * pad->bbox.xmax;
+        } else {
+            pivot.x += normal.x * pad->bbox.xmin;
+            pivot.y += normal.y * pad->bbox.xmin;
+            pivot.z += normal.z * pad->bbox.xmin;
+        }
+        relative.x = object->runtime_pos.x - pivot.x;
+        relative.y = object->runtime_pos.y - pivot.y;
+        relative.z = object->runtime_pos.z - pivot.z;
+        matrix_4x4_copy(&object->mtx, matrix);
+        matrix_4x4_set_identity_and_position(&relative, &transform);
+        matrix_4x4_multiply_in_place(&transform, matrix);
+        if (door->doorType == DOORTYPE_AZTECCHAIR)
+            matrix_4x4_set_rotation_around_z(
+                (object->flags & PROPFLAG_DOOR_OPENTOFRONT)
+                    ? M_TAU_F - door->openPosition * M_TAU_F / 360.0f
+                    : door->openPosition * M_TAU_F / 360.0f, &transform);
+        else
+            matrix_4x4_set_rotation_around_y(
+                (object->flags & PROPFLAG_DOOR_OPENTOFRONT)
+                    ? M_TAU_F - door->openPosition * M_TAU_F / 360.0f
+                    : door->openPosition * M_TAU_F / 360.0f, &transform);
+        matrix_4x4_multiply_in_place(&transform, matrix);
+        matrix_4x4_set_identity_and_position(&pivot, &transform);
+        matrix_4x4_multiply_in_place(&transform, matrix);
+    } else if (door->doorType == DOORTYPE_EYE
+            || door->doorType == DOORTYPE_IRIS) {
+        matrix_4x4_copy(&object->mtx, matrix);
+        matrix_4x4_set_position(&object->runtime_pos, matrix);
+    } else {
+        position.x = door->frac * door->openPosition + object->runtime_pos.x;
+        position.y = door->unkac * door->openPosition + object->runtime_pos.y;
+        position.z = door->unkb0 * door->openPosition + object->runtime_pos.z;
+        matrix_4x4_copy(&object->mtx, matrix);
+        matrix_4x4_set_position(&position, matrix);
+    }
+    if (door->doorFlags & DOORFLAG_FLIP)
+        matrix_column_3_scalar_multiply_2(-1.0f, matrix->m[0]);
+}
+
+static void ge_original_door_update_bbox_slice(DoorRecord *door)
+{
+    ModelRoData_BoundingBoxRecord *door_bb;
+    Mtxf matrix;
+    ObjectRecord *object = GE_DOOR_OBJECT(door);
+    door_bb = (ModelRoData_BoundingBoxRecord *)
+        object->model->obj->RootNode->Child->Data;
+    door->bbox = *door_bb;
+    if (door->doorFlags & DOORFLAG_CLIP_TO_BBOX) {
+        if (door->doorType == DOORTYPE_VERTICAL)
+            door->bbox.Bounds.ymax = door_bb->Bounds.ymax
+                + (door_bb->Bounds.ymin - door_bb->Bounds.ymax)
+                    * door->openPosition;
+        else
+            door->bbox.Bounds.xmin = door_bb->Bounds.xmin
+                + (door_bb->Bounds.xmax - door_bb->Bounds.xmin)
+                    * door->openPosition;
+    }
+    if (door->perimFrac <= door->openPosition) {
+        object->ptr_allocated_collisiondata_block->edges = 0;
+        ge_port_door_runtime_note_bbox();
+        return;
+    }
+    ge_original_door_matrix_slice(door, &matrix);
+    sub_GAME_7F03F540(&door->bbox, &matrix,
+        (rect4f *)object->ptr_allocated_collisiondata_block->polygon,
+        object->ptr_allocated_collisiondata_block);
+    if (door->doorType == DOORTYPE_VERTICAL)
+        object->ptr_allocated_collisiondata_block->bottom =
+            object->runtime_pos.y + chrpropSumMatrixPosY(&door->bbox, &matrix);
+    else if (door->doorType == DOORTYPE_FALLAWAY)
+        object->ptr_allocated_collisiondata_block->bottom =
+            object->runtime_pos.y - 10000.0f;
+    else {
+        object->ptr_allocated_collisiondata_block->bottom = matrix.m[3][1]
+            + chrpropSumMatrixPosY(&door->bbox, &matrix);
+        if (door->doorFlags & DOORFLAG_EXTENDEDY)
+            object->ptr_allocated_collisiondata_block->bottom -= 1000.0f;
+    }
+    if ((door->doorType == DOORTYPE_EYE
+            || door->doorType == DOORTYPE_IRIS)
+            && door->openPosition > 0.4f * door->maxFrac)
+        object->ptr_allocated_collisiondata_block->top =
+            object->ptr_allocated_collisiondata_block->bottom + 50.0f;
+    else if (door->doorType == DOORTYPE_FALLAWAY)
+        object->ptr_allocated_collisiondata_block->top =
+            object->runtime_pos.y + 1000.0f;
+    else {
+        object->ptr_allocated_collisiondata_block->top = matrix.m[3][1]
+            + chrpropSumMatrixNegY(&door->bbox, &matrix);
+        if (door->doorFlags & DOORFLAG_EXTENDEDY)
+            object->ptr_allocated_collisiondata_block->top += 1000.0f;
+    }
+    ge_port_door_runtime_note_bbox();
+}
+
+static void ge_original_door_build_clipped_vertices_slice(DoorRecord *door)
+{
+    ModelNode *node;
+    ModelRoData_DisplayList_CollisionRecord *src;
+    Vertex *dst;
+    s16 cutoff;
+    s32 i, j;
+    if (!(door->doorFlags & DOORFLAG_CLIP_TO_BBOX)) return;
+    node = GE_DOOR_OBJECT(door)->model->obj->RootNode->Child->Child;
+    src = (ModelRoData_DisplayList_CollisionRecord *)node->Data;
+    dst = ge_port_door_runtime_acquire_vertices(door, src->numVertices);
+    if (dst == NULL) return;
+    cutoff = (s16)((door->doorType == DOORTYPE_VERTICAL
+        ? door->bbox.Bounds.ymax : door->bbox.Bounds.xmin) + 0.5f);
+    for (i = 0; i < src->numVertices / 4; i++) {
+        for (j = 0; j < 4; j++) {
+            Vertex *dcur = &dst[i * 4 + j];
+            Vertex *d1 = &dst[i * 4 + (j + 1) % 4];
+            Vertex *d2 = &dst[i * 4 + (j + 2) % 4];
+            Vertex *d3 = &dst[i * 4 + (j + 3) % 4];
+            Vertex *cur = &src->Vertices[i * 4 + j];
+            Vertex *n1 = &src->Vertices[i * 4 + (j + 1) % 4];
+            Vertex *n2 = &src->Vertices[i * 4 + (j + 2) % 4];
+            Vertex *n3 = &src->Vertices[i * 4 + (j + 3) % 4];
+            if (j == 0) { *dcur = *cur; *d1 = *n1; *d2 = *n2; *d3 = *n3; }
+            if (door->doorType == DOORTYPE_VERTICAL) {
+                if (cur->coord.y >= cutoff) {
+                    if (cur->coord.x == n1->coord.x
+                            && cur->coord.z == n1->coord.z
+                            && cur->coord.y != n1->coord.y) {
+                        dcur->s = (s16)(((cur->coord.y - cutoff)
+                            * (n1->s - cur->s) / (cur->coord.y - n1->coord.y))
+                            + cur->s);
+                        dcur->t = (s16)(((cur->coord.y - cutoff)
+                            * (n1->t - cur->t) / (cur->coord.y - n1->coord.y))
+                            + cur->t);
+                    } else if (cur->coord.x == n2->coord.x
+                            && cur->coord.z == n2->coord.z
+                            && cur->coord.y != n2->coord.y) {
+                        dcur->s = (s16)(((cur->coord.y - cutoff)
+                            * (n2->s - cur->s) / (cur->coord.y - n2->coord.y))
+                            + cur->s);
+                        dcur->t = (s16)(((cur->coord.y - cutoff)
+                            * (n2->t - cur->t) / (cur->coord.y - n2->coord.y))
+                            + cur->t);
+                    } else if (cur->coord.x == n3->coord.x
+                            && cur->coord.z == n3->coord.z
+                            && cur->coord.y != n3->coord.y) {
+                        dcur->s = (s16)(((cur->coord.y - cutoff)
+                            * (n3->s - cur->s) / (cur->coord.y - n3->coord.y))
+                            + cur->s);
+                        dcur->t = (s16)(((cur->coord.y - cutoff)
+                            * (n3->t - cur->t) / (cur->coord.y - n3->coord.y))
+                            + cur->t);
+                    }
+                    dcur->coord.y = cutoff;
+                }
+            } else if (cur->coord.x <= cutoff) {
+                if (cur->coord.y == n1->coord.y
+                        && cur->coord.z == n1->coord.z
+                        && cur->coord.x != n1->coord.x) {
+                    dcur->s = (s16)(((cutoff - cur->coord.x)
+                        * (n1->s - cur->s) / (n1->coord.x - cur->coord.x))
+                        + cur->s);
+                    dcur->t = (s16)(((cutoff - cur->coord.x)
+                        * (n1->t - cur->t) / (n1->coord.x - cur->coord.x))
+                        + cur->t);
+                } else if (cur->coord.y == n2->coord.y
+                        && cur->coord.z == n2->coord.z
+                        && cur->coord.x != n2->coord.x) {
+                    dcur->s = (s16)(((cutoff - cur->coord.x)
+                        * (n2->s - cur->s) / (n2->coord.x - cur->coord.x))
+                        + cur->s);
+                    dcur->t = (s16)(((cutoff - cur->coord.x)
+                        * (n2->t - cur->t) / (n2->coord.x - cur->coord.x))
+                        + cur->t);
+                } else if (cur->coord.y == n3->coord.y
+                        && cur->coord.z == n3->coord.z
+                        && cur->coord.x != n3->coord.x) {
+                    dcur->s = (s16)(((cutoff - cur->coord.x)
+                        * (n3->s - cur->s) / (n3->coord.x - cur->coord.x))
+                        + cur->s);
+                    dcur->t = (s16)(((cutoff - cur->coord.x)
+                        * (n3->t - cur->t) / (n3->coord.x - cur->coord.x))
+                        + cur->t);
+                }
+                dcur->coord.x = cutoff;
+            }
+        }
+    }
+    door->unkcc = dst;
+    ge_port_door_runtime_publish_vertices(door, dst, src->numVertices);
+    ge_port_door_runtime_note_clipped();
+}
+
+static void ge_original_door_start_open_slice(DoorRecord *door)
+{
+    ObjectRecord *object = GE_DOOR_OBJECT(door);
+    object->flags &= ~PROPFLAG_DOOR_KEEPOPEN;
+    /* Canonical RUNTIMEBITFLAG_BEENOPENED (BITFLAG names are omitted by the
+     * GCC setup-data ABI build). */
+    object->runtime_bitflags |= 0x00000200U;
+    ge_port_door_runtime_sound(door, GE_ORIGINAL_DOOR_SOUND_START_OPEN);
+    if (door->portalNumber >= 0) {
+        ge_port_door_set_portal_open(door->portalNumber, 1);
+        ge_port_door_runtime_note_portal(1);
+    }
+}
+
+static void ge_original_door_start_close_slice(DoorRecord *door)
+{
+    GE_DOOR_OBJECT(door)->flags &= ~PROPFLAG_DOOR_KEEPOPEN;
+    ge_port_door_runtime_sound(door, GE_ORIGINAL_DOOR_SOUND_START_CLOSE);
+}
+
+static void ge_original_door_finish_open_slice(DoorRecord *door)
+{
+    ge_port_door_runtime_sound(door, GE_ORIGINAL_DOOR_SOUND_FINISH_OPEN);
+    ge_port_door_runtime_note_completed(1);
+}
+
+static void ge_original_door_finish_close_slice(DoorRecord *door)
+{
+    ge_port_door_runtime_sound(door, GE_ORIGINAL_DOOR_SOUND_FINISH_CLOSE);
+    if (door->portalNumber >= 0) {
+        ge_port_door_set_portal_open(door->portalNumber, 0);
+        ge_port_door_runtime_note_portal(0);
+    }
+    ge_port_door_runtime_note_completed(0);
+}
+
+void ge_original_door_set_open_state_slice(DoorRecord *door, s32 newstate)
+{
+    if (newstate == DOORSTATE_OPENING) {
+        if (door->openstate == DOORSTATE_STATIONARY
+                || door->openstate == DOORSTATE_WAITING)
+            ge_original_door_start_open_slice(door);
+        door->openstate = (s8)newstate;
+    } else if (newstate == DOORSTATE_CLOSING) {
+        if (door->openstate == DOORSTATE_STATIONARY
+                && door->openPosition > 0)
+            ge_original_door_start_close_slice(door);
+        if ((door->openstate != DOORSTATE_STATIONARY
+                && door->openstate != DOORSTATE_WAITING)
+                || door->openPosition > 0)
+            door->openstate = (s8)newstate;
+        else if (door->openstate == DOORSTATE_WAITING)
+            door->openstate = DOORSTATE_STATIONARY;
+    } else door->openstate = (s8)newstate;
+}
+
+void ge_original_door_activate_slice(DoorRecord *door, s32 state)
+{
+    DoorRecord *linkeddoor;
+    s32 linkedstate = state;
+    if (GE_DOOR_OBJECT(door)->flags2 & 0x40000000) {
+        if (state == DOORSTATE_OPENING) {
+            linkedstate = DOORSTATE_CLOSING;
+            if (door->openstate == DOORSTATE_STATIONARY)
+                state = DOORSTATE_WAITING;
+        }
+    }
+    ge_original_door_set_open_state_slice(door, state);
+    linkeddoor = door->linkedDoor;
+    while (linkeddoor && linkeddoor != door) {
+        ge_original_door_set_open_state_slice(linkeddoor, linkedstate);
+        linkeddoor = linkeddoor->linkedDoor;
+    }
+}
+
+void ge_original_door_runtime_tick_slice(DoorRecord *door)
+{
+    s32 any_moving = 0;
+    s32 collision_ok = 1;
+    DoorRecord *current = door;
+    while (current != NULL) {
+        current->lastcalc60f = current->openPosition;
+        if (ge_original_update_door_displacement_slice(current) != 0)
+            any_moving = 1;
+        current = current->linkedDoor;
+        if (current == door) break;
+    }
+    current = door;
+    if (any_moving != 0) {
+        while (current != NULL) {
+            ge_original_door_update_bbox_slice(current);
+            collision_ok = ge_port_door_runtime_test_collision(
+                GE_DOOR_OBJECT(current)->prop);
+            if (collision_ok == 0) break;
+            current = current->linkedDoor;
+            if (current == door) break;
+        }
+    }
+    current = door;
+    while (current != NULL) {
+        if (any_moving) {
+            if (collision_ok != 0) {
+                if (current->openstate == DOORSTATE_OPENING) {
+                    if (current->maxFrac <= current->openPosition) {
+                        current->openstate = DOORSTATE_STATIONARY;
+                        current->speed = 0.0f;
+                        current->openedTime =
+                            (u32)ge_port_door_runtime_global_timer();
+                        ge_original_door_finish_open_slice(current);
+                    }
+                } else if (current->openstate == DOORSTATE_CLOSING
+                        && current->openPosition <= 0.0f) {
+                    current->openstate = DOORSTATE_STATIONARY;
+                    current->speed = 0.0f;
+                    current->openedTime = 0;
+                    ge_original_door_finish_close_slice(current);
+                }
+                ge_port_door_runtime_update_shade(
+                    GE_DOOR_OBJECT(current)->prop,
+                    &GE_DOOR_OBJECT(current)->nextcol);
+            } else {
+                current->speed = 0.0f;
+                current->openPosition = current->lastcalc60f;
+                ge_original_door_update_bbox_slice(current);
+            }
+            ge_original_door_build_clipped_vertices_slice(current);
+        } else if (current->doorFlags & DOORFLAG_CLIP_TO_BBOX) {
+            ge_original_door_build_clipped_vertices_slice(current);
+        }
+        current->lastcalc60i = ge_port_door_runtime_global_timer();
+        current = current->linkedDoor;
+        if (current == door) break;
+    }
+}
+
+#else
+
 /*---------------------------------------------------------------------
 
 	File		propobj.c
@@ -327,7 +1256,6 @@ Projectile *projectileAllocate(void)
         return NULL;
     }
 }
-
 
 void sub_GAME_7F03FDA8(PropRecord *prop)
 {
@@ -11518,7 +12446,11 @@ void trigger_remote_mine_detonation(void)
 {
     u32 uVar1 = 1 << (get_cur_playernum());
     g_RemoteMineOwnerTriggerFlag = uVar1 | g_RemoteMineOwnerTriggerFlag;
+#ifdef GE_PORT_USE_ORIGINAL_TYPES
+    sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, WATCH_DETONATE_MINE_SFX, NULL);
+#else
     sndPlaySfx(g_musicSfxBufferPtr, WATCH_DETONATE_MINE_SFX, NULL);
+#endif
 }
 
 
@@ -14356,3 +15288,5 @@ void drop_inventory(void)
         }
     }
 }
+
+#endif /* GE_PORT_OBJINIT_PREALLOCATED_SLICE */

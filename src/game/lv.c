@@ -1,3 +1,16 @@
+#if defined(GE_PORT_LV_TIMER_SLICE) || defined(GE_PORT_LV_STAGE_TICK_SLICE)
+#include <ultra64.h>
+#include "ge_original_level.h"
+#include "frametiming.h"
+
+/* Explicit host/platform adapters supplied by port/src/ge_original_level.c. */
+extern void ge_port_level_reset_tlb_entries(void);
+extern s32 ge_port_level_is_paused(void);
+extern u16 ge_port_level_buttons_pressed(void);
+extern void ge_port_level_tick_subsystem(s32 subsystem);
+#define tlbmanageResetCurrentEntriesCount ge_port_level_reset_tlb_entries
+#define checkGamePaused ge_port_level_is_paused
+#else
 #include <ultra64.h>
 #include <math.h>
 #include <os_extension.h>
@@ -60,6 +73,29 @@
 #include "unk_092E50.h"
 #include "frametiming.h"
 #include "chr.h"
+#endif
+
+#if defined(GE_PORT_LV_TIMER_SLICE) || defined(GE_PORT_LV_STAGE_TICK_SLICE)
+/* Original lvlManageMpGame timer globals needed by the isolated prefix. */
+s32 g_ControlsLockedFlag = 0;
+s32 g_ClockTimer = 0;
+f32 g_GlobalTimerDelta = 0;
+s32 g_GlobalTimer = 0;
+s32 D_80048380 = 0;
+s32 g_CurrentStageToLoad = 90;
+s32 D_80048388 = 0;
+s32 D_8004838C = 0;
+s32 D_80048390 = 0;
+s32 D_80048394 = 0;
+s32 g_MpTime = 0x8ca0;
+f32 g_CurrentMultiPlayerSec = 0.0f;
+s32 D_800483A8 = 0;
+f32 g_CurrentMultiPlayerMin = 0.0f;
+s32 D_800483B0 = 0;
+f32 g_StageTimeSec = 0.0f;
+s32 D_800483B8 = 0;
+f32 g_PowerOnTimeSec = 0.0f;
+#else
 
 // bss
 //CODE.bss:8008C260
@@ -957,7 +993,13 @@ void lvlSetMultipliersForDifficulty(void)
  * Address: 0x7F0BF7AC (NTSC-J).
  * Address: 0x7F0BDFAC (PAL).
  */
+#endif
+
+#if defined(GE_PORT_LV_TIMER_SLICE) || defined(GE_PORT_LV_STAGE_TICK_SLICE)
+void lvlManageMpGameTimerSlice(void)
+#else
 void lvlManageMpGame(void)
+#endif
 {
     tlbmanageResetCurrentEntriesCount();
 
@@ -986,6 +1028,74 @@ void lvlManageMpGame(void)
 #endif
 #endif
     g_GlobalTimer += g_ClockTimer;
+#ifdef GE_PORT_LV_TIMER_SLICE
+}
+#elif defined(GE_PORT_LV_STAGE_TICK_SLICE)
+    if ((g_CurrentStageToLoad != 90) && (D_80048394 == 0) && (g_ClockTimer > 0))
+    {
+        /* Original first-frame single-player cheat activation boundary. */
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_INITIAL_CHEATS);
+    }
+
+    /* Original single-player common time accounting from lvlManageMpGame. */
+    D_80048394 = D_80048394 + g_ClockTimer;
+    g_CurrentMultiPlayerSec = (f32)D_80048394 / 60.0f;
+    D_800483A8 = D_800483A8 + g_ClockTimer;
+    g_CurrentMultiPlayerMin = (f32)D_800483A8 / 60.0f;
+
+    if (ge_port_level_buttons_pressed())
+    {
+        D_80048388 = 0;
+        D_80048390 = 0;
+    }
+    else
+    {
+        D_80048390 = D_80048390 + g_ClockTimer;
+
+        if (D_80048390 >= 0x708)
+        {
+            D_80048388 = 1;
+        }
+    }
+
+    if (D_80048388 != 0)
+    {
+        D_8004838C += g_ClockTimer;
+    }
+    else
+    {
+        D_800483B0 = D_800483B0 + g_ClockTimer;
+        g_StageTimeSec = (f32)D_800483B0 / 60.0f;
+        D_800483B8 = D_800483B8 + g_ClockTimer;
+        g_PowerOnTimeSec = (f32)D_800483B8 / 60.0f;
+    }
+
+    ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_VI_ZBUF);
+
+    if (g_CurrentStageToLoad == 90) /* LEVELID_TITLE */
+    {
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_TITLE_CHEATS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_TITLE_MENU);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_LANGUAGE);
+    }
+    else
+    {
+        /* Exact original non-title subsystem order from lvlManageMpGame. */
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_PLAYER_PRE_TICK);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_DIFFICULTY);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_ROOM_STATUS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_ROOM_TRANSITION);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_SKY);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_BULLET_SPARKS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_BULLET_CASINGS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_BROKEN_WINDOWS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_EXPLOSIONS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_CHRPROP);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_MUSIC_SLOTS);
+        ge_port_level_tick_subsystem(GE_ORIGINAL_LEVEL_SUBSYSTEM_LANGUAGE);
+    }
+}
+#else
     if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
     {
         if (g_AppendCheatSinglePlayer != 0)
@@ -1675,5 +1785,4 @@ f32 lvlGetPowerOnTimeSec(void)
 {
     return g_PowerOnTimeSec;
 }
-
-
+#endif

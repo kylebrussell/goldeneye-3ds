@@ -68,9 +68,10 @@ void pdtex_flip(struct pd_tex *tex)
 					|| image->format == PDFORMAT_IA4_CI4) {
 				// Paletted
 				rowlen = image->width;
-			} else if (image->format == PDFORMAT_I4) {
-				// 4 bits in ROM, but at this point it's 8 bits
-				rowlen = image->width;
+			} else if (image->format == PDFORMAT_I4
+					|| image->format == PDFORMAT_IA4) {
+				// Two four-bit texels remain packed into each byte.
+				rowlen = (image->width + 1) / 2;
 			} else if (image->format == PDFORMAT_RGB15) {
 				rowlen = 2 * image->width;
 			} else {

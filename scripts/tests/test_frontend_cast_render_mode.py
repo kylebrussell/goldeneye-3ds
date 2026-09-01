@@ -20,6 +20,15 @@ def main() -> None:
     gunbarrel = source[eye:gunbarrel_end]
     assert "viewer_uses_vertex_alpha_lighting != 0U" in gunbarrel
     assert "bond_scene->render_prop_type == 7U" in gunbarrel
+
+    owner = (REPO / "port/src/ge_original_frontend_cast_model.c").read_text()
+    tick = owner.index("ge_original_frontend_cast_model_tick(")
+    root = owner.index("getsuboffset(owner->body, &root);", tick)
+    seed = owner.index("cast->root_position_smoothed[1] = root.y;", root)
+    velocity = owner.index("transformed.x =", seed)
+    transform = owner.index("mtx4TransformVecInPlace(", velocity)
+    pose = owner.index("ge_original_frontend_cast_apply_pose(", transform)
+    assert root < seed < velocity < transform < pose
     print("Frontend model render modes: cast generic; gunbarrel VIEWER alpha-lighting")
 
 

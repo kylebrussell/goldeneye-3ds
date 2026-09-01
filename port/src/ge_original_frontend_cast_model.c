@@ -478,6 +478,12 @@ GeOriginalFrontendCastModelStatus ge_original_frontend_cast_model_tick(
     render_data.mtxlist = &owner->body->render_pos[0].pos;
     subcalcmatrices(&render_data, owner->body);
     getsuboffset(owner->body, &root);
+    /* constructor_menu18 seeds the smoothed vertical root before deriving
+     * vec. Doing this only inside apply_pose is one operation too late: the
+     * root matrix below would transform a spurious first-frame Y velocity,
+     * briefly throwing the cast camera target through the actor. */
+    if (cast->camera_reset)
+        cast->root_position_smoothed[1] = root.y;
     transformed.x = (root.x - cast->root_position_smoothed[0]) / timer_delta;
     transformed.y = (root.y - cast->root_position_smoothed[1]) / timer_delta;
     transformed.z = (root.z - cast->root_position_smoothed[2]) / timer_delta;

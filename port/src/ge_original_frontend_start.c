@@ -114,7 +114,21 @@ static void ge_frontend_init_current(GeOriginalFrontendStart *frontend)
 {
     frontend->menu_timer=0U;
     frontend->sequence_complete=0U;
-    if(frontend->current_menu==MENU_FILE_SELECT){
+    if(frontend->current_menu==MENU_LEGAL_SCREEN){
+        /* init_menu00_legalscreen */
+        if(frontend->services.stop_music!=NULL)
+            frontend->services.stop_music(frontend->services.context);
+    }else if(frontend->current_menu==MENU_NINTENDO_LOGO){
+        /* init_menu01_nintendo */
+        if(frontend->services.play_music!=NULL)
+            frontend->services.play_music(
+                frontend->services.context,M_INTROSWOOSH);
+    }else if(frontend->current_menu==MENU_EYE_INTRO){
+        /* init_menu03_gunbarrel */
+        if(frontend->services.play_music!=NULL)
+            frontend->services.play_music(
+                frontend->services.context,M_INTRO);
+    }else if(frontend->current_menu==MENU_FILE_SELECT){
         frontend->file_action=GE_ORIGINAL_FRONTEND_FILE_SELECT;
         frontend->wallet_bounds_ready=0U;
         frontend->wallet_hover=-1;

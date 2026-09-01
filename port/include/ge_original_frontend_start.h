@@ -101,6 +101,7 @@ typedef struct GeOriginalFrontendServices {
     int (*erase_folder)(void *context,int32_t folder);
     void (*play_sfx)(void *context,uint32_t sfx_id);
     void (*play_music)(void *context,int32_t music_id);
+    void (*stop_music)(void *context);
     void (*set_007_sliders)(void *context,float reaction,float health,
                             float damage,float accuracy);
 } GeOriginalFrontendServices;

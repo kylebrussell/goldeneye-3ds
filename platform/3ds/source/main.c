@@ -11109,6 +11109,9 @@ typedef struct RuntimeOriginalFrontend {
     uint8_t ramrom_active;
     uint8_t ramrom_block_ready;
     uint8_t ramrom_return_to_title;
+    int32_t requested_music_track;
+    uint32_t music_request_generation;
+    uint32_t applied_music_request_generation;
     size_t gunbarrel_hole_vertex_count;
     bool gunbarrel_sight_rect_visible;
     C3D_Tex gunbarrel_blood_texture;
@@ -12743,8 +12746,21 @@ static void original_watch_abort_play_beep(void *context)
 
 static void original_frontend_play_music(void *context, int32_t music_id)
 {
-    (void)context;
+    RuntimeOriginalFrontend *runtime = context;
     ge_original_gameplay_services_play_music(music_id);
+    if (runtime != NULL) {
+        runtime->requested_music_track = music_id;
+        ++runtime->music_request_generation;
+    }
+}
+
+static void original_frontend_stop_music(void *context)
+{
+    RuntimeOriginalFrontend *runtime = context;
+    if (runtime != NULL) {
+        runtime->requested_music_track = -1;
+        ++runtime->music_request_generation;
+    }
 }
 
 static uint32_t original_frontend_cast_random(void *context)
@@ -14067,12 +14083,58 @@ static Ge3dsOriginalFrontendPage original_frontend_page(int32_t menu)
     }
 }
 
+static bool apply_original_frontend_music_request(
+    RuntimeOriginalFrontend *runtime,
+    GeOriginalMusicRuntime **music_runtime,
+    GeAudioOutput *audio_output, bool audio_active)
+{
+    const char *music_path;
+
+    if (runtime == NULL || music_runtime == NULL || audio_output == NULL)
+        return false;
+    if (runtime->applied_music_request_generation
+            == runtime->music_request_generation)
+        return true;
+    if (audio_active)
+        (void)ge_3ds_audio_bind_secondary(NULL);
+    ge_original_music_runtime_close(*music_runtime);
+    *music_runtime = NULL;
+    if (!audio_active) {
+        runtime->applied_music_request_generation =
+            runtime->music_request_generation;
+        return true;
+    }
+    if (runtime->requested_music_track >= 0) {
+        music_path = ge_original_music_track_asset_path(
+            runtime->requested_music_track);
+        if (runtime->asset_pack == NULL || music_path == NULL
+                || (*music_runtime =
+                    ge_original_music_runtime_open_asset_pack(
+                        runtime->asset_pack, music_path, INT16_MAX,
+                        audio_output)) == NULL) {
+            printf("Could not initialize original frontend music %ld.\n",
+                   (long)runtime->requested_music_track);
+            return false;
+        }
+        if (audio_active && ge_3ds_audio_bind_secondary(
+                ge_original_music_runtime_output(*music_runtime)) != 0) {
+            printf("Could not bind original frontend music %ld.\n",
+                   (long)runtime->requested_music_track);
+            return false;
+        }
+    }
+    runtime->applied_music_request_generation =
+        runtime->music_request_generation;
+    return true;
+}
+
 static bool run_original_frontend(C3D_RenderTarget *top_target,
                                   bool cstick_available,
                                   GeTextureCache *texture_cache,
                                   RuntimeOriginalFrontend *runtime,
                                   GeOriginalFrontendStart *frontend,
-                                  GeOriginalMusicRuntime *music_runtime,
+                                  GeOriginalMusicRuntime **music_runtime,
+                                  GeAudioOutput *audio_output,
                                   bool audio_active,
                                   bool reset_frontend,
                                   int32_t *selected_level_id)
@@ -14091,6 +14153,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         .erase_folder = original_frontend_erase_folder,
         .play_sfx = original_frontend_play_sfx,
         .play_music = original_frontend_play_music,
+        .stop_music = original_frontend_stop_music,
         .set_007_sliders = original_frontend_set_007_sliders,
     };
     GeOriginalFrontendCastServices cast_services = {
@@ -14132,6 +14195,9 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
             return false;
         original_frontend_apply_visual_probe(frontend);
     }
+    if (!apply_original_frontend_music_request(
+            runtime, music_runtime, audio_output, audio_active))
+        return false;
     while (aptMainLoop()) {
         GePortInput input = read_input(cstick_available);
         GeOriginalFrontendSnapshot snapshot;
@@ -14166,13 +14232,6 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     || !ge_original_frontend_start_set_file_action_bounds(
                         frontend,action_bounds)) return false;
         }
-        if (audio_active && music_runtime != NULL && !music_failed
-                && ge_original_music_runtime_tick_60hz(music_runtime)
-                    != GE_AUDIO_ABI_OK) {
-            printf("Original frontend music render failed.\n");
-            music_failed = true;
-        }
-        if (audio_active) ge_3ds_audio_pump();
         if (!ge_original_frontend_start_cursor_tick(frontend,
                 (int8_t)lrintf(input.move_x * 80.0f),
                 (int8_t)lrintf(input.move_y * 80.0f), 1.0f)
@@ -14183,6 +14242,16 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 frontend, input_edges)
                 || !ge_original_frontend_start_snapshot(
                     frontend, &snapshot)) return false;
+        if (!apply_original_frontend_music_request(
+                runtime, music_runtime, audio_output, audio_active))
+            return false;
+        if (audio_active && *music_runtime != NULL && !music_failed
+                && ge_original_music_runtime_tick_60hz(*music_runtime)
+                    != GE_AUDIO_ABI_OK) {
+            printf("Original frontend music render failed.\n");
+            music_failed = true;
+        }
+        if (audio_active) ge_3ds_audio_pump();
         if (snapshot.menu == MENU_EYE_INTRO) {
             if (runtime->previous_menu != MENU_EYE_INTRO
                     || !runtime->gunbarrel_started) {
@@ -14720,7 +14789,8 @@ static bool run_original_mission_complete_report(
     GeOriginalFrontendStart *frontend,
     RuntimeStageOrdinaryObjects *stage_objects,
     const GeOriginalMissionResultSnapshot *result_snapshot,
-    GeOriginalMusicRuntime *music_runtime,
+    GeOriginalMusicRuntime **music_runtime,
+    GeAudioOutput *audio_output,
     bool audio_active,
     int32_t *selected_level_id)
 {
@@ -14803,7 +14873,7 @@ static bool run_original_mission_complete_report(
     /* Continue the same source-pinned frontend state through Report,
      * Statistics, mission select and the authentic retry path. */
     return run_original_frontend(top_target, cstick_available, texture_cache,
-        runtime, frontend, music_runtime, audio_active,
+        runtime, frontend, music_runtime, audio_output, audio_active,
         false, selected_level_id);
 }
 
@@ -16672,14 +16742,14 @@ start_stage_runtime:
                              AUDIO_RING_FRAMES,
                              GE_ORIGINAL_MUSIC_SAMPLE_RATE) == 0) {
         const char *music_path = run_start_frontend
-            ? "music/Mfolders.bin"
-            : stage_music_asset_path(selected_level_id);
+            ? NULL : stage_music_asset_path(selected_level_id);
         audio_output_ready = true;
         ge_libultra_audio_bind(&audio_output);
         if (assets_mounted && music_path != NULL)
             original_music = ge_original_music_runtime_open_asset_pack(
                 &asset_pack, music_path, INT16_MAX, &audio_output);
-        if (assets_mounted && original_music == NULL) {
+        if (assets_mounted && music_path != NULL
+                && original_music == NULL) {
             printf("Could not initialize original music: %s\n",
                    music_path != NULL ? music_path : "unsupported stage");
         }
@@ -16716,7 +16786,7 @@ start_stage_runtime:
         if (!run_original_frontend(
                 top_target, cstick_available, &texture_cache,
                 &original_frontend_runtime, &original_frontend,
-                original_music, audio_active, true,
+                &original_music, &audio_output, audio_active, true,
                 &selected_level_id))
             goto cleanup_runtime;
         (void)ge_3ds_audio_bind_secondary(NULL);
@@ -18223,23 +18293,14 @@ start_stage_runtime:
         ge_original_mission_result_snapshot(&completed_mission);
         (void)ge_3ds_audio_bind_secondary(NULL);
         ge_original_music_runtime_close(original_music);
-        original_music = ge_original_music_runtime_open_asset_pack(
-            &asset_pack, "music/Mfolders.bin", INT16_MAX, &audio_output);
-        if (original_music == NULL) {
-            printf("Could not initialize original report music.\n");
-        }
-        if (audio_active && original_music != NULL
-                && ge_3ds_audio_bind_secondary(
-                ge_original_music_runtime_output(original_music)) != 0) {
-            printf("Could not bind original report music output.\n");
-            goto cleanup_runtime;
-        }
+        original_music = NULL;
         next_stage_requested = run_original_mission_complete_report(
             top_target, cstick_available,
             texture_cache_ready ? &texture_cache : NULL,
             &original_frontend_runtime, &original_frontend,
             &stage_ordinary_objects,
-            &completed_mission, original_music, audio_active,
+            &completed_mission, &original_music, &audio_output,
+            audio_active,
             &selected_level_id);
     }
 

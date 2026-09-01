@@ -22,6 +22,7 @@ typedef struct Harness {
     int last_music;
     int sfx_calls;
     int music_calls;
+    int music_stop_calls;
     int summary_calls;
     int slider_calls;
     float sliders[4];
@@ -56,6 +57,8 @@ static void play_sfx(void *context,uint32_t value)
 {Harness *h=context;h->last_sfx=(int)value;++h->sfx_calls;}
 static void play_music(void *context,int32_t value)
 {Harness *h=context;h->last_music=value;++h->music_calls;}
+static void stop_music(void *context)
+{Harness *h=context;++h->music_stop_calls;}
 static void set_sliders(void *context,float reaction,float health,
                         float damage,float accuracy)
 {Harness *h=context;++h->slider_calls;h->sliders[0]=reaction;
@@ -131,6 +134,7 @@ int main(void)
     services.erase_folder=erase_folder;
     services.play_sfx=play_sfx;
     services.play_music=play_music;
+    services.stop_music=stop_music;
     services.set_007_sliders=set_sliders;
     GeOriginalFrontendStart frontend;GeOriginalFrontendSnapshot snapshot;
     {
@@ -138,6 +142,7 @@ int main(void)
         int frame;
         assert(ge_original_frontend_start_reset_canonical(
             &startup,&services));
+        assert(harness.music_stop_calls==1);
         assert(ge_original_frontend_start_snapshot(&startup,&snapshot)
             &&snapshot.menu==MENU_LEGAL_SCREEN
             &&snapshot.line_count==12U
@@ -184,6 +189,7 @@ int main(void)
             &&snapshot.menu==MENU_LEGAL_SCREEN
             &&snapshot.presentation.frame==241U);
         advance_to_menu(&startup,0U,MENU_NINTENDO_LOGO);
+        assert(harness.last_music==M_INTROSWOOSH);
         assert(ge_original_frontend_start_snapshot(&startup,&snapshot)
             &&snapshot.menu==MENU_NINTENDO_LOGO
             &&snapshot.presentation.model_prop==PROP_NINTENDOLOGO
@@ -255,6 +261,7 @@ int main(void)
         }
         assert(ge_original_frontend_start_sequence_complete(&startup));
         advance_to_menu(&startup,0U,MENU_EYE_INTRO);
+        assert(harness.last_music==M_INTRO);
         assert(ge_original_frontend_start_snapshot(&startup,&snapshot)
             &&snapshot.menu==MENU_EYE_INTRO
             &&snapshot.presentation.renderer

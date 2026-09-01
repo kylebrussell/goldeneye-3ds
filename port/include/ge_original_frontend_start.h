@@ -254,12 +254,16 @@ int ge_original_frontend_start_mission_caption(
 int ge_original_frontend_start_sequence_complete(
     GeOriginalFrontendStart *frontend);
 /* Completes the exact interface_menu18_displaycast handoff selected by the
- * separately owned canonical cast scheduler.  RELOAD is intentionally kept
- * inside that scheduler/model owner; RAMROM remains explicit until the
- * original demo-file service is bound rather than being silently replaced. */
+ * separately owned canonical cast scheduler. RELOAD is intentionally kept
+ * inside that scheduler/model owner. RAMROM is installed through the exact
+ * authored demo header service below before this event is dispatched. */
 int ge_original_frontend_start_cast_event(
     GeOriginalFrontendStart *frontend,
     GeOriginalFrontendCastEvent event);
+/* replay_recorded_ramrom_at_address's solo-stage/difficulty/menu handoff once
+ * the platform has validated and retained the selected authored demo file. */
+int ge_original_frontend_start_ramrom(
+    GeOriginalFrontendStart *frontend,int32_t stage,int32_t difficulty);
 /* Called when the canonical gameplay/title-stage handoff has completed.  It
  * queues MENU_MISSION_FAILED, which is the original report page regardless of
  * whether the outcome was failure or success. */

@@ -40,6 +40,8 @@ typedef struct GeOriginalIntroProviders {
 typedef struct GeOriginalIntroSpawnState {
     int32_t pad_index;
     uint32_t matching_spawn_count;
+    uint32_t camera_count;
+    uint32_t camera_index;
     float position[3];
     float floor_y;
     float look_angle_radians;
@@ -65,6 +67,9 @@ void ge_original_bond_intro_bind(const GeOriginalIntroProviders *providers,
 /* Bounded decompiled entry points retained in their original source files. */
 void proplvreset2PadSlice(int32_t stage_id);
 void bondviewLoadSetupIntroSpawnSlice(void);
+/* Exact four random samples/state writes at the tail of
+ * sets_a_bunch_of_BONDdata_values_to_default. */
+void ge_original_spawn_player_initialize_idle_roll(void);
 /* Exact INTROTYPE_ITEM/AMMO/CUFF and starting-weapon portion of
  * bondviewLoadSetupIntroSection, run after canonical player inventory and
  * hand storage have been initialized. */

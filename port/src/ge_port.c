@@ -114,7 +114,11 @@ static void ge_port_tick(GePortState *state, unsigned retrace_frames)
     state->original_stage_seconds = level_timer.stage_seconds;
     state->original_idle_frames = level_timer.idle_frames;
     state->original_idle_latched = level_timer.idle_latched;
-    state->random_sample = randomGetNext();
+    /* Diagnostics must observe, never advance, the gameplay RNG. The former
+     * sampling call inserted one non-authored draw per simulation tick and
+     * desynchronised every original RAMROM attract recording immediately
+     * after its first controller block. */
+    state->random_sample = (uint32_t)g_randomSeed;
 
     state->view_yaw += state->original_look_x * GE_PORT_LOOK_RADIANS_PER_TICK
         * (float)retrace_frames;

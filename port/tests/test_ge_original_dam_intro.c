@@ -43,6 +43,13 @@ static int ammo_amounts[4];
 static int ammo_call_count;
 static int equipped_weapons[2] = {-1, -1};
 static int projectile_model_load_calls;
+static uint32_t random_calls;
+
+u32 randomGetNext(void)
+{
+    random_calls++;
+    return UINT32_C(0x12345678) + random_calls;
+}
 
 void bondinvReinitInv(void)
 {
@@ -374,6 +381,9 @@ int main(void)
 
     assert(spawn_state.loaded);
     assert(spawn_state.matching_spawn_count == 1U);
+    assert(spawn_state.camera_count != 0U);
+    assert(spawn_state.camera_index < spawn_state.camera_count);
+    assert(random_calls == 1U);
     assert(spawn_state.pad_index == 33);
     assert(strcmp(spawn_state.stan_name, "p6g1") == 0);
     assert(spawn_state.stan == &harness.stan_token);
@@ -413,6 +423,8 @@ int main(void)
     assert(harness.player_prop.stan == (StandTile *)&harness.stan_token);
     assert(fabsf(harness.player_prop.pos.x
                  - spawn_state.position[0]) < 0.01f);
+    ge_original_spawn_player_initialize_idle_roll();
+    assert(random_calls == 5U);
 
     assert(bondviewLoadSetupIntroLoadoutSlice(&loadout_state));
     assert(loadout_state.loaded);

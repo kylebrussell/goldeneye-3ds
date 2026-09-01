@@ -87,6 +87,7 @@ FUNCTIONS = (
     ("explosion", "explosionChrpropSmokeTick"),
     ("explosion", "explosionChrpropExplosionTick"),
     ("chrprop", "propExecuteTickOperation"),
+    ("player", "shuffle_player_ids"),
     ("player", "get_player_position_in_shuffled"),
     ("propobj", "handle_alarm_gas_timer_calldamage"),
     ("propobj", "countdownTimerSetValue"),

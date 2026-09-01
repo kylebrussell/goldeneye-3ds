@@ -65,6 +65,22 @@ typedef struct GeOriginalPitemModelGunfire {
     uint8_t visible;
 } GeOriginalPitemModelGunfire;
 
+/* ROM-local image named by a model's relocated ModelFileTextures table.  A
+ * segmented 0x05 address denotes pixels embedded in the PitemZ blob; ordinary
+ * Rare image IDs are intentionally rejected by this query and continue
+ * through the shared texture catalog.  The returned pixels remain owned by
+ * the provider. */
+typedef struct GeOriginalPitemEmbeddedTexture {
+    const uint8_t *pixels;
+    size_t available_bytes;
+    uint32_t segmented_address;
+    uint16_t width;
+    uint16_t height;
+    uint8_t render_depth;
+    uint8_t flags_s;
+    uint8_t flags_t;
+} GeOriginalPitemEmbeddedTexture;
+
 /* Creates a provider over the exact canonical PitemZ_entries table linked from
  * the decomp. Models remain lazy: their byte-identical PitemZ payload is read
  * and relocated only when model_load/model_available first requests its ID. */
@@ -123,6 +139,12 @@ int ge_original_pitem_model_instance_gunfire(
     const GeOriginalPitemModelProvider *provider,
     const void *model_instance, size_t gunfire_index,
     GeOriginalPitemModelGunfire *gunfire);
+
+/* Resolves the exact embedded image backing a SETTIMG command. */
+int ge_original_pitem_model_embedded_texture(
+    const GeOriginalPitemModelProvider *provider, int32_t model_id,
+    uint32_t segmented_address,
+    GeOriginalPitemEmbeddedTexture *texture);
 
 /* Exact disable_all_switches/set_item_visibility_in_objinstance adapter from
  * front.c. The switch index addresses ModelFileHeader::Switches, not a node

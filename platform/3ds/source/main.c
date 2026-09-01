@@ -65,6 +65,7 @@
 #include "ge_original_frontend_start.h"
 #include "ge_original_frontend_statistics.h"
 #include "ge_original_frontend_visuals.h"
+#include "ge_original_ramrom_replay.h"
 #include "ge_original_rareware_logo.h"
 #include "ge_original_model104_runtime.h"
 #include "ge_original_model178_runtime.h"
@@ -163,6 +164,7 @@ extern void chrpropUpdateAutoaimTarget(void);
 #endif
 extern s32 cur_player_get_autoaim(void);
 extern u32 cur_player_get_lookahead(void);
+extern u64 g_chrObjRandomSeed;
 extern u32 cur_player_get_ammo_onscreen_setting(void);
 extern u32 cur_player_get_sight_onscreen_control(void);
 extern u32 cur_player_get_screen_setting(void);
@@ -175,6 +177,7 @@ extern void currentPlayerSetXAutoAimEnabled(bool enabled);
 extern void currentPlayerSetLookAheadSetting(bool enabled);
 extern void gunSetGunAmmoVisible(s32 reason, bool enable);
 extern void gunSetSightVisible(s32 reason, bool visible);
+extern void shuffle_player_ids(void);
 extern u8 *langGet(s32 slot_id);
 extern char *LmiscE[];
 extern char *LdamE[];
@@ -288,6 +291,7 @@ static const Vertex fallback_crosshair_vertices[] = {
 #define ORIGINAL_AMMO_ICON_VERTEX_OFFSET \
     (ORIGINAL_BOTTOM_HUD_VERTEX_OFFSET + ORIGINAL_HUD_VERTEX_CAPACITY)
 #define ORIGINAL_FRONTEND_MODEL_VERTEX_CAPACITY 8192U
+#define ORIGINAL_FRONTEND_EMBEDDED_TEXTURE_CAPACITY 8U
 #define ORIGINAL_FRONTEND_GUNBARREL_BOND_VERTEX_OFFSET 96U
 #define ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET \
     (ORIGINAL_AMMO_ICON_VERTEX_OFFSET + ORIGINAL_AMMO_ICON_VERTEX_CAPACITY)
@@ -3622,6 +3626,7 @@ typedef struct RuntimeDamIntroContext {
     GeOriginalPropState *props;
     stagesetup *setup;
     int32_t stage_id;
+    int32_t demo_slot;
 } RuntimeDamIntroContext;
 
 static stagesetup *dam_intro_load_setup(void *context, int32_t stage_id)
@@ -3645,8 +3650,8 @@ static void *dam_intro_resolve_stan(void *context, const char *name)
 
 static int32_t dam_intro_demo_slot(void *context)
 {
-    (void)context;
-    return 0;
+    const RuntimeDamIntroContext *intro = context;
+    return intro != NULL ? intro->demo_slot : 0;
 }
 
 static float dam_intro_floor_y(void *context, void *stan, float x, float z)
@@ -3720,10 +3725,12 @@ static void initialize_original_stage_intro(RuntimeDamCollision *collision,
                                             RuntimeDamIntro *intro,
                                             GeOriginalPropState *props,
                                             stagesetup *setup,
-                                            int32_t stage_id)
+                                            int32_t stage_id,
+                                            bool demo_playback)
 {
     RuntimeDamIntroContext context = {
-        collision, intro, props, setup, stage_id
+        collision, intro, props, setup, stage_id,
+        demo_playback ? 1 : 0
     };
     GeOriginalSetupPadProviders setup_providers = {
         .context = &context,
@@ -3756,6 +3763,7 @@ static void initialize_original_stage_intro(RuntimeDamCollision *collision,
     ge_original_bond_intro_bind(&intro_providers, &intro->spawn);
     bondviewLoadSetupIntroSpawnSlice();
     if (intro->spawn.player_committed) {
+        ge_original_spawn_player_initialize_idle_roll();
         GeOriginalBondMovementProviders movement_providers = {
             .collision_types =
                 ge_original_bond_movement_normal_collision_types,
@@ -11038,6 +11046,14 @@ static GePortInput read_input(bool cstick_available)
     return input;
 }
 
+typedef struct RuntimeFrontendEmbeddedTexture {
+    Ge3dsSceneTextureSlot slot;
+    int32_t model_id;
+    uint32_t segmented_address;
+    uint8_t image_format;
+    uint8_t image_size;
+} RuntimeFrontendEmbeddedTexture;
+
 typedef struct RuntimeOriginalFrontend {
     int32_t requested_stage;
     uint32_t axis_held;
@@ -11052,6 +11068,9 @@ typedef struct RuntimeOriginalFrontend {
     size_t logo_batch_count;
     int32_t logo_scene_prop;
     bool logo_ready;
+    RuntimeFrontendEmbeddedTexture embedded_textures[
+        ORIGINAL_FRONTEND_EMBEDDED_TEXTURE_CAPACITY];
+    size_t embedded_texture_count;
     void *wallet_instances[4];
     GeDamRoomWorldVertex *wallet_source_vertices;
     GeDamRoomDrawBatch *wallet_batches;
@@ -11082,6 +11101,14 @@ typedef struct RuntimeOriginalFrontend {
     uint8_t gunbarrel_started;
     uint8_t cast_started;
     uint8_t cast_terminal;
+    GeAssetPack *asset_pack;
+    uint8_t *ramrom_data;
+    size_t ramrom_data_size;
+    GeOriginalRamromReplay ramrom_replay;
+    GeOriginalRamromBlock ramrom_block;
+    uint8_t ramrom_active;
+    uint8_t ramrom_block_ready;
+    uint8_t ramrom_return_to_title;
     size_t gunbarrel_hole_vertex_count;
     bool gunbarrel_sight_rect_visible;
     C3D_Tex gunbarrel_blood_texture;
@@ -11091,6 +11118,7 @@ typedef struct RuntimeOriginalFrontend {
 
 static void close_original_frontend_model(RuntimeOriginalFrontend *runtime)
 {
+    size_t embedded_index;
     if (runtime == NULL) return;
     if (runtime->folder_background_ready)
         C3D_TexDelete(&runtime->folder_background_texture);
@@ -11098,6 +11126,13 @@ static void close_original_frontend_model(RuntimeOriginalFrontend *runtime)
         C3D_TexDelete(&runtime->gunbarrel_sight_texture);
     if (runtime->gunbarrel_blood_texture_loaded)
         C3D_TexDelete(&runtime->gunbarrel_blood_texture);
+    for (embedded_index = 0U;
+            embedded_index < runtime->embedded_texture_count;
+            ++embedded_index) {
+        if (runtime->embedded_textures[embedded_index].slot.loaded)
+            C3D_TexDelete(
+                &runtime->embedded_textures[embedded_index].slot.texture);
+    }
     ge_original_frontend_cast_model_destroy(runtime->cast_model);
     ge_original_gunbarrel_bond_destroy(runtime->gunbarrel_bond);
     ge_original_pitem_model_provider_destroy(runtime->logo_models);
@@ -11113,6 +11148,9 @@ static void close_original_frontend_model(RuntimeOriginalFrontend *runtime)
     runtime->logo_batch_count = 0U;
     runtime->logo_scene_prop = -1;
     runtime->logo_ready = false;
+    memset(runtime->embedded_textures, 0,
+           sizeof(runtime->embedded_textures));
+    runtime->embedded_texture_count = 0U;
     memset(runtime->wallet_instances, 0,
            sizeof(runtime->wallet_instances));
     runtime->wallet_source_vertices = NULL;
@@ -11140,10 +11178,24 @@ static void close_original_frontend_model(RuntimeOriginalFrontend *runtime)
     runtime->cast_model = NULL;
     memset(&runtime->cast_scene, 0, sizeof(runtime->cast_scene));
     runtime->cast_projected_batches = NULL;
+    runtime->asset_pack = NULL;
     runtime->cast_projected_batch_capacity = 0U;
     runtime->cast_projected_vertex_count = 0U;
     runtime->cast_started = 0U;
     runtime->cast_terminal = 0U;
+}
+
+static void close_original_frontend_ramrom(RuntimeOriginalFrontend *runtime)
+{
+    if (runtime == NULL) return;
+    free(runtime->ramrom_data);
+    runtime->ramrom_data = NULL;
+    runtime->ramrom_data_size = 0U;
+    memset(&runtime->ramrom_replay, 0, sizeof(runtime->ramrom_replay));
+    memset(&runtime->ramrom_block, 0, sizeof(runtime->ramrom_block));
+    runtime->ramrom_active = 0U;
+    runtime->ramrom_block_ready = 0U;
+    runtime->ramrom_return_to_title = 0U;
 }
 
 static size_t original_frontend_morton8(size_t x, size_t y)
@@ -11159,6 +11211,198 @@ static size_t original_frontend_swizzled_offset(
     return (y & ~(size_t)7U) * width
         + (x & ~(size_t)7U) * 8U
         + original_frontend_morton8(x & 7U, y & 7U);
+}
+
+static size_t original_frontend_texture_dimension(size_t value)
+{
+    size_t dimension = 8U;
+    while (dimension < value && dimension < 1024U) dimension <<= 1U;
+    return dimension >= value ? dimension : 0U;
+}
+
+static bool original_frontend_decode_embedded_pixel(
+    const GeOriginalPitemEmbeddedTexture *source, uint8_t format,
+    uint8_t size, size_t pixel, uint16_t *rgba4)
+{
+    enum {
+        N64_IMAGE_FORMAT_RGBA = 0,
+        N64_IMAGE_FORMAT_IA = 3,
+        N64_IMAGE_FORMAT_I = 4,
+        N64_IMAGE_SIZE_4B = 0,
+        N64_IMAGE_SIZE_8B = 1,
+        N64_IMAGE_SIZE_16B = 2,
+        N64_IMAGE_SIZE_32B = 3,
+    };
+    const uint8_t *bytes;
+    uint8_t red = 0U, green = 0U, blue = 0U, alpha = 0xffU;
+    size_t required;
+    if (source == NULL || source->pixels == NULL || rgba4 == NULL)
+        return false;
+    bytes = source->pixels;
+    switch (size) {
+    case N64_IMAGE_SIZE_4B:
+        required = pixel / 2U + 1U;
+        break;
+    case N64_IMAGE_SIZE_8B:
+        required = pixel + 1U;
+        break;
+    case N64_IMAGE_SIZE_16B:
+        required = pixel * 2U + 2U;
+        break;
+    case N64_IMAGE_SIZE_32B:
+        required = pixel * 4U + 4U;
+        break;
+    default:
+        return false;
+    }
+    if (required > source->available_bytes) return false;
+    if (format == N64_IMAGE_FORMAT_RGBA && size == N64_IMAGE_SIZE_16B) {
+        const uint16_t packed = (uint16_t)(
+            (uint16_t)bytes[pixel * 2U] << 8U
+            | bytes[pixel * 2U + 1U]);
+        red = (uint8_t)(((packed >> 11U) & 0x1fU) * 255U / 31U);
+        green = (uint8_t)(((packed >> 6U) & 0x1fU) * 255U / 31U);
+        blue = (uint8_t)(((packed >> 1U) & 0x1fU) * 255U / 31U);
+        alpha = (packed & 1U) != 0U ? 0xffU : 0U;
+    } else if (format == N64_IMAGE_FORMAT_RGBA
+            && size == N64_IMAGE_SIZE_32B) {
+        red = bytes[pixel * 4U];
+        green = bytes[pixel * 4U + 1U];
+        blue = bytes[pixel * 4U + 2U];
+        alpha = bytes[pixel * 4U + 3U];
+    } else if (format == N64_IMAGE_FORMAT_I && size == N64_IMAGE_SIZE_4B) {
+        const uint8_t packed = bytes[pixel / 2U];
+        const uint8_t intensity = (pixel & 1U) == 0U
+            ? packed >> 4U : packed & 0x0fU;
+        red = green = blue = alpha = (uint8_t)(intensity * 0x11U);
+    } else if (format == N64_IMAGE_FORMAT_I && size == N64_IMAGE_SIZE_8B) {
+        red = green = blue = alpha = bytes[pixel];
+    } else if (format == N64_IMAGE_FORMAT_IA && size == N64_IMAGE_SIZE_4B) {
+        const uint8_t packed = bytes[pixel / 2U];
+        const uint8_t value = (pixel & 1U) == 0U
+            ? packed >> 4U : packed & 0x0fU;
+        red = green = blue = (uint8_t)(((value >> 1U) & 7U) * 255U / 7U);
+        alpha = (value & 1U) != 0U ? 0xffU : 0U;
+    } else if (format == N64_IMAGE_FORMAT_IA && size == N64_IMAGE_SIZE_8B) {
+        const uint8_t value = bytes[pixel];
+        red = green = blue = (uint8_t)((value >> 4U) * 0x11U);
+        alpha = (uint8_t)((value & 0x0fU) * 0x11U);
+    } else if (format == N64_IMAGE_FORMAT_IA
+            && size == N64_IMAGE_SIZE_16B) {
+        red = green = blue = bytes[pixel * 2U];
+        alpha = bytes[pixel * 2U + 1U];
+    } else {
+        return false;
+    }
+    *rgba4 = (uint16_t)(((uint16_t)(red >> 4U) << 12U)
+        | ((uint16_t)(green >> 4U) << 8U)
+        | ((uint16_t)(blue >> 4U) << 4U)
+        | (uint16_t)(alpha >> 4U));
+    return true;
+}
+
+static const Ge3dsSceneTextureSlot *
+original_frontend_ensure_embedded_texture(
+    RuntimeOriginalFrontend *runtime, int32_t model_id,
+    const GePicaMaterial *material)
+{
+    GeOriginalPitemEmbeddedTexture source;
+    RuntimeFrontendEmbeddedTexture *entry;
+    size_t index;
+    size_t texture_width, texture_height;
+    u32 image_bytes = 0U;
+    uint16_t *image;
+    uint8_t image_size;
+    if (runtime == NULL || runtime->logo_models == NULL || material == NULL
+            || material->texture_source
+                != GE_PICA_TEXTURE_SOURCE_GBI_IMAGE)
+        return NULL;
+    for (index = 0U; index < runtime->embedded_texture_count; ++index) {
+        entry = &runtime->embedded_textures[index];
+        if (entry->model_id == model_id
+                && entry->segmented_address
+                    == material->texture_image_address)
+            return &entry->slot;
+    }
+    if (runtime->embedded_texture_count
+            >= ORIGINAL_FRONTEND_EMBEDDED_TEXTURE_CAPACITY
+            || !ge_original_pitem_model_embedded_texture(
+                runtime->logo_models, model_id,
+                material->texture_image_address, &source)) return NULL;
+    texture_width = original_frontend_texture_dimension(source.width);
+    texture_height = original_frontend_texture_dimension(source.height);
+    image_size = source.render_depth;
+    if (texture_width == 0U || texture_height == 0U) return NULL;
+    entry = &runtime->embedded_textures[runtime->embedded_texture_count];
+    memset(entry, 0, sizeof(*entry));
+    if (!C3D_TexInit(&entry->slot.texture,
+            (u16)texture_width, (u16)texture_height, GPU_RGBA4))
+        return NULL;
+    image = C3D_Tex2DGetImagePtr(
+        &entry->slot.texture, 0, &image_bytes);
+    if (image == NULL
+            || image_bytes != texture_width * texture_height * 2U) {
+        C3D_TexDelete(&entry->slot.texture);
+        memset(entry, 0, sizeof(*entry));
+        return NULL;
+    }
+    memset(image, 0, image_bytes);
+    for (index = 0U; index < (size_t)source.width * source.height;
+            ++index) {
+        uint16_t rgba4;
+        const size_t x = index % source.width;
+        const size_t y = index / source.width;
+        if (!original_frontend_decode_embedded_pixel(
+                &source, material->texture_image_format,
+                image_size, index, &rgba4)) {
+            C3D_TexDelete(&entry->slot.texture);
+            memset(entry, 0, sizeof(*entry));
+            return NULL;
+        }
+        image[original_frontend_swizzled_offset(
+            texture_width, x, y)] = rgba4;
+    }
+    GSPGPU_FlushDataCache(image, image_bytes);
+    C3D_TexSetFilter(&entry->slot.texture, GPU_LINEAR, GPU_LINEAR);
+    C3D_TexSetWrap(&entry->slot.texture,
+        GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+    entry->slot.subtexture = (Tex3DS_SubTexture){
+        source.width, source.height, 0.0f, 1.0f,
+        (float)source.width / (float)texture_width,
+        1.0f - (float)source.height / (float)texture_height,
+    };
+    entry->slot.width = source.width;
+    entry->slot.height = source.height;
+    entry->slot.loaded = 1U;
+    entry->slot.owned = 1U;
+    entry->model_id = model_id;
+    entry->segmented_address = material->texture_image_address;
+    entry->image_format = material->texture_image_format;
+    entry->image_size = image_size;
+    ++runtime->embedded_texture_count;
+    return &entry->slot;
+}
+
+static const Ge3dsSceneTextureSlot *original_frontend_batch_texture(
+    const RuntimeOriginalFrontend *runtime, int32_t model_id,
+    const GeDamRoomDrawBatch *batch)
+{
+    size_t index;
+    if (runtime == NULL || batch == NULL) return NULL;
+    if (batch->material.texture_source
+            == GE_PICA_TEXTURE_SOURCE_GBI_IMAGE) {
+        for (index = 0U; index < runtime->embedded_texture_count; ++index) {
+            const RuntimeFrontendEmbeddedTexture *entry =
+                &runtime->embedded_textures[index];
+            if (entry->model_id == model_id
+                    && entry->segmented_address
+                        == batch->material.texture_image_address)
+                return &entry->slot;
+        }
+        return NULL;
+    }
+    return ge_3ds_scene_textures_find(
+        &dam_scene_textures, batch->texture.texture_id);
 }
 
 static bool initialize_original_frontend_folder_background(
@@ -11395,6 +11639,7 @@ static bool initialize_original_frontend_model(
     if (runtime == NULL || asset_pack == NULL || texture_cache == NULL
             || destination == NULL) return false;
     close_original_frontend_model(runtime);
+    runtime->asset_pack = asset_pack;
     (void)initialize_original_frontend_folder_background(
         runtime, asset_pack,
         destination + ORIGINAL_FRONTEND_MODEL_VERTEX_CAPACITY - 6U);
@@ -11489,12 +11734,19 @@ static bool initialize_original_frontend_model(
         batch_count += built.batch_count;
     }
     for (part_index = 0U; part_index < batch_count; ++part_index) {
-        const uint16_t image_id =
-            runtime->logo_batches[part_index].texture.texture_id;
-        if (ge_3ds_scene_textures_find(
-                &dam_scene_textures, image_id) == NULL)
+        const GeDamRoomDrawBatch *batch =
+            &runtime->logo_batches[part_index];
+        const uint16_t image_id = batch->texture.texture_id;
+        if (batch->material.texture_source
+                == GE_PICA_TEXTURE_SOURCE_GBI_IMAGE) {
+            if (original_frontend_ensure_embedded_texture(
+                    runtime, PROP_GOLDENEYELOGO,
+                    &batch->material) == NULL) goto fail;
+        } else if (ge_3ds_scene_textures_find(
+                &dam_scene_textures, image_id) == NULL) {
             (void)ge_3ds_scene_textures_ensure_image(
                 texture_cache, &dam_scene_textures, image_id);
+        }
     }
     runtime->logo_vertex_count = vertex_count;
     runtime->logo_batch_count = batch_count;
@@ -11631,11 +11883,18 @@ static bool prepare_original_frontend_pitem_scene(
             runtime->logo_scene_prop = prop;
             runtime->logo_ready = vertex_count != 0U && batch_count != 0U;
             for (part_index = 0U; part_index < batch_count; ++part_index) {
-                const uint16_t image_id = batches[part_index].texture.texture_id;
-                if (ge_3ds_scene_textures_find(
-                        &dam_scene_textures, image_id) == NULL)
+                const GeDamRoomDrawBatch *batch = &batches[part_index];
+                const uint16_t image_id = batch->texture.texture_id;
+                if (batch->material.texture_source
+                        == GE_PICA_TEXTURE_SOURCE_GBI_IMAGE) {
+                    if (original_frontend_ensure_embedded_texture(
+                            runtime, prop, &batch->material) == NULL)
+                        goto done;
+                } else if (ge_3ds_scene_textures_find(
+                        &dam_scene_textures, image_id) == NULL) {
                     (void)ge_3ds_scene_textures_ensure_image(
                         texture_cache, &dam_scene_textures, image_id);
+                }
             }
         }
     }
@@ -11687,8 +11946,8 @@ static bool prepare_original_frontend_pitem_scene(
                 ++part_index) {
             const GeDamRoomDrawBatch *batch =
                 &runtime->logo_batches[part_index];
-            const Ge3dsSceneTextureSlot *slot = ge_3ds_scene_textures_find(
-                &dam_scene_textures, batch->texture.texture_id);
+            const Ge3dsSceneTextureSlot *slot =
+                original_frontend_batch_texture(runtime, prop, batch);
             size_t vertex;
             if (slot == NULL) continue;
             for (vertex = batch->first_vertex;
@@ -12492,6 +12751,60 @@ static uint32_t original_frontend_cast_random(void *context)
 {
     (void)context;
     return randomGetNext();
+}
+
+static bool original_frontend_begin_ramrom(
+    RuntimeOriginalFrontend *runtime)
+{
+    static const char *const paths[] = {
+        "ramrom/ramrom_Dam_1.bin",
+        "ramrom/ramrom_Dam_2.bin",
+        "ramrom/ramrom_Facility_1.bin",
+        "ramrom/ramrom_Facility_2.bin",
+        "ramrom/ramrom_Facility_3.bin",
+        "ramrom/ramrom_Runway_1.bin",
+        "ramrom/ramrom_Runway_2.bin",
+        "ramrom/ramrom_BunkerI_1.bin",
+        "ramrom/ramrom_BunkerI_2.bin",
+        "ramrom/ramrom_Silo_1.bin",
+        "ramrom/ramrom_Silo_2.bin",
+        "ramrom/ramrom_Frigate_1.bin",
+        "ramrom/ramrom_Frigate_2.bin",
+        "ramrom/ramrom_Train.bin",
+    };
+    const GeAssetPackEntry *entry;
+    const char *path;
+    uint8_t *data;
+    size_t bytes_read = 0U;
+    GeOriginalRamromReplay replay;
+    if (runtime == NULL || runtime->asset_pack == NULL) return false;
+    /* select_ramrom_to_play uses randomGetNext() % i after walking this exact
+     * zero-lock US table. The cast scheduler has already consumed its own
+     * authored random calls before reaching this service boundary. */
+    path = paths[original_frontend_cast_random(runtime)
+        % (sizeof(paths) / sizeof(paths[0]))];
+    entry = ge_asset_pack_find(runtime->asset_pack, path);
+    if (entry == NULL || entry->data_size > SIZE_MAX) return false;
+    data = malloc((size_t)entry->data_size);
+    if (data == NULL) return false;
+    if (ge_asset_pack_read(runtime->asset_pack, path, data,
+            (size_t)entry->data_size, &bytes_read) != GE_ASSET_PACK_OK
+            || bytes_read != (size_t)entry->data_size
+            || ge_original_ramrom_replay_begin(
+                &replay, data, bytes_read) != GE_ORIGINAL_RAMROM_OK
+            || ge_stage_asset_descriptor_by_level_id(
+                replay.header.stage_id) == NULL) {
+        free(data);
+        return false;
+    }
+    free(runtime->ramrom_data);
+    runtime->ramrom_data = data;
+    runtime->ramrom_data_size = bytes_read;
+    runtime->ramrom_replay = replay;
+    memset(&runtime->ramrom_block, 0, sizeof(runtime->ramrom_block));
+    runtime->ramrom_active = 1U;
+    runtime->ramrom_block_ready = 0U;
+    return true;
 }
 
 static int original_frontend_cast_completed(
@@ -13326,8 +13639,9 @@ static void draw_original_frontend_list(
                 ++batch_index) {
             const GeDamRoomDrawBatch *batch =
                 &runtime->logo_batches[batch_index];
-            const Ge3dsSceneTextureSlot *slot = ge_3ds_scene_textures_find(
-                &dam_scene_textures, batch->texture.texture_id);
+            const Ge3dsSceneTextureSlot *slot =
+                original_frontend_batch_texture(
+                    runtime, runtime->logo_scene_prop, batch);
             const Ge3dsMaterialBinding binding = {
                 slot != NULL ? (C3D_Tex *)&slot->texture : NULL,
                 GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE,
@@ -13827,6 +14141,10 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         return false;
     if (reset_frontend) {
         Ge3dsSaveProvider *save_provider = runtime->save_provider;
+        const bool return_from_ramrom =
+            runtime->ramrom_return_to_title != 0U;
+        if (return_from_ramrom)
+            close_original_frontend_ramrom(runtime);
         runtime->save_provider = save_provider;
         runtime->requested_stage = LEVELID_NONE;
         runtime->axis_held = 0U;
@@ -13838,7 +14156,10 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         runtime->cast_projected_vertex_count = 0U;
         ge_original_gunbarrel_blood_reset(&runtime->gunbarrel_blood);
         ge_original_character_appearance_begin_stage();
-        if (!ge_original_frontend_start_reset_canonical(frontend, &services))
+        if (!(return_from_ramrom
+                ? ge_original_frontend_start_reset(frontend, &services)
+                : ge_original_frontend_start_reset_canonical(
+                    frontend, &services)))
             return false;
         original_frontend_apply_visual_probe(frontend);
     }
@@ -13987,11 +14308,17 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     }
                 } else if (event
                         == GE_ORIGINAL_FRONTEND_CAST_EVENT_RAMROM) {
-                    /* select_ramrom_to_play remains an explicit service
-                     * boundary. Keep the completed black fade stable. */
+                    if (!original_frontend_begin_ramrom(runtime)
+                            || !ge_original_frontend_start_ramrom(
+                                frontend,
+                                runtime->ramrom_replay.header.stage_id,
+                                runtime->ramrom_replay.header.difficulty)) {
+                        /* A corrupt/missing authored demo is a real asset
+                         * failure, not permission to invent a substitute
+                         * controller stream or silently select a mission. */
+                        return false;
+                    }
                     runtime->cast_terminal = 1U;
-                    printf("Frontend cast reached the original RAMROM "
-                           "demo boundary.\n");
                 } else if (event
                         == GE_ORIGINAL_FRONTEND_CAST_EVENT_MISSION_SELECT) {
                     if (!ge_original_frontend_start_cast_event(
@@ -16227,6 +16554,21 @@ static void print_status(const GePortState *port,
     }
 }
 
+static void print_runtime_console_header(
+    const GeStageAssetDescriptor *stage_assets, int32_t selected_level_id)
+{
+    if (stage_assets == NULL) return;
+    printf("GoldenEye 007 - native 3DS port\n");
+    printf("Stage: %s (LEVELID %ld)\n\n", stage_assets->key,
+           (long)selected_level_id);
+    printf("Circle Pad   Move\n");
+    printf("C-stick      Look\n");
+    printf("R / B / Y    Fire / Use / Reload\n");
+    printf("A / X        Next / previous weapon\n");
+    printf("L / ZR       Aim / crouch\n");
+    printf("START        Bond watch / pause\n");
+}
+
 int main(void)
 {
     C3D_RenderTarget *top_target;
@@ -16298,15 +16640,7 @@ int main(void)
         cstick_available = R_SUCCEEDED(irrstInit());
     }
 
-    printf("GoldenEye 007 - native 3DS port\n");
-    printf("Stage: %s (LEVELID %ld)\n\n", stage_assets->key,
-           (long)selected_level_id);
-    printf("Circle Pad   Move\n");
-    printf("C-stick      Look\n");
-    printf("R / B / Y    Fire / Use / Reload\n");
-    printf("A / X        Next / previous weapon\n");
-    printf("L / ZR       Aim / crouch\n");
-    printf("START        Bond watch / pause\n");
+    print_runtime_console_header(stage_assets, selected_level_id);
 
     if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) {
         printf("\nCould not initialize citro3d.\n");
@@ -16405,6 +16739,11 @@ start_stage_runtime:
             printf("Could not initialize original frontend models.\n");
             goto cleanup_runtime;
         }
+        /* The bottom console is a port-development aid, not part of the
+         * original startup presentation. Keep it for diagnostic/probe runs,
+         * but blank it while the normal legal/logo/gunbarrel/cast and folder
+         * frontend owns the application. */
+        consoleClear();
         if (!run_original_frontend(
                 top_target, cstick_available, &texture_cache,
                 &original_frontend_runtime, &original_frontend,
@@ -16438,14 +16777,29 @@ start_stage_runtime:
             next_stage_requested = true;
             goto cleanup_runtime;
         }
+        consoleClear();
+        print_runtime_console_header(stage_assets, selected_level_id);
     }
     run_start_frontend = false;
+    if (original_frontend_runtime.ramrom_active) {
+        const GeOriginalRamromHeader *header =
+            &original_frontend_runtime.ramrom_replay.header;
+        /* copy_recorded_ramrom_registers_to_proper_place_ingame's
+         * retained RNG state, before setup/guard constructors consume it.
+         * The US attract recordings all use the live port's existing solo,
+         * 1.1-controller and default-aim configuration; front.c's menu-only
+         * backing globals are intentionally not part of the 3DS link. */
+        g_randomSeed = header->random_seed;
+        g_chrObjRandomSeed = header->character_random_seed;
+    }
     (void)initialize_dam_prop_state(&dam_objects);
     ge_original_effect_buffers_reset_single_player();
     initialize_original_stage_intro(&dam_collision, &dam_intro,
                                     &dam_objects.props,
                                     original_stage_setup,
-                                    selected_level_id);
+                                    selected_level_id,
+                                    original_frontend_runtime.ramrom_active
+                                        != 0U);
     if (load_visual_probe_tour(&visual_probe_tour, stage_assets)) {
         const GeVisualProbeView *view = ge_visual_probe_tour_view_at(
             &visual_probe_tour.tour, 0U, &visual_probe_tour.current_view);
@@ -16637,6 +16991,12 @@ start_stage_runtime:
     }
 
     (void)ge_port_start_stage(&port, selected_level_id);
+    if (original_frontend_runtime.ramrom_active
+            && !ge_original_input_ramrom_bind(
+                original_frontend_runtime.ramrom_replay
+                    .header.controller_count)) {
+        goto cleanup_runtime;
+    }
     if (stage_ordinary_objects.initialized) {
         /* The canonical stage RNG is initialized above before bodyChooseHead
          * consumes it. Guard/provider state remains owned by this persistent
@@ -16735,6 +17095,7 @@ start_stage_runtime:
 
     while (aptMainLoop()) {
         GePortInput input = read_input(cstick_available);
+        GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         const u64 current_time = osGetTime();
         const u64 elapsed_milliseconds = current_time - previous_time;
         u64 simulation_start;
@@ -16757,6 +17118,42 @@ start_stage_runtime:
             dam_preview.dynamic_scene.generation;
         const uint64_t frame_overlay_full_rebuilds_before =
             stage_ordinary_objects.overlay_full_rebuilds;
+
+        if (original_frontend_runtime.ramrom_active) {
+            if (input.pressed != 0U) {
+                /* ramrom_replay_handler checks the regular controller and
+                 * calls ramromFadeToTitle on any rising button edge. */
+                original_frontend_runtime.ramrom_return_to_title = 1U;
+                ge_original_input_ramrom_unbind();
+                run_start_frontend = true;
+                next_stage_requested = true;
+                break;
+            }
+            ramrom_status = ge_original_ramrom_replay_next(
+                &original_frontend_runtime.ramrom_replay,
+                &original_frontend_runtime.ramrom_block);
+            if (ramrom_status == GE_ORIGINAL_RAMROM_COMPLETE
+                    || (ramrom_status == GE_ORIGINAL_RAMROM_OK
+                        && original_frontend_runtime.ramrom_block
+                            .random_seed_check != (uint8_t)g_randomSeed)) {
+                /* The unchanged callback fades to title on either terminal
+                 * block or RNG divergence. Preserve that exact integrity
+                 * boundary instead of continuing a desynchronised demo. */
+                original_frontend_runtime.ramrom_return_to_title = 1U;
+                ge_original_input_ramrom_unbind();
+                run_start_frontend = true;
+                next_stage_requested = true;
+                break;
+            }
+            if (ramrom_status != GE_ORIGINAL_RAMROM_OK
+                    || !ge_original_input_ramrom_queue(
+                        &original_frontend_runtime.ramrom_replay,
+                        &original_frontend_runtime.ramrom_block)) {
+                goto cleanup_runtime;
+            }
+            original_frontend_runtime.ramrom_block_ready = 1U;
+            memset(&input, 0, sizeof(input));
+        }
 
         {
             const uint64_t frame_begin_start = svcGetSystemTick();
@@ -16807,7 +17204,13 @@ start_stage_runtime:
             }
         }
 
-        if (scheduler_active
+        if (original_frontend_runtime.ramrom_active) {
+            ticks = ge_port_advance_retraces(
+                &port,
+                original_frontend_runtime.ramrom_block.speed_frames,
+                &input);
+            original_frontend_runtime.ramrom_block_ready = 0U;
+        } else if (scheduler_active
                 && ge_retrace_scheduler_pump(
                     &scheduler, elapsed_milliseconds * 1000U,
                     SIZE_MAX, &retrace_report) == 0) {
@@ -16833,6 +17236,12 @@ start_stage_runtime:
             for (original_tick = 0U; original_tick < ticks; original_tick++) {
                 GeOriginalDynFrameAudit dyn_frame_audit;
                 bool gun_tick_complete = false;
+                /* bossMainloop calls the unchanged four-slot player shuffle
+                 * immediately after lvlManageMpGame and before every
+                 * lvlViewMoveTick. It remains required in solo play: besides
+                 * ordering player props it advances the recorded gameplay
+                 * RNG exactly three times per presented simulation pass. */
+                shuffle_player_ids();
                 if (audio_active && original_music != NULL
                         && ge_original_music_runtime_tick_60hz(
                             original_music) != GE_AUDIO_ABI_OK) {
@@ -17939,6 +18348,7 @@ cleanup_runtime:
     }
 
 exit_citro3d:
+    close_original_frontend_ramrom(&original_frontend_runtime);
     if (texture_cache_ready) {
         ge_texture_cache_close(&texture_cache);
     }

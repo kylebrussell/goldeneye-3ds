@@ -1,6 +1,7 @@
 #ifdef GE_PORT_BOND_INTRO_SPAWN_SLICE
 
 #include <math.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -19,6 +20,7 @@ typedef int PLAYERFLAG;
 extern stagesetup g_CurrentSetup;
 extern s32 g_bondviewBondDeathAnimations[];
 extern s32 g_bondviewBondDeathAnimationsCount;
+extern u32 randomGetNext(void);
 
 static GeOriginalIntroProviders g_GeOriginalIntroProviders;
 static GeOriginalIntroSpawnState *g_GeOriginalIntroSpawnState;
@@ -80,6 +82,33 @@ void ge_original_spawn_player_reset(float eye_height)
     g_CurrentPlayer->standlook[1].f[2] = 1.0f;
     g_CurrentPlayer->standup[0].f[1] = 1.0f;
     g_CurrentPlayer->standup[1].f[1] = 1.0f;
+}
+
+void ge_original_spawn_player_initialize_idle_roll(void)
+{
+    f32 mult = 1.0f / (f32)UINT_MAX;
+
+    /* Unchanged bheadUpdateIdleRoll body, applied to this slice's canonical
+     * player storage at the same stage-load boundary as the original
+     * sets_a_bunch_of_BONDdata_values_to_default tail. */
+    g_CurrentPlayer->standlook[g_CurrentPlayer->standcnt].f[0] =
+        ((f32)randomGetNext() * mult - 0.5f) * 0.02f;
+    g_CurrentPlayer->standlook[g_CurrentPlayer->standcnt].f[2] = 1.0f;
+    g_CurrentPlayer->standup[g_CurrentPlayer->standcnt].f[0] =
+        ((f32)randomGetNext() * mult - 0.5f) * 0.02f;
+    g_CurrentPlayer->standup[g_CurrentPlayer->standcnt].f[1] = 1.0f;
+    if (g_CurrentPlayer->standcnt) {
+        g_CurrentPlayer->standlook[g_CurrentPlayer->standcnt].f[1] =
+            (f32)randomGetNext() * mult * 0.01f;
+        g_CurrentPlayer->standup[g_CurrentPlayer->standcnt].f[2] =
+            (f32)randomGetNext() * mult * -0.01f;
+    } else {
+        g_CurrentPlayer->standlook[g_CurrentPlayer->standcnt].f[1] =
+            (f32)randomGetNext() * mult * -0.01f;
+        g_CurrentPlayer->standup[g_CurrentPlayer->standcnt].f[2] =
+            (f32)randomGetNext() * mult * 0.01f;
+    }
+    g_CurrentPlayer->standcnt = 1 - g_CurrentPlayer->standcnt;
 }
 
 /* Exact post-selection player/prop assignments from
@@ -395,6 +424,7 @@ void bondviewLoadSetupIntroSpawnSlice(void)
     f32 start_look_angle = 0.0f;
     f32 stan_height;
     s32 startpadcount = 0;
+    s32 camera_count = 0;
     s32 demo_slot = 0;
 
     if (g_GeOriginalIntroSpawnState == NULL) {
@@ -455,6 +485,7 @@ void bondviewLoadSetupIntroSpawnSlice(void)
                     break;
 
                 case INTROTYPE_CAMERA:
+                    camera_count++;
                     intro_record = ge_original_intro_advance(
                         intro_record, GE_INTRO_CAMERA_SIZE);
                     break;
@@ -479,6 +510,14 @@ void bondviewLoadSetupIntroSpawnSlice(void)
 
     g_GeOriginalIntroSpawnState->matching_spawn_count =
         (uint32_t)startpadcount;
+    g_GeOriginalIntroSpawnState->camera_count = (uint32_t)camera_count;
+    if (camera_count > 0) {
+        /* Exact bondviewLoadSetupIntroSection choice. The linked-list walk
+         * selects from the tail; publish that tail-relative index even though
+         * the bounded live camera owner does not consume it yet. */
+        g_GeOriginalIntroSpawnState->camera_index =
+            randomGetNext() % (u32)camera_count;
+    }
 
     if (startpadcount > 0)
     {

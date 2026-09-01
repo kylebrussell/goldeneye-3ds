@@ -19,6 +19,16 @@ f32 g_ModelDistanceScale;
 PropRecord *g_ActivePropsTail;
 PropRecord *g_ActivePropsHead;
 
+static const u32 shuffle_random[] = { 2U, 1U, 0U };
+static size_t shuffle_random_index;
+
+u32 randomGetNext(void)
+{
+    assert(shuffle_random_index
+        < sizeof(shuffle_random) / sizeof(shuffle_random[0]));
+    return shuffle_random[shuffle_random_index++];
+}
+
 static int close_enough(f32 first, f32 second)
 {
     return fabsf(first - second) < 0.00001f;
@@ -66,6 +76,14 @@ static void test_player_shuffle(void)
     assert(get_player_position_in_shuffled(PLAYER_1) == 1);
     assert(get_player_position_in_shuffled(PLAYER_4) == 2);
     assert(get_player_position_in_shuffled(PLAYER_2) == 3);
+
+    shuffle_random_index = 0U;
+    shuffle_player_ids();
+    assert(shuffle_random_index == 3U);
+    assert(array_PLAYER_IDs[0] == PLAYER_3);
+    assert(array_PLAYER_IDs[1] == PLAYER_1);
+    assert(array_PLAYER_IDs[2] == PLAYER_2);
+    assert(array_PLAYER_IDs[3] == PLAYER_4);
 }
 
 static void test_active_list_delist(void)

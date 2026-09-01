@@ -2388,6 +2388,16 @@ int main(int argc, char **argv)
                 assert(ge_original_pitem_model_release_instance(
                     models,instance));
             }
+            {
+                GeOriginalPitemEmbeddedTexture texture;
+                assert(ge_original_pitem_model_embedded_texture(
+                    models,PROP_LEGALPAGE,UINT32_C(0x05000090),&texture));
+                assert(texture.pixels!=NULL&&texture.available_bytes>=2048U
+                    &&texture.width==32U&&texture.height==32U
+                    &&texture.render_depth==2U);
+                assert(!ge_original_pitem_model_embedded_texture(
+                    models,PROP_LEGALPAGE,UINT32_C(0x00000090),&texture));
+            }
         }
         /* PwalletbondZ is one shared authored model whose switch table selects
          * the folder, paper, stamps and photographs for every frontend page.

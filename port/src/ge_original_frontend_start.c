@@ -793,6 +793,30 @@ int ge_original_frontend_start_cast_event(
     }
 }
 
+int ge_original_frontend_start_ramrom(
+    GeOriginalFrontendStart *frontend,int32_t stage,int32_t difficulty)
+{
+    size_t index;
+    const GeFrontendMissionContract *mission=NULL;
+    if(frontend==NULL||frontend->current_menu!=MENU_DISPLAY_CAST
+            ||difficulty<DIFFICULTY_AGENT||difficulty>DIFFICULTY_007)
+        return 0;
+    for(index=0U;index<sizeof(ge_frontend_contract_missions)
+            /sizeof(ge_frontend_contract_missions[0]);++index){
+        if(ge_frontend_contract_missions[index].stage==stage){
+            mission=&ge_frontend_contract_missions[index];
+            break;
+        }
+    }
+    if(mission==NULL)return 0;
+    frontend->mission=mission->mission;
+    frontend->stage=mission->stage;
+    frontend->difficulty=difficulty;
+    frontend->stage_requested=0U;
+    ge_frontend_front_change_menu_reload(frontend,MENU_RUN_STAGE);
+    return 1;
+}
+
 int ge_original_frontend_start_stage_ended(
     GeOriginalFrontendStart *frontend,
     const GeOriginalFrontendMissionResult *result)

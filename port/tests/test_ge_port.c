@@ -173,6 +173,7 @@ static void test_canonical_late_retrace_dispatch(void)
     currentFrameCounter = 0;
     ge_port_init(&state);
     assert(ge_port_start_stage(&state, 33));
+    g_randomSeed = UINT64_C(0x123456789abcdef0);
     input.pressed = GE_PORT_ACTION_FIRE;
     dispatches = ge_port_advance_retraces(&state, 15U, &input);
     assert(dispatches == 1U);
@@ -186,6 +187,8 @@ static void test_canonical_late_retrace_dispatch(void)
     assert(state.original_stage_frames == 15);
     assert(fabsf(state.original_stage_seconds - 0.25f) < 0.00001f);
     assert(state.original_buttons_pressed == Z_TRIG);
+    assert(g_randomSeed == UINT64_C(0x123456789abcdef0));
+    assert(state.random_sample == UINT32_C(0x9abcdef0));
 
     input.pressed = 0U;
     dispatches = ge_port_advance_retraces(&state, 0U, &input);

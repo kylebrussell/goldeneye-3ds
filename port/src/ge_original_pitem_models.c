@@ -1355,6 +1355,45 @@ int ge_original_pitem_model_instance_gunfire(
         gunfire_index, gunfire) == gunfire_index + 1U;
 }
 
+int ge_original_pitem_model_embedded_texture(
+    const GeOriginalPitemModelProvider *provider, int32_t model_id,
+    uint32_t segmented_address,
+    GeOriginalPitemEmbeddedTexture *texture)
+{
+    size_t resource_index;
+    if (provider == NULL || texture == NULL
+            || (segmented_address >> 24U) != 5U) return 0;
+    for (resource_index = 0U;
+            resource_index < provider->resource_count; ++resource_index) {
+        const GeOriginalPitemModelResource *resource =
+            &provider->resources[resource_index];
+        size_t texture_index;
+        if (resource->model_id != model_id) continue;
+        for (texture_index = 0U;
+                texture_index < (size_t)resource->header.numtextures;
+                ++texture_index) {
+            const ModelFileTextures *entry =
+                &resource->textures[texture_index];
+            const uint32_t address = (uint32_t)(uintptr_t)entry->TextureID;
+            const uint32_t offset = address & UINT32_C(0x00ffffff);
+            if (address != segmented_address || offset >= resource->blob_size)
+                continue;
+            memset(texture, 0, sizeof(*texture));
+            texture->pixels = resource->blob + offset;
+            texture->available_bytes = resource->blob_size - offset;
+            texture->segmented_address = address;
+            texture->width = entry->Width;
+            texture->height = entry->Height;
+            texture->render_depth = entry->RenderDepth;
+            texture->flags_s = entry->sflags;
+            texture->flags_t = entry->tflags;
+            return texture->width != 0U && texture->height != 0U;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 int ge_original_pitem_model_instance_disable_switches(
     GeOriginalPitemModelProvider *provider, void *model_instance)
 {

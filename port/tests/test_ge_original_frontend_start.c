@@ -312,6 +312,21 @@ int main(void)
             GE_ORIGINAL_FRONTEND_CAST_EVENT_RELOAD));
         assert(!ge_original_frontend_start_cast_event(&cast_start,
             GE_ORIGINAL_FRONTEND_CAST_EVENT_RAMROM));
+        assert(!ge_original_frontend_start_ramrom(
+            &cast_start,LEVELID_CUBA,DIFFICULTY_AGENT));
+        assert(ge_original_frontend_start_ramrom(
+            &cast_start,LEVELID_FACILITY,DIFFICULTY_SECRET));
+        advance_to_menu(&cast_start,0U,MENU_RUN_STAGE);
+        assert(ge_original_frontend_start_snapshot(&cast_start,&snapshot)
+            &&snapshot.menu==MENU_RUN_STAGE&&snapshot.stage_requested
+            &&snapshot.stage==LEVELID_FACILITY
+            &&snapshot.difficulty==DIFFICULTY_SECRET
+            &&harness.stage==LEVELID_FACILITY
+            &&harness.difficulty==DIFFICULTY_SECRET);
+        assert(ge_original_frontend_start_reset(&cast_start,&services));
+        for(frame=0;frame<181;++frame)
+            assert(ge_original_frontend_start_tick(&cast_start,0));
+        advance_to_menu(&cast_start,0U,MENU_DISPLAY_CAST);
         assert(ge_original_frontend_start_cast_event(&cast_start,
             GE_ORIGINAL_FRONTEND_CAST_EVENT_FILE_SELECT));
         advance_to_menu(&cast_start,0U,MENU_FILE_SELECT);
@@ -319,6 +334,8 @@ int main(void)
             &&snapshot.menu==MENU_FILE_SELECT);
         harness.music_calls=0;
         harness.summary_calls=0;
+        harness.stage_calls=0;
+        harness.difficulty_calls=0;
     }
     assert(!ge_original_frontend_start_reset(NULL,&services));
     assert(ge_original_frontend_start_reset(&frontend,&services));

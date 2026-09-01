@@ -106,6 +106,7 @@ LDFLAGS     += -Wl,-u,ge_original_music_runtime_open \
                -Wl,-u,alAudioFrame
 LDFLAGS     += -Wl,-u,ge_original_stage_active_props_compose \
                -Wl,-u,ge_original_stage_active_props_tick_exact \
+               -Wl,-u,ge_original_stage_active_props_pre_tick_exact \
                -Wl,-u,ge_original_stage_active_props_close
 LDFLAGS     += -Wl,-u,ge_original_stage_mission_runtime_reset_globals \
                -Wl,-u,ge_original_stage_mission_runtime_begin \

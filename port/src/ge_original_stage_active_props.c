@@ -128,8 +128,8 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_compose(
     return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
 }
 
-GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(
-    GeOriginalStageActiveProps *state)
+static GeOriginalStageActivePropStatus validate_live_binding(
+    GeOriginalStageActiveProps *state, int count_pause)
 {
     PropRecord *player;
     if(state==NULL||!state->bound||state->ordered==NULL)
@@ -150,7 +150,7 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(
      * fixed simulation step; preserve the binding but do not advance AI or
      * props until canonical time resumes. */
     if(g_ClockTimer==0||g_GlobalTimerDelta==0.0f){
-        state->paused_ticks++;
+        if(count_pause)state->paused_ticks++;
         return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
     }
     if(g_CurrentPlayer==NULL||g_playerPointers[0]!=g_CurrentPlayer
@@ -160,8 +160,41 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(
             ||g_CurrentSetup.propDefs!=state->setup->setup->propDefs
             ||g_CurrentSetup.ailists!=state->setup->setup->ailists)
         return GE_ORIGINAL_STAGE_ACTIVE_PROP_SETUP_UNBOUND;
+    return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
+}
+
+GeOriginalStageActivePropStatus ge_original_stage_active_props_pre_tick_exact(
+    GeOriginalStageActiveProps *state)
+{
+    GeOriginalStageActivePropStatus status=validate_live_binding(state,1);
+    if(status!=GE_ORIGINAL_STAGE_ACTIVE_PROP_OK)return status;
+    if(g_ClockTimer==0||g_GlobalTimerDelta==0.0f){
+        state->pre_tick_pending=0U;
+        return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
+    }
+    /* A render-side service may transiently defer propsTick. Retain the
+     * already-produced lvlManageMpGame state rather than executing canonical
+     * background AI a second time on the next native frame. */
+    if(state->pre_tick_pending)return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
     ge_original_dam_guard_all_chr_tick_exact();
+    state->pre_tick_pending=1U;
+    state->pre_ticks++;
+    return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
+}
+
+GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(
+    GeOriginalStageActiveProps *state)
+{
+    GeOriginalStageActivePropStatus status=validate_live_binding(state,0);
+    if(status!=GE_ORIGINAL_STAGE_ACTIVE_PROP_OK)return status;
+    if(g_ClockTimer==0||g_GlobalTimerDelta==0.0f){
+        state->pre_tick_pending=0U;
+        return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
+    }
+    if(!state->pre_tick_pending)
+        return GE_ORIGINAL_STAGE_ACTIVE_PROP_NOT_BOUND;
     ge_original_dam_guard_props_tick_exact();
+    state->pre_tick_pending=0U;
     state->ticks++;
     return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
 }

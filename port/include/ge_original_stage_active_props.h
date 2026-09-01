@@ -37,12 +37,17 @@ typedef struct GeOriginalStageActiveProps {
     void *player_prop;
     size_t count;
     size_t chr_count;
+    /* chrlvAllChrTick belongs to lvlManageMpGame, while propsTick belongs to
+     * lvlRender. Keep the two unchanged bodies paired without allowing a
+     * stalled native render frame to advance background AI twice. */
+    uint64_t pre_ticks;
     uint64_t ticks;
     /* Canonical watch/cutscene pauses publish zero clock/delta. The outer
      * gameplay loop suppresses chr/prop advancement for those frames while
      * keeping the authored active-list binding live for the resume frame. */
     uint64_t paused_ticks;
     uint32_t last_binding_mismatch;
+    uint8_t pre_tick_pending;
     uint8_t bound;
 } GeOriginalStageActiveProps;
 
@@ -55,9 +60,15 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_compose(
     void *player_prop, struct ChrRecord *chrs, size_t chr_count,
     const GeOriginalStageActivePropInput *inputs, size_t input_count);
 
-/* Calls the retained unchanged chrlvAllChrTick followed by propsTick, only
- * while canonical setup, player, timer, Chr pool, and active-list bindings
- * still agree. This preserves background mission AI before active prop work. */
+/* bossMainloop reaches this boundary from lvlManageMpGame, before its player
+ * shuffle and lvlViewMoveTick. It calls the retained unchanged
+ * chrlvAllChrTick exactly once and leaves a token for the render-side pass. */
+GeOriginalStageActivePropStatus ge_original_stage_active_props_pre_tick_exact(
+    GeOriginalStageActiveProps *state);
+
+/* Calls the retained unchanged propsTick at the canonical lvlRender boundary.
+ * A pending pre-tick is required, keeping background mission AI before player
+ * movement while preventing a partial native frame from double-advancing it. */
 GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(
     GeOriginalStageActiveProps *state);
 void ge_original_stage_active_props_close(GeOriginalStageActiveProps *state);

@@ -13737,44 +13737,13 @@ static void draw_original_frontend_list(
                     &batch->material, &binding, &material_result,
                     NULL, NULL, NULL, NULL) == GE_3DS_MATERIAL_OK
                     && material_result.state.draw_enabled != 0U) {
-                const int16_t model_type = scene->batch_model_types != NULL
-                    ? scene->batch_model_types[batch_index] : -1;
-                if (scene->render_prop_type == 7U
-                        && (model_type == 3 || model_type == 4)) {
-                    C3D_TexEnv *lighting_environment = C3D_GetTexEnv(1);
-                    C3D_TexEnvInit(texture_environment);
-                    if (material_result.texture_bound != 0U) {
-                        C3D_TexEnvSrc(texture_environment, C3D_RGB,
-                            GPU_TEXTURE0, GPU_PRIMARY_COLOR, 0);
-                        C3D_TexEnvFunc(texture_environment, C3D_RGB,
-                            GPU_MODULATE);
-                        C3D_TexEnvSrc(texture_environment, C3D_Alpha,
-                            GPU_TEXTURE0, GPU_CONSTANT,
-                            GPU_PRIMARY_COLOR);
-                        C3D_TexEnvFunc(texture_environment, C3D_Alpha,
-                            GPU_INTERPOLATE);
-                        C3D_TexEnvColor(texture_environment,
-                            UINT32_C(0xff000000));
-                    } else {
-                        C3D_TexEnvSrc(texture_environment, C3D_Both,
-                            GPU_PRIMARY_COLOR, 0, 0);
-                        C3D_TexEnvFunc(texture_environment, C3D_Both,
-                            GPU_REPLACE);
-                    }
-                    C3D_TexEnvInit(lighting_environment);
-                    C3D_TexEnvSrc(lighting_environment, C3D_RGB,
-                        GPU_PREVIOUS, GPU_PRIMARY_COLOR, 0);
-                    C3D_TexEnvOpRgb(lighting_environment,
-                        GPU_TEVOP_RGB_SRC_COLOR,
-                        GPU_TEVOP_RGB_SRC_ALPHA,
-                        GPU_TEVOP_RGB_SRC_COLOR);
-                    C3D_TexEnvFunc(lighting_environment, C3D_RGB,
-                        GPU_MODULATE);
-                    C3D_TexEnvSrc(lighting_environment, C3D_Alpha,
-                        GPU_PREVIOUS, 0, 0);
-                    C3D_TexEnvFunc(lighting_environment, C3D_Alpha,
-                        GPU_REPLACE);
-                }
+                /* constructor_menu18 passes raw PROP_TYPE_EXPLOSION (7).
+                 * modelApplyRenderModeType3/4 compares against
+                 * PROP_TYPE_EXPLOSION + 1, so the cast deliberately takes
+                 * the generic TRILERP/MODULATEIA path. The gunbarrel also
+                 * stores 7, but there it is the encoded VIEWER + 1 selector;
+                 * applying that title-only vertex-alpha lighting here made
+                 * skin and clothing triangles look detached or black. */
                 C3D_CullFace(GPU_CULL_NONE);
                 C3D_DepthTest(true, GPU_GEQUAL,
                     (GPU_WRITEMASK)(GPU_WRITE_COLOR | GPU_WRITE_DEPTH));
@@ -17236,6 +17205,16 @@ start_stage_runtime:
             for (original_tick = 0U; original_tick < ticks; original_tick++) {
                 GeOriginalDynFrameAudit dyn_frame_audit;
                 bool gun_tick_complete = false;
+                if (stage_ordinary_objects.actor_tick_status
+                        == RUNTIME_STAGE_ACTOR_TICK_READY) {
+                    /* Exact bossMainloop/lvlManageMpGame boundary: background
+                     * mission AI advances before the player-id shuffle and
+                     * before lvlViewMoveTick/MoveBond. The paired propsTick
+                     * remains at lvlRender below. */
+                    stage_ordinary_objects.active_prop_status =
+                        ge_original_stage_active_props_pre_tick_exact(
+                            &stage_ordinary_objects.active_props);
+                }
                 /* bossMainloop calls the unchanged four-slot player shuffle
                  * immediately after lvlManageMpGame and before every
                  * lvlViewMoveTick. It remains required in solo play: besides

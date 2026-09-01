@@ -623,12 +623,16 @@ int main(void)
     const u16 paused_ai_offset=harness.guards[0].aioffset;
     const unsigned paused_events=harness.event_count;
     g_ClockTimer=0;
+    assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
+           ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(ge_original_stage_active_props_tick_exact(&active_props)
            ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(active_props.paused_ticks==1U&&active_props.ticks==0U
            &&harness.all_chr_ticks==0U&&harness.event_count==paused_events
            &&harness.guards[0].aioffset==paused_ai_offset);
     g_ClockTimer=1;g_GlobalTimerDelta=0.0f;
+    assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
+           ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(ge_original_stage_active_props_tick_exact(&active_props)
            ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(active_props.paused_ticks==2U&&active_props.ticks==0U
@@ -645,19 +649,26 @@ int main(void)
            ==GE_ORIGINAL_STAGE_ACTIVE_PROP_TIMER_UNBOUND);
     }
     g_ClockTimer=1;g_playerPointers[0]=NULL;
-    assert(ge_original_stage_active_props_tick_exact(&active_props)
+    assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
            ==GE_ORIGINAL_STAGE_ACTIVE_PROP_PLAYER_UNBOUND);
     g_playerPointers[0]=&mixed_player;g_CurrentSetup.propDefs=NULL;
-    assert(ge_original_stage_active_props_tick_exact(&active_props)
+    assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
            ==GE_ORIGINAL_STAGE_ACTIVE_PROP_SETUP_UNBOUND);
     g_CurrentSetup=*setup_runtime.setup;
+    assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
+           ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
+    assert(active_props.pre_tick_pending&&harness.all_chr_ticks==1U);
+    assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
+           ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
+    assert(active_props.pre_ticks==1U&&harness.all_chr_ticks==1U);
     assert(ge_original_stage_active_props_tick_exact(&active_props)
            ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(harness.event_count == sizeof(expected) / sizeof(expected[0]));
     assert(memcmp(harness.events, expected, sizeof(expected)) == 0);
     assert(harness.commits == MIXED_EXPECTED_PROP_COUNT);
     assert(harness.all_chr_ticks == 1U);
-    assert(active_props.paused_ticks==2U&&active_props.ticks==1U);
+    assert(active_props.paused_ticks==2U&&active_props.pre_ticks==1U
+           &&active_props.ticks==1U&&!active_props.pre_tick_pending);
     assert(harness.canonical_player_ticks == 1U);
     assert((viewer->flags & PROPFLAG_ONSCREEN) == 0U);
     assert(harness.canonical_door_ticks == 2U);
@@ -680,6 +691,8 @@ int main(void)
     harness.remove_guard_zero = 1U;
     for (index = 0U; index < 4U; index++) {
         harness.event_count = 0U;
+        assert(ge_original_stage_active_props_pre_tick_exact(&active_props)
+               ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
         assert(ge_original_stage_active_props_tick_exact(&active_props)
                ==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
         refresh_live_guard_matrices();
@@ -704,7 +717,8 @@ int main(void)
     assert(harness.canonical_door_ticks == 10U);
     assert(harness.global_tail_calls == 15U);
     assert(harness.glass_removed == 1U);
-    assert(active_props.ticks==5U);
+    assert(active_props.pre_ticks==5U&&active_props.ticks==5U
+           &&!active_props.pre_tick_pending);
     ge_original_stage_active_props_close(&active_props);
 
     puts("mixed exact propsTick: viewer + 4 guards + glass/prop + 2 doors + "

@@ -87,6 +87,7 @@
 #include "ge_original_gunbarrel_bond.h"
 #include "ge_original_guard_bullet_hit.h"
 #include "ge_original_guard_ai_trace.h"
+#include "ge_original_language_text.h"
 #include "ge_original_pp7_fire.h"
 #include "ge_original_bond_movement.h"
 #include "ge_original_player_spawn.h"
@@ -134,7 +135,6 @@
 #undef MAXFLOAT
 #endif
 #include "bondconstants.h"
-#include "assets/obseg/text/LmiscE.h"
 #include "assets/obseg/text/LtitleE.h"
 #include "vshader_shbin.h"
 
@@ -142,14 +142,6 @@ extern u32 weaponLoadProjectileModels(ITEM_IDS modelid);
 extern struct AIRecord *ailistFindById(s32 id);
 extern void *g_CurrentPlayer;
 extern s32 getMissiontimer(void);
-extern char *LarkE[];
-extern char *LrunE[];
-extern char *LsevxE[];
-extern char *LsevE[];
-extern char *LsiloE[];
-extern char *LdestE[];
-extern char *LlenE[];
-extern char *LgunE[];
 
 #define CLEAR_COLOR 0x05070BFF
 #define DAM_ENVIRONMENT_RGBA_COLOR 0xFF603010U
@@ -178,10 +170,6 @@ extern void currentPlayerSetLookAheadSetting(bool enabled);
 extern void gunSetGunAmmoVisible(s32 reason, bool enable);
 extern void gunSetSightVisible(s32 reason, bool visible);
 extern void shuffle_player_ids(void);
-extern u8 *langGet(s32 slot_id);
-extern char *LmiscE[];
-extern char *LdamE[];
-extern char *LtitleE[];
 extern s32 lvlGetSelectedDifficulty(void);
 extern s32 g_SelectedDifficulty;
 extern f32 slider_007_mode_reaction;
@@ -12980,31 +12968,12 @@ static void original_frontend_apply_visual_probe(
 
 static const char *original_frontend_text(uint16_t text_id)
 {
-    const uint32_t bank = (uint32_t)text_id >> 10U;
-    const uint32_t index = (uint32_t)text_id & UINT32_C(0x3ff);
-    if (bank == LTITLE) return LtitleE[index];
-    if (bank == LDAM) return LdamE[index];
-    if (bank == LARK) return LarkE[index];
-    if (bank == LRUN) return LrunE[index];
-    if (bank == LSEVX) return LsevxE[index];
-    if (bank == LSEV) return LsevE[index];
-    if (bank == LSILO) return LsiloE[index];
-    if (bank == LDEST) return LdestE[index];
-    if (bank == LGUN) return LgunE[index];
-    if (bank == LLEN) return LlenE[index];
-    return (const char *)langGet((s32)text_id);
+    return ge_original_language_text(text_id);
 }
 
 static const char *original_campaign_text(uint16_t text_id)
 {
-    const uint32_t bank = (uint32_t)text_id >> 10U;
-    const uint32_t index = (uint32_t)text_id & UINT32_C(0x3ff);
-    /* Cuba's authored text bank is linked from the same decomp-generated
-     * LlenE source as every other solo bank. The N64 loader would publish it
-     * through g_LangBanks[LLEN]; this native asset binding preserves the
-     * exact table and IDs without emulating a 32-bit segmented pointer. */
-    if (bank == LLEN) return LlenE[index];
-    return (const char *)langGet((s32)text_id);
+    return ge_original_language_text(text_id);
 }
 
 static bool runtime_diagnostics_requested(
@@ -15137,17 +15106,20 @@ static void renderer_draw(const GePortState *port,
                             (uint8_t)menu, &evaluation)
                             != GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_OK)
                     continue;
-                objective_text = (const char *)langGet((s32)text_id);
+                objective_text = ge_original_language_text(text_id);
                 if (objective_text == NULL) continue;
                 switch (evaluation.value) {
                 case GE_ORIGINAL_STAGE_OBJECTIVE_COMPLETE:
-                    status_text = LmiscE[0x2d];
+                    status_text = ge_original_language_text_by_bank(
+                        LMISC, 0x2dU);
                     break;
                 case GE_ORIGINAL_STAGE_OBJECTIVE_FAILED:
-                    status_text = LmiscE[0x2f];
+                    status_text = ge_original_language_text_by_bank(
+                        LMISC, 0x2fU);
                     break;
                 default:
-                    status_text = LmiscE[0x2e];
+                    status_text = ge_original_language_text_by_bank(
+                        LMISC, 0x2eU);
                     break;
                 }
                 watch_objective_lines[watch_objective_line_count++] =

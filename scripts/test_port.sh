@@ -22,6 +22,7 @@ python3 "${repo_dir}/scripts/pack_3ds_assets.py" \
 python3 "${repo_dir}/scripts/tests/test_frontend_cast_render_mode.py"
 python3 "${repo_dir}/scripts/tests/test_frontend_music_sequence.py"
 python3 "${repo_dir}/scripts/tests/test_animation_table_stage_rebind.py"
+"${repo_dir}/scripts/test_original_language_text.sh"
 "${repo_dir}/scripts/test_original_frontend_statistics.sh" "${repo_dir}"
 "${repo_dir}/scripts/test_original_frontend_cursor.sh" "${repo_dir}"
 "${repo_dir}/scripts/test_original_watch_mission_abort.sh"

@@ -22,6 +22,14 @@ void ge_original_stage_guard_runtime_matrix_failure(
 void ge_original_stage_guard_runtime_matrix_failure_values(
     const GeOriginalStageGuardRuntime *runtime, size_t *matrix_index,
     int *retained, float values[16]);
+/* Captured at failure, not sampled later after Bond's death camera moves.
+ * Model values: scale, frame1/2, blend1/2/merge, speed/playspeed, root XYZ,
+ * heading, heading blend/target, ground, root-node opcode; then shoulder/back
+ * aims and targets, aim count, flinch, action, gun hand, four frame indices.
+ * Camera holds world-to-view followed by view-to-world. */
+void ge_original_stage_guard_runtime_matrix_failure_state(
+    const GeOriginalStageGuardRuntime *runtime,
+    float camera[32], float model[32]);
 
 typedef enum GeOriginalStageGuardRuntimeStatus {
     GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK = 0,

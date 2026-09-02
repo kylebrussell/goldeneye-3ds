@@ -92,3 +92,72 @@ End-to-end Dam objective completion/bungee, all-level gameplay, menu/attract
 fidelity, audible music/SFX quality, and New 3DS XL performance still require
 direct verification. Static world GPU buffers and the canonical shared prop
 dispatcher were already live; do not replace them with duplicate systems.
+
+## Follow-up: culled-model ownership and audio queue
+
+The renderer's early visibility/residency/sphere-cull branches left body and
+attached-model pointers in the shared transient frame arena. A subsequent
+offscreen canonical tick need not publish new matrices, so arena reuse could
+leave the renderer retaining unrelated bytes. This is independently
+reproducible: the new test failed at the durable-body-pointer assertion before
+the fix. Those branches now retain the original matrix bytes in the existing
+instance-owned slots without recalculating a pose or marking it drawable.
+The same ownership boundary covers attached hats and the nonresident player
+body/weapon. No animation, movement, AI, or canonical scheduling bodies changed.
+
+ASan/UBSan tests poison the old transient arrays after visibility, residency,
+and sphere culls, then expose the models again. Body/weapon/hat/player cases
+pass, including the existing 665 authored guard pairs across 21 stages and
+300 authored hats. This fixes a real lifetime defect; it does **not** establish
+that every observed matrix failure had that cause.
+
+The platform PCM ring now transfers each block with at most two contiguous
+copies instead of a modulo operation per stereo frame. Read/write/discard
+cursors remain correct for arbitrary capacities; zero-fill and counters are
+unchanged. 40,000 randomized operations across eight capacities match the old
+scalar samples, cursors, and accounting under ASan/UBSan. ARM object inspection
+confirms that `ge_audio_output.o` no longer imports `__aeabi_uidivmod`.
+This is an instruction-cost reduction, not a measured whole-game FPS gain.
+
+### Emulator results and exact remaining blocker
+
+Private reports are in `build/visual-probe/`:
+
+- `dam-matrix-lifetime-ec5ba27b.result`: 4,500 simulation/actor ticks,
+  11/11 route targets, four PP7 guard hits, healthy actor status, no matrix
+  failure, 3,471 NDSP blocks.
+- `dam-matrix-lifetime-d6e5baf3.result`: 4,431 simulation/actor ticks,
+  11/11 targets, three guard hits, Bond death/report-ready, healthy actor
+  status, no matrix failure, 3,375 NDSP blocks.
+- `dam-extended-lifetime-audio-70f0c57d.result`: **failed**, 12/160 authored
+  targets and four rooms. At actor tick 4,421 the matrix check failed on chr 5,
+  matrix 0, retained=1, all 16 floats NaN. The exact failure line in this
+  artifact was 1508. Actor status became `8,0,0,1,1,0,14,0`; the route later
+  reached Bond's death state. NDSP remained active with 3,689 blocks. This is
+  not an end-to-end completion or a healthy death-flow pass.
+
+The last run had 1,249 of 7,743 post-warmup samples above 16 ms, including a
+229 ms peak. Host verification ran concurrently and the encounters vary with
+AI/RNG; these runs are not a controlled before/after performance benchmark.
+
+The final diagnostic additionally retains both camera matrices, model/root
+and character-aim inputs at the failure instant, plus raw failing-matrix bits.
+A sanitizer test verifies those inputs do not change when live state later
+changes. Next: rerun the extended route with these diagnostics and distinguish
+invalid canonical pose inputs/output from subsequent memory overwrites. Do
+not hide the failure by dropping matrices, skipping actors, or clearing NaNs.
+
+macOS locked before the next diagnostic run could start. The last gameplay
+artifact tested was 70f0c57d; later changes only add failure diagnostics.
+The temporary input-probe config was removed to restore ordinary menu launch.
+Only one Azahar process was used. HLE's emulator-only empty DSP marker remains;
+the hardware staging directory still has no firmware or empty marker.
+
+Final executable SHA-256:
+`46c751dea147f31ca7fa826a48bac32020cfb4f87304ec876ce06d482793bdba`.
+Assets remain
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+The build, SD staging directory, and Azahar installation are byte-matched.
+The final full host suite, focused ASan/UBSan cases, and ARM/3DSX build passed.
+Final verification logs: `build/host-tests/full-lifetime-checkpoint-20260902.log`
+and `build/host-tests/arm-lifetime-checkpoint-20260902.log`.

@@ -2983,6 +2983,25 @@ static bool write_input_probe_result(
             for (size_t value = 0U; value < 16U; ++value)
                 fprintf(stream, ",%a", (double)values[value]);
             fprintf(stream, "\n");
+            fprintf(stream, "guard_matrix_bits=");
+            for (size_t value = 0U; value < 16U; ++value) {
+                uint32_t bits;
+                memcpy(&bits, &values[value], sizeof(bits));
+                fprintf(stream, "%s%08lx", value ? "," : "", (unsigned long)bits);
+            }
+            fprintf(stream, "\n");
+            {
+                float camera[32], model[32];
+                ge_original_stage_guard_runtime_matrix_failure_state(
+                    objects->guards, camera, model);
+                fprintf(stream, "guard_matrix_camera=");
+                for (size_t value = 0U; value < 32U; ++value)
+                    fprintf(stream, "%s%a", value ? "," : "", (double)camera[value]);
+                fprintf(stream, "\nguard_matrix_model=");
+                for (size_t value = 0U; value < 32U; ++value)
+                    fprintf(stream, "%s%a", value ? "," : "", (double)model[value]);
+                fprintf(stream, "\n");
+            }
         }
     }
     fprintf(stream,

@@ -20,6 +20,15 @@ static int ge_audio_output_is_valid(const GeAudioOutput *output)
         && output->capacity_frames != 0U;
 }
 
+/* Every transfer is bounded by one ring capacity. This also avoids a
+ * division on ARM for each PCM frame and does not require power-of-two
+ * capacities. Subtraction first keeps the cursor update overflow-free. */
+static size_t ge_audio_ring_advance(size_t cursor, size_t frames, size_t capacity)
+{
+    const size_t remaining = capacity - cursor;
+    return frames < remaining ? cursor + frames : frames - remaining;
+}
+
 int ge_audio_output_init(
         GeAudioOutput *output,
         int16_t *stereo_storage,
@@ -73,7 +82,7 @@ size_t ge_audio_output_write(
         size_t frame_count)
 {
     size_t accepted;
-    size_t frame;
+    size_t contiguous;
 
     if (!ge_audio_output_is_valid(output)
             || (interleaved_stereo == NULL && frame_count != 0U)
@@ -85,15 +94,18 @@ size_t ge_audio_output_write(
     if (accepted > frame_count) {
         accepted = frame_count;
     }
-    for (frame = 0U; frame < accepted; frame++) {
-        size_t destination = output->write_frame * 2U;
-        size_t source = frame * 2U;
-
-        output->samples[destination] = interleaved_stereo[source];
-        output->samples[destination + 1U] = interleaved_stereo[source + 1U];
-        output->write_frame =
-            (output->write_frame + 1U) % output->capacity_frames;
+    contiguous = output->capacity_frames - output->write_frame;
+    if (contiguous > accepted) contiguous = accepted;
+    if (contiguous != 0U) {
+        memcpy(output->samples + output->write_frame * 2U,
+                interleaved_stereo, contiguous * 2U * sizeof(int16_t));
     }
+    if (accepted > contiguous) {
+        memcpy(output->samples, interleaved_stereo + contiguous * 2U,
+                (accepted - contiguous) * 2U * sizeof(int16_t));
+    }
+    output->write_frame = ge_audio_ring_advance(
+            output->write_frame, accepted, output->capacity_frames);
     output->queued_frames += accepted;
     output->frames_written = ge_audio_counter_add(
             output->frames_written,
@@ -110,7 +122,7 @@ size_t ge_audio_output_read(
         size_t frame_count)
 {
     size_t available;
-    size_t frame;
+    size_t contiguous;
 
     if (!ge_audio_output_is_valid(output)
             || (interleaved_stereo == NULL && frame_count != 0U)
@@ -122,15 +134,18 @@ size_t ge_audio_output_read(
     if (available > frame_count) {
         available = frame_count;
     }
-    for (frame = 0U; frame < available; frame++) {
-        size_t source = output->read_frame * 2U;
-        size_t destination = frame * 2U;
-
-        interleaved_stereo[destination] = output->samples[source];
-        interleaved_stereo[destination + 1U] = output->samples[source + 1U];
-        output->read_frame =
-            (output->read_frame + 1U) % output->capacity_frames;
+    contiguous = output->capacity_frames - output->read_frame;
+    if (contiguous > available) contiguous = available;
+    if (contiguous != 0U) {
+        memcpy(interleaved_stereo, output->samples + output->read_frame * 2U,
+                contiguous * 2U * sizeof(int16_t));
     }
+    if (available > contiguous) {
+        memcpy(interleaved_stereo + contiguous * 2U, output->samples,
+                (available - contiguous) * 2U * sizeof(int16_t));
+    }
+    output->read_frame = ge_audio_ring_advance(
+            output->read_frame, available, output->capacity_frames);
     if (frame_count > available) {
         memset(
                 interleaved_stereo + available * 2U,
@@ -159,8 +174,8 @@ size_t ge_audio_output_discard(
     if (discarded > frame_count) {
         discarded = frame_count;
     }
-    output->read_frame = (output->read_frame + discarded)
-        % output->capacity_frames;
+    output->read_frame = ge_audio_ring_advance(
+            output->read_frame, discarded, output->capacity_frames);
     output->queued_frames -= discarded;
     output->frames_discarded = ge_audio_counter_add(
             output->frames_discarded,

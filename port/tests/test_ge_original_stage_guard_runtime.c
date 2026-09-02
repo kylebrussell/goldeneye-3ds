@@ -1329,6 +1329,12 @@ int main(int argc,char **argv)
             int32_t failure_chr = -1;
             int retained = 0;
             float failed_values[16] = {0};
+            float failed_camera[32], failed_model[32];
+            Mtxf failure_camera = {0};
+            Mtxf *saved_camera = stage_player.field_10CC;
+            const float saved_scale = body->scale;
+            failure_camera.m[0][0] = 7.0f;
+            stage_player.field_10CC = &failure_camera;
             transient_body[0].pos.m[0][0] = NAN;
             assert(ge_original_stage_guard_runtime_update_matrices(
                 runtime, world_to_view)
@@ -1340,6 +1346,16 @@ int main(int argc,char **argv)
             assert(failure_line != 0U && failure_chr == first.chr_id
                    && failure_matrix == 0U && retained == 1
                    && isnan(failed_values[0]));
+            /* The report can be serialized hundreds of ticks later during
+             * death. It must retain the inputs from the failure itself. */
+            failure_camera.m[0][0] = 9.0f;
+            body->scale = saved_scale + 1.0f;
+            ge_original_stage_guard_runtime_matrix_failure_state(
+                runtime, failed_camera, failed_model);
+            assert(failed_camera[0] == 7.0f && failed_model[0] == saved_scale);
+            assert(failed_model[15] == (float)body->obj->RootNode->Opcode);
+            body->scale = saved_scale;
+            stage_player.field_10CC = saved_camera;
             memcpy(transient_body, expected_body,
                    body_count * sizeof(*expected_body));
             body->render_pos = transient_body;
@@ -1376,12 +1392,78 @@ int main(int argc,char **argv)
                &&memcmp(durable_weapon,expected_weapon,
                    weapon_count*sizeof(*expected_weapon))==0);
 
-        /* A following no-transient call exercises and restores the authored
-         * initialization/offscreen fallback pose. */
-        assert(ge_original_stage_guard_runtime_update_matrices(
-            runtime,world_to_view)==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        /* Culling cannot leave models pointing into the frame arena. The
+         * canonical prop tick may publish a matrix before the renderer's
+         * narrower visibility test rejects it. Reuse that arena, then bring
+         * the guard back on screen without a new canonical publication. */
+        for (size_t cull = 0U; cull < 3U; ++cull) {
+            float culled_view[4][4];
+            GeOriginalStageGuardSnapshot culled;
+            memcpy(culled_view, world_to_view, sizeof(culled_view));
+            memcpy(transient_body, expected_body, body_count * sizeof(*expected_body));
+            memcpy(transient_weapon, expected_weapon, weapon_count * sizeof(*expected_weapon));
+            body->render_pos = transient_body;
+            weapon_model->render_pos = transient_weapon;
+            assert(ge_original_stage_guard_runtime_set_visibility(
+                runtime, 0U, cull != 0U, first.room_id));
+            if (cull == 1U) harness.resident_room = UINT8_MAX;
+            if (cull == 2U) {
+                stage_player.c_perspfovy = 60.0f;
+                stage_player.c_perspaspect = 4.0f / 3.0f;
+                stage_player.c_perspnear = 10.0f;
+                culled_view[3][2] = 10000000.0f;
+            }
+            assert(ge_original_stage_guard_runtime_update_matrices(
+                runtime, culled_view) == GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+            assert(ge_original_stage_guard_runtime_snapshot(runtime, 0U, &culled)
+                   && !culled.matrices_ready);
+            assert(body->render_pos == durable_body);
+            assert(weapon_model->render_pos == durable_weapon);
+            assert(memcmp(durable_body, expected_body,
+                          body_count * sizeof(*expected_body)) == 0);
+            assert(memcmp(durable_weapon, expected_weapon,
+                          weapon_count * sizeof(*expected_weapon)) == 0);
+            memset(transient_body, 0xff, body_count * sizeof(*transient_body));
+            memset(transient_weapon, 0xff, weapon_count * sizeof(*transient_weapon));
+            harness.resident_room = first.room_id;
+            stage_player.c_perspfovy = 0.0f;
+            assert(ge_original_stage_guard_runtime_set_visibility(
+                runtime, 0U, 1, first.room_id));
+            /* No new transient publication: calculate the original fallback
+             * pose, never retain the now-overwritten previous frame. */
+            assert(ge_original_stage_guard_runtime_update_matrices(
+                runtime, world_to_view) == GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        }
+        puts("Guard body/weapon matrices survive visibility, residency and sphere culls plus arena reuse");
         free(expected_weapon);free(transient_weapon);
         free(expected_body);free(transient_body);
+    }
+    {
+        GeOriginalStageGuardHatSnapshot hat;
+        Model *model;
+        RenderPosView *durable, *transient;
+        size_t matrix_count;
+        assert(ge_original_stage_guard_runtime_hat_count(runtime) > 0U);
+        assert(ge_original_stage_guard_runtime_hat_snapshot(runtime, 0U, &hat));
+        model = hat.model_instance;
+        assert(model != NULL && model->obj != NULL && model->render_pos != NULL);
+        durable = model->render_pos;
+        matrix_count = (size_t)model->obj->numMatrices;
+        transient = malloc(matrix_count * sizeof(*transient));
+        assert(transient != NULL);
+        memcpy(transient, durable, matrix_count * sizeof(*transient));
+        model->render_pos = transient;
+        harness.resident_room = UINT8_MAX;
+        assert(ge_original_stage_guard_runtime_update_matrices(
+            runtime, world_to_view) == GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        assert(model->render_pos == durable);
+        assert(memcmp(durable, transient, matrix_count * sizeof(*transient)) == 0);
+        memset(transient, 0xff, matrix_count * sizeof(*transient));
+        harness.resident_room = first.room_id;
+        assert(ge_original_stage_guard_runtime_update_matrices(
+            runtime, world_to_view) == GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        free(transient);
+        puts("Authored hat matrices survive nonresident arena reuse");
     }
     {
         GeOriginalStageGuardLightingSnapshot before,after;
@@ -1562,6 +1644,35 @@ int main(int argc,char **argv)
             runtime,world_to_view)==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
         body_parts=ge_original_character_model_instance_scene_part_count(
             models,stage_player.bodyModel);
+        {
+            Model *body = stage_player.bodyModel;
+            Model *weapon = viewer.chr->weapons_held[GUNRIGHT]->obj->model;
+            RenderPosView *body_durable = body->render_pos;
+            RenderPosView *weapon_durable = weapon->render_pos;
+            const size_t body_size = (size_t)body->obj->numMatrices * sizeof(*body_durable);
+            const size_t weapon_size = (size_t)weapon->obj->numMatrices * sizeof(*weapon_durable);
+            RenderPosView *body_transient = malloc(body_size);
+            RenderPosView *weapon_transient = malloc(weapon_size);
+            assert(body_transient != NULL && weapon_transient != NULL);
+            memcpy(body_transient, body_durable, body_size);
+            memcpy(weapon_transient, weapon_durable, weapon_size);
+            body->render_pos = body_transient;
+            weapon->render_pos = weapon_transient;
+            harness.resident_room = UINT8_MAX;
+            assert(ge_original_stage_guard_runtime_update_matrices(
+                runtime, world_to_view) == GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+            assert(body->render_pos == body_durable && weapon->render_pos == weapon_durable);
+            assert(memcmp(body_durable, body_transient, body_size) == 0);
+            assert(memcmp(weapon_durable, weapon_transient, weapon_size) == 0);
+            memset(body_transient, 0xff, body_size);
+            memset(weapon_transient, 0xff, weapon_size);
+            harness.resident_room = first.room_id;
+            assert(ge_original_stage_guard_runtime_update_matrices(
+                runtime, world_to_view) == GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+            free(weapon_transient);
+            free(body_transient);
+            puts("Canonical player body/weapon matrices survive nonresident arena reuse");
+        }
         weapon_parts=ge_original_pitem_model_instance_scene_part_count(
             weapon_models,viewer.chr->weapons_held[GUNRIGHT]->obj->model);
         assert(body_parts>0U&&weapon_parts>0U);

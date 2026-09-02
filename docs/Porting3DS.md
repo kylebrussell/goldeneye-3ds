@@ -1,5 +1,10 @@
 # Nintendo 3DS native port
 
+Status note: much of this document records early bring-up milestones and is
+not a current missing-systems checklist. For the latest live integrations,
+emulator evidence, audio setup, exact artifacts, and remaining blockers, see
+[the September 2 verification checkpoint](Verification20260902.md).
+
 This branch keeps the original byte-matching Nintendo 64 build intact and adds a separate ARM11 target under
 `platform/3ds`. The current milestone is a bootable native `.3dsx`, not a playable game yet. It proves the 3DS
 application lifecycle, PICA200 rendering, input, timing, and the boundary where decompiled game systems enter.

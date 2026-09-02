@@ -87,6 +87,8 @@ struct GeOriginalStageGuardRuntime {
     size_t matrix_failure_index;
     int matrix_failure_retained;
     float matrix_failure_values[16];
+    float matrix_failure_camera[32];
+    float matrix_failure_model[32];
     GeOriginalCharacterModelPair player_pair;
     RenderPosView *player_render_positions;
     int32_t player_body_id;
@@ -1390,7 +1392,106 @@ static GeOriginalStageGuardRuntimeStatus runtime_matrix_failed(
     runtime->matrix_failure_source_line = source_line;
     runtime->matrix_failure_chr_id = index < runtime->count
         ? runtime->slots[index].state.chr_id : -1;
+    memset(runtime->matrix_failure_camera, 0, sizeof(runtime->matrix_failure_camera));
+    memset(runtime->matrix_failure_model, 0, sizeof(runtime->matrix_failure_model));
+    if (g_CurrentPlayer != NULL && g_CurrentPlayer->field_10CC != NULL)
+        memcpy(runtime->matrix_failure_camera, g_CurrentPlayer->field_10CC,
+               sizeof(Mtxf));
+    if (g_CurrentPlayer != NULL && g_CurrentPlayer->viewtoworldmtxf != NULL)
+        memcpy(runtime->matrix_failure_camera + 16, g_CurrentPlayer->viewtoworldmtxf,
+               sizeof(Mtxf));
+    if (index < runtime->count) {
+        const Model *model = runtime->slots[index].pair.model_instance;
+        if (model != NULL) {
+            float *values = runtime->matrix_failure_model;
+            values[0] = model->scale;
+            values[1] = model->animframe1; values[2] = model->animframe2;
+            values[3] = model->unk2c; values[4] = model->unk5c;
+            values[5] = model->unk84; values[6] = model->speed;
+            values[7] = model->playspeed;
+            values[27] = (float)model->gunhand;
+            values[28] = (float)model->framea; values[29] = (float)model->frameb;
+            values[30] = (float)model->frame2a; values[31] = (float)model->frame2b;
+            {
+                const ChrRecord *chr = runtime_live_chr(runtime, index);
+                if (chr != NULL) {
+                    values[16] = chr->aimuplshoulder; values[17] = chr->aimuprshoulder;
+                    values[18] = chr->aimupback; values[19] = chr->aimsideback;
+                    values[20] = chr->aimendlshoulder; values[21] = chr->aimendrshoulder;
+                    values[22] = chr->aimendback; values[23] = chr->aimendsideback;
+                    values[24] = (float)chr->aimendcount; values[25] = (float)chr->flinchcnt;
+                    values[26] = (float)chr->actiontype;
+                }
+            }
+            if (model->obj != NULL && model->obj->RootNode != NULL) {
+                ModelNode *root = model->obj->RootNode;
+                values[15] = (float)root->Opcode;
+                if ((root->Opcode & 0xff) == MODELNODE_OPCODE_HEADER
+                        && root->Parent == NULL && root->Data != NULL
+                        && model->datas != NULL && model->rwdatalen > 0
+                        && (size_t)root->Data->Header.RwDataIndex
+                            + (sizeof(ModelRwData_HeaderRecord) + sizeof(void *) - 1U)
+                                / sizeof(void *) <= (size_t)model->rwdatalen) {
+                    /* The root has no head-placeholder parent: its canonical
+                     * RW index addresses the flat native word arena directly. */
+                    const union ModelRwData *rw = (const void *)&model->datas[
+                        root->Data->Header.RwDataIndex];
+                    memcpy(values + 8, rw->Header.pos.f, sizeof(float) * 3U);
+                    values[11] = rw->Header.unk14;
+                    values[12] = rw->Header.unk18;
+                    values[13] = rw->Header.unk1c;
+                    values[14] = rw->Header.ground;
+                }
+            }
+        }
+    }
     return runtime->last_status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+}
+
+void ge_original_stage_guard_runtime_matrix_failure_state(
+    const GeOriginalStageGuardRuntime *runtime, float camera[32], float model[32])
+{
+    if (runtime == NULL || camera == NULL || model == NULL) return;
+    memcpy(camera, runtime->matrix_failure_camera, sizeof(runtime->matrix_failure_camera));
+    memcpy(model, runtime->matrix_failure_model, sizeof(runtime->matrix_failure_model));
+}
+
+/* Renderer visibility must never extend the lifetime of a dynAllocate
+ * pointer. chrTick can publish matrices even when the narrower renderer
+ * sphere/room test rejects the guard; on its next offscreen tick it may not
+ * publish again. Retain that exact output now, before the arena is reused.
+ * Do not calculate another pose or claim that a culled model is drawable. */
+static GeOriginalStageGuardRuntimeStatus runtime_retain_culled_guard(
+    GeOriginalStageGuardRuntime *runtime, size_t guard_index)
+{
+    GeOriginalStageGuardSlot *slot = &runtime->slots[guard_index];
+    size_t attachment;
+    if (runtime_retain_matrices(slot->pair.model_instance,
+            slot->render_positions, slot->pair.matrix_count) < 0)
+        return runtime_matrix_failed(runtime, __LINE__, guard_index);
+    for (attachment = 0U; attachment < runtime->weapon_count; ++attachment) {
+        GeOriginalStageGuardWeaponSlot *weapon = &runtime->weapons[attachment];
+        if (weapon->owner != slot || weapon->prop == NULL
+                || weapon->prop->parent != runtime->props[guard_index]) continue;
+        if (weapon->model == NULL || weapon->model->obj == NULL
+                || weapon->model->obj->numMatrices <= 0
+                || runtime_retain_matrices(weapon->model, weapon->render_positions,
+                    (size_t)weapon->model->obj->numMatrices) < 0)
+            return runtime_matrix_failed(runtime, __LINE__, guard_index);
+    }
+    for (attachment = 0U; attachment < runtime->hat_count; ++attachment) {
+        GeOriginalStageGuardHatSlot *hat = &runtime->hats[attachment];
+        if (hat->owner != slot || hat->prop == NULL
+                || hat->prop->parent != runtime->props[guard_index]) continue;
+        if (hat->model == NULL || hat->model->obj == NULL
+                || hat->model->obj->numMatrices <= 0
+                || runtime_retain_matrices(hat->model, hat->render_positions,
+                    (size_t)hat->model->obj->numMatrices) < 0)
+            return runtime_matrix_failed(runtime, __LINE__, guard_index);
+    }
+    slot->state.matrices_ready = 0U;
+    runtime_clear_attachment_matrices(runtime, slot);
+    return GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
 }
 
 void ge_original_stage_guard_runtime_matrix_failure_values(
@@ -1427,8 +1528,9 @@ ge_original_stage_guard_runtime_update_matrices(
         }
         if(!slot->state.visible
                 ||!runtime_room_resident(runtime,slot->state.room_id)){
-            slot->state.matrices_ready=0U;
-            runtime_clear_attachment_matrices(runtime,slot);
+            if (runtime_retain_culled_guard(runtime, index)
+                    != GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK)
+                return runtime->last_status;
             continue;
         }
         /* Matrix publication is renderer-only.  The unchanged chr/prop tick
@@ -1440,8 +1542,9 @@ ge_original_stage_guard_runtime_update_matrices(
          * runtime_guard_draw_visible return visible, preserving the former
          * conservative behaviour during bootstrap and host fixtures. */
         if(!runtime_guard_draw_visible(runtime,index)){
-            slot->state.matrices_ready=0U;
-            runtime_clear_attachment_matrices(runtime,slot);
+            if (runtime_retain_culled_guard(runtime, index)
+                    != GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK)
+                return runtime->last_status;
             continue;
         }
         if(model->render_pos==NULL||slot->render_positions==NULL
@@ -1550,6 +1653,18 @@ ge_original_stage_guard_runtime_update_matrices(
         ModelRenderData renderdata;Mtxf base;size_t matrix;int retained;
         uint8_t room_id;
         model=runtime_live_player_body(runtime,&room_id);
+        if (model != NULL && !runtime_room_resident(runtime, room_id)) {
+            GeOriginalStageGuardWeaponSlot *weapon = runtime_live_player_weapon(runtime);
+            if (runtime_retain_matrices(model, runtime->player_render_positions,
+                    runtime->player_pair.matrix_count) < 0)
+                return runtime_matrix_failed(runtime, __LINE__, runtime->count);
+            if (weapon != NULL
+                    && (weapon->model->obj == NULL
+                        || weapon->model->obj->numMatrices <= 0
+                        || runtime_retain_matrices(weapon->model, weapon->render_positions,
+                            (size_t)weapon->model->obj->numMatrices) < 0))
+                return runtime_matrix_failed(runtime, __LINE__, runtime->count);
+        }
         if(model!=NULL&&runtime_room_resident(runtime,room_id)){
             if(model->obj==NULL||model->render_pos==NULL
                     ||runtime->player_render_positions==NULL

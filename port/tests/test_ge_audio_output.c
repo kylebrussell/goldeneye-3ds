@@ -51,6 +51,85 @@ static void test_saturating_mixer(void)
     assert(destination[3] == 1000);
 }
 
+static uint32_t ring_random(uint32_t *state)
+{
+    *state = *state * UINT32_C(1664525) + UINT32_C(1013904223);
+    return *state;
+}
+
+/* Compare the platform queue with its former sample-at-a-time behavior,
+ * including arbitrary (not just power-of-two) capacities and empty calls. */
+static void test_ring_matches_scalar(void)
+{
+    static const size_t capacities[] = {1U, 2U, 3U, 7U, 64U, 511U, 512U, 1025U};
+    int16_t storage[2050], reference[2050], source[2100];
+    int16_t actual[2100], expected[2100];
+    uint32_t random = UINT32_C(0x0073d5);
+    size_t capacity_index;
+    for (capacity_index = 0U;
+            capacity_index < sizeof(capacities) / sizeof(capacities[0]);
+            ++capacity_index) {
+        const size_t capacity = capacities[capacity_index];
+        size_t read = 0U, write = 0U, queued = 0U, iteration;
+        uint64_t written = 0U, consumed = 0U, dropped = 0U;
+        uint64_t underflowed = 0U, discarded = 0U;
+        GeAudioOutput audio;
+        memset(storage, 0, sizeof(storage));
+        memset(reference, 0, sizeof(reference));
+        assert(ge_audio_output_init(&audio, storage, capacity, 32000U) == 0);
+        for (iteration = 0U; iteration < 5000U; ++iteration) {
+            const size_t requested = ring_random(&random) % (capacity + 25U);
+            const uint32_t operation = ring_random(&random) % 3U;
+            size_t count, frame;
+            if (operation == 0U) {
+                count = requested < capacity - queued ? requested : capacity - queued;
+                for (frame = 0U; frame < requested * 2U; ++frame)
+                    source[frame] = (int16_t)((int32_t)(ring_random(&random) & 65535U) - 32768);
+                for (frame = 0U; frame < count; ++frame) {
+                    reference[write * 2U] = source[frame * 2U];
+                    reference[write * 2U + 1U] = source[frame * 2U + 1U];
+                    write = (write + 1U) % capacity;
+                }
+                assert(ge_audio_output_write(&audio,
+                    requested != 0U ? source : NULL, requested) == count);
+                queued += count;
+                written += count;
+                dropped += requested - count;
+            } else {
+                count = requested < queued ? requested : queued;
+                if (operation == 1U) {
+                    memset(actual, 0x5a, sizeof(actual));
+                    memset(expected, 0x5a, sizeof(expected));
+                    for (frame = 0U; frame < count; ++frame) {
+                        expected[frame * 2U] = reference[read * 2U];
+                        expected[frame * 2U + 1U] = reference[read * 2U + 1U];
+                        read = (read + 1U) % capacity;
+                    }
+                    memset(expected + count * 2U, 0,
+                        (requested - count) * 2U * sizeof(*expected));
+                    assert(ge_audio_output_read(&audio,
+                        requested != 0U ? actual : NULL, requested) == count);
+                    assert(memcmp(actual, expected, sizeof(actual)) == 0);
+                    consumed += count;
+                    underflowed += requested - count;
+                } else {
+                    read = (read + count) % capacity;
+                    assert(ge_audio_output_discard(&audio, requested) == count);
+                    discarded += count;
+                }
+                queued -= count;
+            }
+            assert(audio.read_frame == read && audio.write_frame == write);
+            assert(audio.queued_frames == queued);
+            assert(audio.frames_written == written && audio.frames_read == consumed);
+            assert(audio.frames_dropped == dropped && audio.frames_underflowed == underflowed);
+            assert(audio.frames_discarded == discarded);
+            assert(memcmp(storage, reference, sizeof(storage)) == 0);
+        }
+    }
+    puts("PCM ring matches scalar samples, cursors and counters across 40,000 operations");
+}
+
 static void test_explicit_sink_unavailable_discard(void)
 {
     int16_t storage[8];
@@ -103,6 +182,7 @@ static void test_ai_compatibility(void)
 int main(void)
 {
     test_ring_wrap_drop_and_underflow();
+    test_ring_matches_scalar();
     test_saturating_mixer();
     test_explicit_sink_unavailable_discard();
     test_ai_compatibility();

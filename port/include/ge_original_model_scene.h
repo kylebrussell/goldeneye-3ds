@@ -60,6 +60,17 @@ typedef uint64_t (*GeOriginalModelSceneProfileClock)(void *context);
 typedef int (*GeOriginalModelSceneTextureVisitor)(
     void *context, uint16_t texture_id);
 
+/* Changed, contiguous output ranges from the last successful cache build.
+ * Offsets are relative to its storage. A topology/buffer change also marks
+ * immutable attributes dirty, so GPU consumers must remap UVs/materials. */
+typedef struct GeOriginalModelScenePublicationRange {
+    size_t vertex_offset;
+    size_t vertex_count;
+    size_t batch_offset;
+    size_t batch_count;
+    uint8_t static_data_changed;
+} GeOriginalModelScenePublicationRange;
+
 /* Persistent renderer cache for immutable model display-list topology.
  * Current segment-3 matrices, outer transforms, and room publications remain
  * caller-owned and are reapplied on every build.  A changed list/blob layout
@@ -141,6 +152,9 @@ typedef struct GeOriginalModelSceneCache {
     uint64_t publication_signature;
     GeDamRoomWorldVertex *published_vertices;
     GeDamRoomDrawBatch *published_batches;
+    GeOriginalModelScenePublicationRange *publication_ranges;
+    size_t publication_range_count;
+    size_t publication_range_capacity;
     uint8_t topology_ready;
     uint8_t publication_ready;
 } GeOriginalModelSceneCache;

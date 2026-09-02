@@ -61,16 +61,16 @@ static int encode_segment3_matrices(const GeOriginalModelSceneInput *input,
         for (element = 0U; element < 16U; ++element) {
             const float value = input->segment3_matrices[matrix_index]
                 [element / 4U][element % 4U];
-            int64_t fixed;
+            int32_t fixed;
             if (!isfinite(value) || value < -32768.0f
                     || value >= 32768.0f) {
                 free(*bytes);
                 *bytes = NULL;
                 return 0;
             }
-            fixed = (int64_t)(value * 65536.0f);
+            fixed = (int32_t)(value * 65536.0f);
             write_u16_be(matrix_bytes + element * 2U,
-                         (uint16_t)((uint64_t)fixed >> 16));
+                         (uint16_t)((uint32_t)fixed >> 16));
             write_u16_be(matrix_bytes + 32U + element * 2U,
                          (uint16_t)fixed);
         }
@@ -897,6 +897,7 @@ void ge_original_model_scene_cache_close(GeOriginalModelSceneCache *cache)
     free(cache->published_input_publication_signatures);
     free(cache->input_quantized_matrix_offsets);
     free(cache->quantized_matrices);
+    free(cache->publication_ranges);
     free(cache->input_batch_offsets);
     free(cache->input_vertex_offsets);
     free(cache->template_matrix_indices);
@@ -1103,8 +1104,12 @@ static int cache_reserve_matrices(
 
 static float cache_quantize_matrix_element(float value)
 {
-    const int64_t fixed = (int64_t)(value * 65536.0f);
-    return (float)(int32_t)fixed / 65536.0f;
+    /* The caller validates finite [-32768,32768) values before conversion.
+     * Scaling a binary32 value by 2^16 is exact and stays in signed 32 bits.
+     * Use ARM VFP's native truncation instead of a soft 64-bit conversion
+     * call for every element of every animated model matrix. */
+    const int32_t fixed = (int32_t)(value * 65536.0f);
+    return (float)fixed / 65536.0f;
 }
 
 static int cache_matrix_is_identity(const float matrix[4][4])
@@ -1303,6 +1308,7 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
     uint64_t matrix_quantization_ticks = 0U;
     GeOriginalModelSceneStatus status = GE_ORIGINAL_MODEL_SCENE_OK;
 
+    if (cache != NULL) cache->publication_range_count = 0U;
     if (scene == NULL) return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     memset(scene, 0, sizeof(*scene));
     scene->status = GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
@@ -1342,6 +1348,21 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
                 && storage->batches == NULL)) {
         status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
         goto done;
+    }
+    if (input_count > cache->publication_range_capacity) {
+        GeOriginalModelScenePublicationRange *ranges;
+        if (input_count > SIZE_MAX / sizeof(*ranges)) {
+            status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
+            goto done;
+        }
+        ranges = realloc(cache->publication_ranges,
+                         input_count * sizeof(*ranges));
+        if (ranges == NULL) {
+            status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
+            goto done;
+        }
+        cache->publication_ranges = ranges;
+        cache->publication_range_capacity = input_count;
     }
     phase_start = cache_profile_now(cache);
     status = cache_prepare_publication_matrices(
@@ -1507,6 +1528,31 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
                           phase_start, cache_profile_now(cache));
         cache->published_input_publication_signatures[input_index] =
             cache->input_publication_signatures[input_index];
+        if (query->required_vertex_count != 0U
+                || query->required_batch_count != 0U) {
+            GeOriginalModelScenePublicationRange *range =
+                cache->publication_range_count != 0U
+                ? &cache->publication_ranges[
+                    cache->publication_range_count - 1U] : NULL;
+            const uint8_t static_changed =
+                reuse_publication_storage ? UINT8_C(0) : UINT8_C(1);
+            if (range != NULL && range->static_data_changed == static_changed
+                    && range->vertex_offset + range->vertex_count
+                        == vertex_cursor
+                    && range->batch_offset + range->batch_count
+                        == batch_cursor) {
+                range->vertex_count += query->required_vertex_count;
+                range->batch_count += query->required_batch_count;
+            } else {
+                range = &cache->publication_ranges[
+                    cache->publication_range_count++];
+                *range = (GeOriginalModelScenePublicationRange){
+                    vertex_cursor, query->required_vertex_count,
+                    batch_cursor, query->required_batch_count,
+                    static_changed,
+                };
+            }
+        }
         vertex_cursor += query->required_vertex_count;
         batch_cursor += query->required_batch_count;
     }
@@ -1524,6 +1570,9 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
     cache->publication_ready = UINT8_C(1);
     cache->cached_builds++;
 done:
+    /* Never advertise partially transformed output to a GPU consumer. */
+    if (status != GE_ORIGINAL_MODEL_SCENE_OK)
+        cache->publication_range_count = 0U;
     cache_profile_add(&cache->profile_build_ticks, build_start,
                       cache_profile_now(cache));
     scene->status = status;

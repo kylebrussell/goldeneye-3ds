@@ -61,6 +61,27 @@ int main(int argc, char **argv)
     assert(close_float(uv[1], vertex.generated_uv[1]
         * (float)0x1426 / 2048.0f - 29.0f / 32.0f));
 
+    {
+        static const uint8_t nintendo_ambient[3] = {200, 200, 200};
+        static const uint8_t nintendo_diffuse[3] = {0, 0, 0};
+        static const int8_t nintendo_direction[3] = {0, 0, 0};
+        normal[0] = 0U;
+        normal[1] = 0U;
+        normal[2] = 127U;
+        assert(ge_original_frontend_generate_lit_vertex(
+            normal, 0xffU, 0.5f * 3.14159265358979323846f,
+            nintendo_ambient, nintendo_diffuse, nintendo_direction,
+            &vertex));
+        /* ninlogolight has dynamic ambient and a black directional light;
+         * the rotating model normal still drives its reflected I8 texture. */
+        assert(vertex.lit_rgba[0] == 200U
+            && vertex.lit_rgba[1] == 200U
+            && vertex.lit_rgba[2] == 200U
+            && vertex.lit_rgba[3] == 0xffU);
+        assert(close_float(vertex.generated_uv[0], 1.0f));
+        assert(close_float(vertex.generated_uv[1], 0.5f));
+    }
+
     assert(GE_ORIGINAL_RAREWARE_FRONT_TEXTURE_OFFSET == 0x4fe8);
     assert(GE_ORIGINAL_RAREWARE_BODY_TEXTURE_OFFSET == 0x5ff0);
     assert(GE_ORIGINAL_RAREWARE_REFLECTION_TEXTURE_BYTES == 2048);

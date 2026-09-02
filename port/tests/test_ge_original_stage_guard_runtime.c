@@ -1324,6 +1324,27 @@ int main(int argc,char **argv)
             body_count*sizeof(*expected_body));
         body->render_pos=transient_body;
 
+        {
+            size_t failure_line = 0U, failure_matrix = SIZE_MAX;
+            int32_t failure_chr = -1;
+            int retained = 0;
+            float failed_values[16] = {0};
+            transient_body[0].pos.m[0][0] = NAN;
+            assert(ge_original_stage_guard_runtime_update_matrices(
+                runtime, world_to_view)
+                == GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE);
+            ge_original_stage_guard_runtime_matrix_failure(
+                runtime, &failure_line, &failure_chr);
+            ge_original_stage_guard_runtime_matrix_failure_values(
+                runtime, &failure_matrix, &retained, failed_values);
+            assert(failure_line != 0U && failure_chr == first.chr_id
+                   && failure_matrix == 0U && retained == 1
+                   && isnan(failed_values[0]));
+            memcpy(transient_body, expected_body,
+                   body_count * sizeof(*expected_body));
+            body->render_pos = transient_body;
+        }
+
         assert(ge_original_stage_guard_runtime_weapon_snapshot(
             runtime,0U,&weapon_snapshot));
         weapon_model=(Model *)weapon_snapshot.model_instance;

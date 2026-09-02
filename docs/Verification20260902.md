@@ -1,0 +1,94 @@
+# Native 3DS verification checkpoint — 2026-09-02
+
+The port is still not a demonstrated 1:1, sustained-60-FPS, end-to-end release.
+This checkpoint resumes after the host reboot and preserves the frontend work
+already present in the working tree. No ROM, extracted assets, firmware, saves,
+or executable is included in source control.
+
+## Changes and verification
+
+- Model-scene publication exposes coalesced changed vertex/batch ranges. The
+  live guard overlay copies and uploads those ranges and refreshes UVs on
+  topology changes even when geometry counts stay the same. Existing cache
+  reuse was already live; it is not a newly implemented character renderer.
+- s15.16 matrix conversion uses native signed-32-bit truncation after the
+  existing finite/range checks. 16,384 sampled elements and boundary values
+  match the old signed-64-bit conversion bit-for-bit. ARM object inspection
+  confirms removal of `__aeabi_f2lz` from the model-scene object.
+- Static room batches cache world bounds at GPU publication time. Conservative
+  interval transforms resolve wholly inside/outside batches; intersecting
+  bounds fall back to the existing exact vertex test. Animated overlays keep
+  the old path. No authored draw ordering, portal state, AI visibility, or
+  geometry changes. Randomized sanitizer coverage plus 55,936 comparisons
+  across real Dam geometry at 64 camera headings match exact decisions.
+  The focused optimized host test measured 51 ms scalar versus 18 ms bounded
+  over 256 iterations. This is not an emulator FPS claim.
+- Canonical impact/smoke/scattered-explosion/flare image records are now bound
+  to native pointers in the generated damage slice. Previously the extracted
+  uninitialized `impactimages` pointer produced Azahar reads at `0x58/0x59`
+  during wall impacts. The unchanged impact constructor now passes ASan/UBSan
+  for all 20 authored impact types and their UV dimensions.
+- Nintendo-logo lighting/reflection and authored material state changes from
+  the preceding frontend pass remain preserved, with focused tests.
+
+The full host suite passed after the renderer changes and again after the
+integrated impact-table binding and matrix-failure diagnostics. The focused
+stage ASan/UBSan suite also passed the injected nonfinite-matrix diagnostic
+case. Final ARM/3DSX build passed. Local logs live in `build/host-tests/`:
+`verification-20260902-final-integrated.log`,
+`stage-matrix-diagnostic-20260902.log`, and `arm-final-20260902.log`.
+
+## Emulator evidence and audio
+
+Private reports live in `build/visual-probe/`. The 1,200-tick bounds run
+(`dam-bounds-05c4f383.result`) completed all targets with healthy actor status.
+It measured 23,473 ms of application work over 1,862 presented frames, with
+539 of 1,742 post-warmup samples exceeding 16 ms. Stable 60 FPS is not proven.
+Comparisons across these live runs are not controlled benchmarks: AI/RNG,
+presented-frame counts and concurrent host verification varied.
+
+Azahar HLE does **not** require a console DSP dump. Following devkitPro's
+[audio setup notes](https://github.com/devkitPro/3ds-examples/blob/master/audio/README.md),
+an empty file was installed only at the emulator's virtual
+`sdmc:/3ds/dspfirm.cdc`. The hardware staging tree has no such file. Real
+hardware still needs the component or Homebrew Menu's `hb:ndsp` handle.
+
+`dam-hle-audio-01873f2c.result` records `ndsp=1,00000000,3374,103671`:
+successful initialization and 3,374 prepared output blocks (the final field
+is silence padding). The same run registered four PP7 guard hits and reached
+Bond's death/report-ready transition with healthy actor status. This proves
+NDSP delivery, not a listening comparison or complete audio fidelity.
+
+## Highest-priority unresolved failure
+
+Long firefights intermittently stop actor scheduling with
+`GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE`. This is not an expected
+death status. The second instrumented run reproduced it on chr 44 while
+validating body matrices immediately after `runtime_retain_matrices` or the
+renderer-only `subcalcmatrices` calculation. The diagnostic source line in
+that exact a7180f2a binary was 1450; later edits change the line number.
+Other runs completed the death transition, so a passing retry is not a fix.
+
+The runtime now captures the failing source line, authored chr ID, matrix
+index, whether the matrix was retained from the transient frame arena, and
+all 16 values. Next: reproduce with this richer diagnostic and investigate
+canonical matrix ownership/lifetime and unreferenced matrix slots. Do not
+mask invalid matrices, skip actor scheduling, or replace the original pose.
+
+The ordinary launch was restored by removing the temporary input-probe config.
+Only one Azahar process was used. Azahar's separate-screen layout can still
+create two legitimate screen windows; process count alone does not establish
+window count. No layout setting was changed.
+
+Final local executable SHA-256:
+`26ea1a28fded0e5685eb6dcedd25e7c3a09f05c403c65c7622eea4564e49ccc2`.
+Unchanged asset pack SHA-256:
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+The code/data pair is byte-matched across the build, SD staging directory,
+and Azahar virtual SD card. The last gameplay probe used 01873f2c; the final
+executable differs only by null-argument guards on the diagnostic accessor.
+
+End-to-end Dam objective completion/bungee, all-level gameplay, menu/attract
+fidelity, audible music/SFX quality, and New 3DS XL performance still require
+direct verification. Static world GPU buffers and the canonical shared prop
+dispatcher were already live; do not replace them with duplicate systems.

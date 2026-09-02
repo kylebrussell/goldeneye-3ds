@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define ROOM_LOAD_COUNT 10U
 #define SOURCE_VERTEX_CAPACITY 16384U
@@ -438,6 +439,68 @@ static void audit_spawn_clip_rejection(
     printf("Dam authored spawn clip rejection: %zu/%zu batch, "
            "%zu/%zu vertex\n",rejected_batches,batch_count,
         rejected_vertices,vertex_count);
+    {
+        GeDrawBatchWorldBounds *bounds = calloc(batch_count, sizeof(*bounds));
+        size_t angle, accelerated = 0U, decisions = 0U, repeat;
+        volatile size_t checksum = 0U;
+        clock_t started, scalar_ticks, bounded_ticks;
+        assert(bounds != NULL);
+        for (batch_index = 0U; batch_index < batch_count; ++batch_index)
+            if (batches[batch_index].vertex_count >= 12U)
+                assert(ge_draw_batch_world_bounds_build(vertices, vertex_count,
+                    &batches[batch_index], &bounds[batch_index]));
+        for (angle = 0U; angle < 64U; ++angle) {
+            config.forward[0] = cosf((float)angle * 6.283185307f / 64.0f);
+            config.forward[2] = sinf((float)angle * 6.283185307f / 64.0f);
+            assert(ge_dam_camera_prepare(&config, &camera) == GE_DAM_CAMERA_OK);
+            memset(world_to_clip, 0, sizeof(world_to_clip));
+            for (row = 0U; row < 4U; ++row)
+                for (column = 0U; column < 4U; ++column)
+                    for (inner = 0U; inner < 4U; ++inner)
+                        world_to_clip[row][column] += camera.view[row][inner]
+                            * camera.projection[inner][column];
+            for (row = 0U; row < 3U; ++row)
+                for (column = 0U; column < 4U; ++column)
+                    world_to_clip[row][column] /= level_scale;
+            for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
+                const GeDrawBatchBoundsVisibility classified =
+                    ge_draw_batch_world_bounds_classify(
+                        &bounds[batch_index], world_to_clip);
+                const int exact = ge_draw_batch_world_may_intersect_clip_frustum(
+                    vertices, vertex_count, &batches[batch_index], world_to_clip);
+                if (classified != GE_DRAW_BATCH_BOUNDS_UNCERTAIN) {
+                    ++accelerated;
+                    assert(exact == (classified == GE_DRAW_BATCH_BOUNDS_INSIDE));
+                }
+                ++decisions;
+            }
+        }
+        started = clock();
+        for (repeat = 0U; repeat < 256U; ++repeat)
+            for (batch_index = 0U; batch_index < batch_count; ++batch_index)
+                checksum += (size_t)ge_draw_batch_world_may_intersect_clip_frustum(
+                    vertices, vertex_count, &batches[batch_index], world_to_clip);
+        scalar_ticks = clock() - started;
+        started = clock();
+        for (repeat = 0U; repeat < 256U; ++repeat)
+            for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
+                const GeDrawBatchBoundsVisibility classified =
+                    ge_draw_batch_world_bounds_classify(
+                        &bounds[batch_index], world_to_clip);
+                checksum += (size_t)(classified == GE_DRAW_BATCH_BOUNDS_INSIDE
+                    || (classified == GE_DRAW_BATCH_BOUNDS_UNCERTAIN
+                        && ge_draw_batch_world_may_intersect_clip_frustum(
+                            vertices, vertex_count, &batches[batch_index],
+                            world_to_clip)));
+            }
+        bounded_ticks = clock() - started;
+        assert(accelerated > 0U && checksum > 0U);
+        printf("Dam bounds: %zu/%zu exact decisions accelerated at 64 angles; "
+               "256-frame CPU test scalar %.3fs, bounded %.3fs\n", accelerated,
+               decisions, (double)scalar_ticks / CLOCKS_PER_SEC,
+               (double)bounded_ticks / CLOCKS_PER_SEC);
+        free(bounds);
+    }
 }
 
 int main(void)

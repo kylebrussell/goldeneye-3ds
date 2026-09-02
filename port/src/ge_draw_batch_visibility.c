@@ -82,3 +82,77 @@ int ge_draw_batch_world_may_intersect_clip_frustum(
     }
     return common==0U;
 }
+
+int ge_draw_batch_world_bounds_build(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch, GeDrawBatchWorldBounds *bounds)
+{
+    size_t index, axis;
+    if (bounds == NULL) return 0;
+    bounds->valid = 0;
+    if (vertices == NULL || batch == NULL || batch->vertex_count == 0U
+            || batch->first_vertex > vertex_count
+            || batch->vertex_count > vertex_count - batch->first_vertex)
+        return 0;
+    for (axis = 0U; axis < 3U; ++axis) {
+        bounds->minimum[axis] = vertices[batch->first_vertex].world[axis];
+        bounds->maximum[axis] = bounds->minimum[axis];
+    }
+    for (index = batch->first_vertex;
+            index < batch->first_vertex + batch->vertex_count; ++index) {
+        for (axis = 0U; axis < 3U; ++axis) {
+            const float value = vertices[index].world[axis];
+            if (!isfinite(value)) return 0;
+            if (value < bounds->minimum[axis]) bounds->minimum[axis] = value;
+            if (value > bounds->maximum[axis]) bounds->maximum[axis] = value;
+        }
+    }
+    bounds->valid = 1;
+    return 1;
+}
+
+GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify(
+    const GeDrawBatchWorldBounds *bounds, const float world_to_clip[4][4])
+{
+    float minimum[4], maximum[4];
+    size_t column, axis;
+    int inside = 1;
+    if (bounds == NULL || !bounds->valid || world_to_clip == NULL)
+        return GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+    for (axis = 0U; axis < 3U; ++axis)
+        if (!isfinite(bounds->minimum[axis])
+                || !isfinite(bounds->maximum[axis])
+                || bounds->minimum[axis] > bounds->maximum[axis])
+            return GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+    for (column = 0U; column < 4U; ++column) {
+        float lower[3], upper[3];
+        for (axis = 0U; axis < 3U; ++axis) {
+            const float coefficient = world_to_clip[axis][column];
+            if (!isfinite(coefficient))
+                return GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+            lower[axis] = coefficient * (coefficient < 0.0f
+                ? bounds->maximum[axis] : bounds->minimum[axis]);
+            upper[axis] = coefficient * (coefficient < 0.0f
+                ? bounds->minimum[axis] : bounds->maximum[axis]);
+        }
+        if (!isfinite(world_to_clip[3][column]))
+            return GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+        /* Floating-point addition and multiplication are monotonic here.
+         * Keep the exact scalar transform's grouping: combining matrix
+         * columns into planes first could disagree at a clip boundary. */
+        minimum[column] = lower[0] + lower[1] + lower[2]
+            + world_to_clip[3][column];
+        maximum[column] = upper[0] + upper[1] + upper[2]
+            + world_to_clip[3][column];
+        if (!isfinite(minimum[column]) || !isfinite(maximum[column]))
+            return GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+    }
+    for (axis = 0U; axis < 3U; ++axis) {
+        if (maximum[axis] < -maximum[3] || minimum[axis] > maximum[3])
+            return GE_DRAW_BATCH_BOUNDS_OUTSIDE;
+        if (minimum[axis] < -minimum[3] || maximum[axis] > minimum[3])
+            inside = 0;
+    }
+    return inside ? GE_DRAW_BATCH_BOUNDS_INSIDE
+                  : GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+}

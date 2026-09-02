@@ -153,6 +153,98 @@ static void test_world_matrix_invalid_data_fails_open(void)
         vertices,3U,&batch,NULL));
 }
 
+static float random_coordinate(uint32_t *seed)
+{
+    *seed = *seed * UINT32_C(1664525) + UINT32_C(1013904223);
+    return ((float)(*seed >> 8U) / 16777216.0f - 0.5f) * 8.0f;
+}
+
+static void test_bounds_match_exact_vertex_decisions(void)
+{
+    GeDamRoomWorldVertex vertices[24] = {0};
+    GeDamRoomDrawBatch batch = {0};
+    GeDrawBatchWorldBounds bounds;
+    float matrix[4][4];
+    uint32_t seed = 91U;
+    size_t sample, index, axis, column, inside = 0U, outside = 0U;
+    batch.first_vertex = 2U;
+    batch.vertex_count = 21U;
+    for (sample = 0U; sample < 20000U; ++sample) {
+        float center[3];
+        GeDrawBatchBoundsVisibility classified;
+        int exact;
+        for (axis = 0U; axis < 3U; ++axis)
+            center[axis] = random_coordinate(&seed) * 100.0f;
+        for (index = 0U; index < 24U; ++index)
+            for (axis = 0U; axis < 3U; ++axis)
+                vertices[index].world[axis] = center[axis]
+                    + random_coordinate(&seed);
+        for (axis = 0U; axis < 4U; ++axis)
+            for (column = 0U; column < 4U; ++column)
+                matrix[axis][column] = random_coordinate(&seed);
+        assert(ge_draw_batch_world_bounds_build(vertices, 24U, &batch, &bounds));
+        classified = ge_draw_batch_world_bounds_classify(&bounds, matrix);
+        exact = ge_draw_batch_world_may_intersect_clip_frustum(
+            vertices, 24U, &batch, matrix);
+        if (classified == GE_DRAW_BATCH_BOUNDS_INSIDE) {
+            ++inside;
+            assert(exact);
+        } else if (classified == GE_DRAW_BATCH_BOUNDS_OUTSIDE) {
+            ++outside;
+            assert(!exact);
+        }
+    }
+    assert(inside > 0U && outside > 0U);
+    printf("bounded frustum: 20000 exact comparisons, %zu inside, %zu outside\n",
+           inside, outside);
+}
+
+static void test_bounds_tangency_and_invalidation(void)
+{
+    GeDamRoomWorldVertex vertices[3] = {0};
+    GeDamRoomDrawBatch batch = {0};
+    GeDrawBatchWorldBounds bounds;
+    float matrix[4][4];
+    size_t axis, index;
+    identity(matrix);
+    batch.vertex_count = 3U;
+    for (axis = 0U; axis < 3U; ++axis) {
+        memset(vertices, 0, sizeof(vertices));
+        for (index = 0U; index < 3U; ++index) vertices[index].world[axis] = 1.0f;
+        assert(ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
+        assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
+               == GE_DRAW_BATCH_BOUNDS_INSIDE);
+        for (index = 0U; index < 3U; ++index)
+            vertices[index].world[axis] = nextafterf(1.0f, INFINITY);
+        assert(ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
+        assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
+               == GE_DRAW_BATCH_BOUNDS_OUTSIDE);
+        for (index = 0U; index < 3U; ++index)
+            vertices[index].world[axis] = nextafterf(-1.0f, -INFINITY);
+        assert(ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
+        assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
+               == GE_DRAW_BATCH_BOUNDS_OUTSIDE);
+    }
+    matrix[3][3] = NAN;
+    assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
+           == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
+    identity(matrix);
+    matrix[2][2] = FLT_MAX;
+    assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
+           == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
+    identity(matrix);
+    vertices[1].world[1] = INFINITY;
+    assert(!ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
+    assert(!bounds.valid);
+    assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
+           == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
+    assert(!ge_draw_batch_world_bounds_build(NULL, 3U, &batch, &bounds));
+    batch.first_vertex = SIZE_MAX;
+    assert(!ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
+    assert(ge_draw_batch_world_bounds_classify(NULL, matrix)
+           == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
+}
+
 int main(void)
 {
     test_invalid_ranges_fail_open();
@@ -161,6 +253,8 @@ int main(void)
     test_range_and_nonfinite_semantics();
     test_world_matrix_transform_and_tangency();
     test_world_matrix_invalid_data_fails_open();
+    test_bounds_match_exact_vertex_decisions();
+    test_bounds_tangency_and_invalidation();
     puts("draw-batch homogeneous visibility tests passed");
     return 0;
 }

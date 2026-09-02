@@ -209,9 +209,13 @@ data, fixed-step engine ticks, and memory availability. C-stick input advances t
 diagnostics; it does not yet move the level camera. Hold R to turn the spawn crosshair red. The input diagnostic
 and crosshair are temporary frontend scaffolding and are not intended to become gameplay implementations.
 
-libctru's NDSP loader requires either the Homebrew Menu `hb:ndsp` handle or a console-derived
-`sdmc:/3ds/dspfirm.cdc`. If the emulator SD image has neither, the build continues without audio and reports
-`NDSP audio: unavailable (d880a7fa)` instead of crashing. Do not distribute the console-derived DSP component.
+On hardware, libctru's NDSP loader requires either the Homebrew Menu `hb:ndsp` handle or a console-derived
+`sdmc:/3ds/dspfirm.cdc`. Do not distribute the console-derived DSP component.
+For Azahar's **HLE** audio mode, an empty `3ds/dspfirm.cdc` in its virtual SD card is sufficient:
+it satisfies libctru's file lookup while the emulator implements DSP mixing itself. This is the
+[devkitPro-documented emulator setup](https://github.com/devkitPro/3ds-examples/blob/master/audio/README.md),
+not usable firmware for hardware or LLE. Keep that empty file out of the hardware staging tree.
+If neither the file nor handle exists, the build reports `NDSP audio: unavailable (d880a7fa)`.
 
 For hardware, copy the contents of `build/3ds-sd/3ds/goldeneye-3ds/` to
 `sd:/3ds/goldeneye-3ds/`, then launch it from Homebrew Menu. To use

@@ -82,6 +82,11 @@ struct GeOriginalStageGuardRuntime {
     size_t capacity;
     size_t count;
     GeOriginalStageGuardRuntimeStatus last_status;
+    size_t matrix_failure_source_line;
+    int32_t matrix_failure_chr_id;
+    size_t matrix_failure_index;
+    int matrix_failure_retained;
+    float matrix_failure_values[16];
     GeOriginalCharacterModelPair player_pair;
     RenderPosView *player_render_positions;
     int32_t player_body_id;
@@ -1369,6 +1374,36 @@ static void runtime_clear_attachment_matrices(
             runtime->hats[index].state.matrices_ready=0U;
 }
 
+void ge_original_stage_guard_runtime_matrix_failure(
+    const GeOriginalStageGuardRuntime *runtime, size_t *source_line,
+    int32_t *chr_id)
+{
+    if (source_line != NULL) *source_line = runtime != NULL
+        ? runtime->matrix_failure_source_line : 0U;
+    if (chr_id != NULL) *chr_id = runtime != NULL
+        ? runtime->matrix_failure_chr_id : -1;
+}
+
+static GeOriginalStageGuardRuntimeStatus runtime_matrix_failed(
+    GeOriginalStageGuardRuntime *runtime, size_t source_line, size_t index)
+{
+    runtime->matrix_failure_source_line = source_line;
+    runtime->matrix_failure_chr_id = index < runtime->count
+        ? runtime->slots[index].state.chr_id : -1;
+    return runtime->last_status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+}
+
+void ge_original_stage_guard_runtime_matrix_failure_values(
+    const GeOriginalStageGuardRuntime *runtime, size_t *matrix_index,
+    int *retained, float values[16])
+{
+    if (runtime == NULL || matrix_index == NULL || retained == NULL
+            || values == NULL) return;
+    *matrix_index = runtime->matrix_failure_index;
+    *retained = runtime->matrix_failure_retained;
+    memcpy(values, runtime->matrix_failure_values, sizeof(runtime->matrix_failure_values));
+}
+
 GeOriginalStageGuardRuntimeStatus
 ge_original_stage_guard_runtime_update_matrices(
     GeOriginalStageGuardRuntime *runtime,const float world_to_view[4][4])
@@ -1411,16 +1446,13 @@ ge_original_stage_guard_runtime_update_matrices(
         }
         if(model->render_pos==NULL||slot->render_positions==NULL
                 ||slot->pair.matrix_count==0U)
-            return runtime->last_status=
-                GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            return runtime_matrix_failed(runtime, __LINE__, index);
         if(!ge_original_character_model_prepare_instance_relations(
                 runtime->models,model))
-            return runtime->last_status=
-                GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            return runtime_matrix_failed(runtime, __LINE__, index);
         retained=runtime_retain_matrices(model,slot->render_positions,
                                          slot->pair.matrix_count);
-        if(retained<0)return runtime->last_status=
-            GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+        if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
         if(retained==0){
             memcpy(base.m,world_to_view,sizeof(base.m));
             memset(&renderdata,0,sizeof(renderdata));renderdata.basemtx=&base;
@@ -1428,9 +1460,13 @@ ge_original_stage_guard_runtime_update_matrices(
             subcalcmatrices(&renderdata,model);
         }
         for(matrix=0;matrix<slot->pair.matrix_count;++matrix)
-            if(!matrix_valid(model->render_pos[matrix].pos.m))
-                return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            if(!matrix_valid(model->render_pos[matrix].pos.m)) {
+                runtime->matrix_failure_index = matrix;
+                runtime->matrix_failure_retained = retained;
+                memcpy(runtime->matrix_failure_values, model->render_pos[matrix].pos.m,
+                       sizeof(runtime->matrix_failure_values));
+                return runtime_matrix_failed(runtime, __LINE__, index);
+            }
         slot->state.matrices_ready=1U;
         for(size_t weapon_index=0U;weapon_index<runtime->weapon_count;
                 ++weapon_index){
@@ -1450,19 +1486,16 @@ ge_original_stage_guard_runtime_update_matrices(
                     ||weapon->model->obj==NULL
                     ||weapon->model->render_pos==NULL
                     ||weapon->model->obj->numMatrices<=0)
-                return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                return runtime_matrix_failed(runtime, __LINE__, index);
             weapon_retained=runtime_retain_matrices(weapon->model,
                 weapon->render_positions,
                 (size_t)weapon->model->obj->numMatrices);
-            if(weapon_retained<0)return runtime->last_status=
-                GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            if(weapon_retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
             if(weapon_retained==0){
                 memset(&renderdata,0,sizeof(renderdata));
                 attachment=modelFindNodeMtx(model,
                     weapon->model->attachedto_objinst,0);
-                if(attachment==NULL)return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                if(attachment==NULL)return runtime_matrix_failed(runtime, __LINE__, index);
                 renderdata.basemtx=attachment;
                 if(weapon->state.hand==GUNLEFT){
                     matrix_4x4_set_rotation_around_z(M_PI_F,&left_rotation);
@@ -1476,8 +1509,7 @@ ge_original_stage_guard_runtime_update_matrices(
                     weapon_matrix<(size_t)weapon->model->obj->numMatrices;
                     ++weapon_matrix)
                 if(!matrix_valid(weapon->model->render_pos[weapon_matrix].pos.m))
-                    return runtime->last_status=
-                        GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                    return runtime_matrix_failed(runtime, __LINE__, index);
             weapon->state.matrices_ready=1U;
         }
         for(size_t hat_index=0U;hat_index<runtime->hat_count;++hat_index){
@@ -1492,17 +1524,14 @@ ge_original_stage_guard_runtime_update_matrices(
                     ||hat->model->obj==NULL
                     ||hat->model->render_pos==NULL
                     ||hat->model->obj->numMatrices<=0)
-                return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                return runtime_matrix_failed(runtime, __LINE__, index);
             hat_retained=runtime_retain_matrices(hat->model,
                 hat->render_positions,(size_t)hat->model->obj->numMatrices);
-            if(hat_retained<0)return runtime->last_status=
-                GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            if(hat_retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
             if(hat_retained==0){
                 attachment=modelFindNodeMtx(model,
                     hat->model->attachedto_objinst,0);
-                if(attachment==NULL)return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                if(attachment==NULL)return runtime_matrix_failed(runtime, __LINE__, index);
                 memset(&renderdata,0,sizeof(renderdata));
                 renderdata.basemtx=attachment;
                 renderdata.mtxlist=&hat->model->render_pos[0].pos;
@@ -1511,8 +1540,7 @@ ge_original_stage_guard_runtime_update_matrices(
             for(hat_matrix=0U;hat_matrix<(size_t)hat->model->obj->numMatrices;
                     ++hat_matrix)
                 if(!matrix_valid(hat->model->render_pos[hat_matrix].pos.m))
-                    return runtime->last_status=
-                        GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                    return runtime_matrix_failed(runtime, __LINE__, index);
             hat->state.matrices_ready=1U;
         }
     }
@@ -1528,13 +1556,11 @@ ge_original_stage_guard_runtime_update_matrices(
                     ||runtime->player_pair.matrix_count==0U
                     ||!ge_original_character_model_prepare_instance_relations(
                         runtime->models,model))
-                return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                return runtime_matrix_failed(runtime, __LINE__, index);
             retained=runtime_retain_matrices(model,
                 runtime->player_render_positions,
                 runtime->player_pair.matrix_count);
-            if(retained<0)return runtime->last_status=
-                GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
             if(retained==0){
                 memcpy(base.m,world_to_view,sizeof(base.m));
                 memset(&renderdata,0,sizeof(renderdata));
@@ -1544,8 +1570,7 @@ ge_original_stage_guard_runtime_update_matrices(
             }
             for(matrix=0U;matrix<runtime->player_pair.matrix_count;++matrix)
                 if(!matrix_valid(model->render_pos[matrix].pos.m))
-                    return runtime->last_status=
-                        GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                    return runtime_matrix_failed(runtime, __LINE__, index);
             runtime->player_matrices_ready=1U;
         }
     }
@@ -1560,18 +1585,15 @@ ge_original_stage_guard_runtime_update_matrices(
             if(weapon->model->obj==NULL||weapon->model->render_pos==NULL
                     ||weapon->render_positions==NULL
                     ||weapon->model->obj->numMatrices<=0)
-                return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                return runtime_matrix_failed(runtime, __LINE__, index);
             retained=runtime_retain_matrices(weapon->model,
                 weapon->render_positions,
                 (size_t)weapon->model->obj->numMatrices);
-            if(retained<0)return runtime->last_status=
-                GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+            if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
             if(retained==0){
                 attachment=modelFindNodeMtx(body,
                     weapon->model->attachedto_objinst,0);
-                if(attachment==NULL)return runtime->last_status=
-                    GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                if(attachment==NULL)return runtime_matrix_failed(runtime, __LINE__, index);
                 memset(&renderdata,0,sizeof(renderdata));
                 renderdata.basemtx=attachment;
                 if(weapon->state.hand==GUNLEFT){
@@ -1587,8 +1609,7 @@ ge_original_stage_guard_runtime_update_matrices(
                     ++weapon_matrix)
                 if(!matrix_valid(
                         weapon->model->render_pos[weapon_matrix].pos.m))
-                    return runtime->last_status=
-                        GE_ORIGINAL_STAGE_GUARD_RUNTIME_MATRIX_UNAVAILABLE;
+                    return runtime_matrix_failed(runtime, __LINE__, index);
             weapon->state.matrices_ready=1U;
         }
     }

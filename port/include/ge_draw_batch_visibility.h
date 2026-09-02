@@ -27,6 +27,31 @@ int ge_draw_batch_world_may_intersect_clip_frustum(
     const GeDamRoomDrawBatch *batch,
     const float world_to_clip[4][4]);
 
+/* Renderer-only bounds, rebuilt when the corresponding GPU vertex range is
+ * published (not when the camera moves). Invalid bounds always fail open. */
+typedef struct GeDrawBatchWorldBounds {
+    float minimum[3];
+    float maximum[3];
+    int valid;
+} GeDrawBatchWorldBounds;
+
+typedef enum GeDrawBatchBoundsVisibility {
+    GE_DRAW_BATCH_BOUNDS_UNCERTAIN = 0,
+    GE_DRAW_BATCH_BOUNDS_OUTSIDE,
+    GE_DRAW_BATCH_BOUNDS_INSIDE
+} GeDrawBatchBoundsVisibility;
+
+int ge_draw_batch_world_bounds_build(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch, GeDrawBatchWorldBounds *bounds);
+
+/* Interval transforms preserve the scalar vertex transform's operation order.
+ * OUTSIDE proves a unanimous clip outcode; INSIDE proves every vertex inside.
+ * An intersecting box is UNCERTAIN: use the existing exact vertex test, so a
+ * loose box never changes draw merging or the original rejection decisions. */
+GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify(
+    const GeDrawBatchWorldBounds *bounds, const float world_to_clip[4][4]);
+
 #ifdef __cplusplus
 }
 #endif

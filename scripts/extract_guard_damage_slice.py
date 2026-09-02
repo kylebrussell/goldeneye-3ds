@@ -41,6 +41,7 @@ def main() -> None:
     glass_source = (repo / "src/game/glass2.c").read_text()
     image_source = (repo / "src/game/image.c").read_text()
     image_bank_source = (repo / "src/game/image_bank.c").read_text()
+    oddtextures_source = (repo / "assets/oddtextures.c").read_text()
     tex_source = (repo / "src/game/tex.c").read_text()
     explosion_source = (repo / "src/game/explosion.c").read_text()
     bondview2_source = (repo / "src/game/bondview2.c").read_text()
@@ -53,6 +54,14 @@ def main() -> None:
         "#include <ultra64.h>",
         "#include <bondgame.h>",
         "#include <bondconstants.h>",
+        "#ifdef AIPARSE",
+        "/* AIPARSE omits IMAGEIDS from bondconstants.h; retain its exact enum. */",
+        "#define IMAGE(NAME, SZ, HS, HT, F3, F4, F5, F6) IMAGE_##NAME,",
+        "enum {",
+        '#include "assets/images.def"',
+        "};",
+        "#undef IMAGE",
+        "#endif",
         "#include <bondtypes.h>",
         "#include <joy.h>",
         '#include "bondaicommands.h"',
@@ -140,7 +149,15 @@ def main() -> None:
     pieces.append(explosion.extract_data(glass_source, "g_BulletSparkArray"))
     for name in ("impactimages", "explosion_smokeimages",
                  "scattered_explosions", "flareimage2"):
-        pieces.append(explosion.extract_data(image_bank_source, name))
+        # texReset relocates these global-bank tables on N64. The native
+        # damage path needs the same authored records, not the source's
+        # uninitialized pointer declarations (which read near address zero
+        # on the first wall hit). Retain each exact initializer and bind its
+        # pointer-width-native storage without changing the impact body.
+        pieces.append("static " + explosion.extract_data(
+            oddtextures_source, "s_" + name))
+        declaration = explosion.extract_data(image_bank_source, name)
+        pieces.append(declaration.removesuffix(";") + f" = s_{name};")
     tex_data_names = re.findall(
         r"(?m)^(?:u16|u8|struct image_sound)\s+"
         r"([A-Za-z0-9_]+)(?:\[\])?\s*=", tex_source)

@@ -590,6 +590,165 @@ static void exercise_unchanged_input_publication_reuse(const char *path)
     free(blob);
 }
 
+static void exercise_dirty_publication_ranges(const char *path)
+{
+    uint8_t *blob = load_blob(path, GE_ORIGINAL_MODEL62_BLOB_SIZE);
+    GeOriginalModelSceneInput inputs[4] = {{0}};
+    GeOriginalModelSceneCache cache = {0};
+    GeOriginalModelSceneCache reference = {0};
+    GeOriginalModelScene scene;
+    GeDamRoomSceneStorage storage;
+    GeDamRoomSceneStorage direct;
+    size_t vertices_per_input;
+    size_t batches_per_input;
+    size_t index;
+    assert(blob != NULL);
+    inputs[0].blob = blob;
+    inputs[0].blob_size = GE_ORIGINAL_MODEL62_BLOB_SIZE;
+    inputs[0].primary_offset = UINT32_C(0x5c8);
+    inputs[0].secondary_offset = UINT32_C(0x6b8);
+    inputs[0].segment4_offset = GE_ORIGINAL_MODEL_SCENE_NO_LIST;
+    inputs[0].room_id = 135U;
+    inputs[0].world_zbuffer_enabled = 1U;
+    for (index = 0U; index < 4U; ++index)
+        inputs[0].matrix[index][index] = 1.0f;
+    for (index = 1U; index < 4U; ++index) inputs[index] = inputs[0];
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, NULL, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    assert(cache.publication_range_count == 0U);
+    vertices_per_input = scene.required_vertex_count / 4U;
+    batches_per_input = scene.required_batch_count / 4U;
+    storage = (GeDamRoomSceneStorage){
+        calloc(scene.required_vertex_count, sizeof(*storage.vertices)),
+        scene.required_vertex_count,
+        calloc(scene.required_batch_count, sizeof(*storage.batches)),
+        scene.required_batch_count,
+    };
+    direct = (GeDamRoomSceneStorage){
+        calloc(storage.vertex_capacity, sizeof(*direct.vertices)),
+        storage.vertex_capacity,
+        calloc(storage.batch_capacity, sizeof(*direct.batches)),
+        storage.batch_capacity,
+    };
+    assert(storage.vertices && storage.batches && direct.vertices && direct.batches);
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.publication_range_count == 1U);
+    assert(cache.publication_ranges[0].vertex_offset == 0U);
+    assert(cache.publication_ranges[0].vertex_count == storage.vertex_capacity);
+    assert(cache.publication_ranges[0].static_data_changed == 1U);
+    memcpy(direct.vertices, storage.vertices,
+           storage.vertex_capacity * sizeof(*storage.vertices));
+    memcpy(direct.batches, storage.batches,
+           storage.batch_capacity * sizeof(*storage.batches));
+    inputs[0].position[0] = 17.0f;
+    inputs[2].position[0] = 23.0f;
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.publication_range_count == 2U);
+    for (index = 0U; index < 2U; ++index) {
+        const GeOriginalModelScenePublicationRange *range =
+            &cache.publication_ranges[index];
+        assert(range->vertex_offset == index * 2U * vertices_per_input);
+        assert(range->vertex_count == vertices_per_input);
+        assert(range->batch_offset == index * 2U * batches_per_input);
+        assert(range->batch_count == batches_per_input);
+        assert(range->static_data_changed == 0U);
+        memcpy(direct.vertices + range->vertex_offset,
+               storage.vertices + range->vertex_offset,
+               range->vertex_count * sizeof(*storage.vertices));
+        memcpy(direct.batches + range->batch_offset,
+               storage.batches + range->batch_offset,
+               range->batch_count * sizeof(*storage.batches));
+    }
+    /* Applying only advertised ranges reproduces the full CPU publication. */
+    assert(memcmp(direct.vertices, storage.vertices,
+        storage.vertex_capacity * sizeof(*storage.vertices)) == 0);
+    assert(memcmp(direct.batches, storage.batches,
+        storage.batch_capacity * sizeof(*storage.batches)) == 0);
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.publication_range_count == 0U);
+    inputs[0].position[0] += 1.0f;
+    inputs[1].position[0] += 1.0f;
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.publication_range_count == 1U);
+    assert(cache.publication_ranges[0].vertex_count == 2U * vertices_per_input);
+    /* Same-sized topology changes must republish immutable UV/material data. */
+    inputs[0].world_zbuffer_enabled = 0U;
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.publication_range_count == 1U);
+    assert(cache.publication_ranges[0].static_data_changed == 1U);
+    assert(cache.publication_ranges[0].vertex_count == storage.vertex_capacity);
+    assert(ge_original_model_scene_cache_build(
+        &reference, inputs, 4U, &direct, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(memcmp(direct.vertices, storage.vertices,
+        storage.vertex_capacity * sizeof(*storage.vertices)) == 0);
+    assert(memcmp(direct.batches, storage.batches,
+        storage.batch_capacity * sizeof(*storage.batches)) == 0);
+    {
+        float matrices[1][4][4] = {{{0}}};
+        static const float edges[] = {
+            -32768.0f, -32767.998046875f, 32767.998046875f,
+            -1.00001f, 1.00001f, -0.00001f, 0.00001f, -0.0f, 0.0f,
+        };
+        uint32_t random_bits = UINT32_C(0x78563412);
+        size_t sample;
+        inputs[0].segment3_matrices = (const float (*)[4][4])matrices;
+        inputs[0].segment3_matrix_count = 1U;
+        for (sample = 0U; sample < 1024U; ++sample) {
+            size_t element;
+            for (element = 0U; element < 16U; ++element) {
+                float value;
+                random_bits ^= random_bits << 13;
+                random_bits ^= random_bits >> 17;
+                random_bits ^= random_bits << 5;
+                /* Exercise signs, fractional truncation and wide exponents
+                 * without ever stepping outside the validated s15.16 ABI. */
+                value = (float)(int16_t)(random_bits & UINT32_C(0xffff))
+                    / (float)(1U << ((random_bits >> 16) & 15U));
+                if (sample < sizeof(edges) / sizeof(edges[0]))
+                    value = edges[sample];
+                matrices[0][element / 4U][element % 4U] = value;
+            }
+            assert(ge_original_model_scene_cache_build(
+                &cache, inputs, 4U, &storage, &scene)
+                == GE_ORIGINAL_MODEL_SCENE_OK);
+            for (element = 0U; element < 16U; ++element) {
+                const float value = matrices[0][element / 4U][element % 4U];
+                const int64_t old_fixed = (int64_t)(value * 65536.0f);
+                const float expected = (float)(int32_t)old_fixed / 65536.0f;
+                const float actual = cache.quantized_matrices[
+                    cache.input_quantized_matrix_offsets[0]]
+                    [element / 4U][element % 4U];
+                assert(memcmp(&expected, &actual, sizeof(expected)) == 0);
+            }
+        }
+        matrices[0][0][0] = 32768.0f;
+        assert(ge_original_model_scene_cache_build(
+            &cache, inputs, 4U, &storage, &scene)
+            == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+        assert(cache.publication_range_count == 0U);
+        matrices[0][0][0] = NAN;
+        assert(ge_original_model_scene_cache_build(
+            &cache, inputs, 4U, &storage, &scene)
+            == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+        assert(cache.publication_range_count == 0U);
+    }
+    assert(ge_original_model_scene_cache_build(
+        &cache, NULL, 4U, &storage, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    assert(cache.publication_range_count == 0U);
+    ge_original_model_scene_cache_close(&reference);
+    ge_original_model_scene_cache_close(&cache);
+    free(direct.batches); free(direct.vertices);
+    free(storage.batches); free(storage.vertices); free(blob);
+    puts("dirty ranges: sparse/coalesced/unchanged/topology/failure verified");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 4);
@@ -604,5 +763,6 @@ int main(int argc, char **argv)
     exercise_component_map_reuse(argv[1]);
     exercise_combat_topology_working_set(argv[1]);
     exercise_unchanged_input_publication_reuse(argv[1]);
+    exercise_dirty_publication_ranges(argv[1]);
     return 0;
 }

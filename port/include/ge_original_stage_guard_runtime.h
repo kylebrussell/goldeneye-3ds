@@ -14,6 +14,15 @@ struct player;
 
 typedef struct GeOriginalStageGuardRuntime GeOriginalStageGuardRuntime;
 
+/* Failure-site diagnostic; source_line refers to the exact staged source.
+ * chr_id is -1 for the player body/attachment path. No gameplay state changes. */
+void ge_original_stage_guard_runtime_matrix_failure(
+    const GeOriginalStageGuardRuntime *runtime, size_t *source_line,
+    int32_t *chr_id);
+void ge_original_stage_guard_runtime_matrix_failure_values(
+    const GeOriginalStageGuardRuntime *runtime, size_t *matrix_index,
+    int *retained, float values[16]);
+
 typedef enum GeOriginalStageGuardRuntimeStatus {
     GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK = 0,
     GE_ORIGINAL_STAGE_GUARD_RUNTIME_INVALID_ARGUMENT,

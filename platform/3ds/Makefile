@@ -1107,6 +1107,8 @@ ge_original_guard_damage_slice.c: $(TOPDIR)/../../src/game/chr.c \
         $(TOPDIR)/../../src/game/gunfire.c \
         $(TOPDIR)/../../src/game/chr.h \
         $(TOPDIR)/../../scripts/extract_guard_damage_slice.py \
+        $(TOPDIR)/../../assets/oddtextures.c \
+        $(TOPDIR)/../../assets/images.def \
         $(TOPDIR)/../../scripts/extract_guard_bullet_hit_slice.py \
         $(TOPDIR)/../../scripts/extract_bond_move_explosion_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_guard_damage_slice.py \

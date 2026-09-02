@@ -19,6 +19,15 @@ typedef int PLAYERFLAG;
 #include "game/bondview.h"
 #include "game/player.h"
 #include "game/propobj.h"
+#include "game/explosion.h"
+#include "game/image_bank.h"
+#ifdef AIPARSE
+#define IMAGE(NAME, SZ, HS, HT, F3, F4, F5, F6) IMAGE_##NAME,
+enum {
+#include "assets/images.def"
+};
+#undef IMAGE
+#endif
 
 extern void objHit(ShotData *shotdata, BulletHit *hit);
 extern s32 objGetDestroyedLevel(ObjectRecord *obj);
@@ -181,6 +190,47 @@ static void prepare_player(struct player *player,
     ge_original_bond_input_provider_reset_normal_dam();
 }
 
+static void test_canonical_impact_images(void)
+{
+    struct BulletImpact *saved = g_BulletImpactBuffer;
+    const int saved_count = g_NumImpactEntries;
+    g_BulletImpactBuffer = calloc(BULLET_IMPACT_BUFFER_LEN, sizeof(*g_BulletImpactBuffer));
+    assert(g_BulletImpactBuffer != NULL);
+    g_NumImpactEntries = 0;
+    PropRecord impact_prop = {0};
+    ObjectRecord impact_object = {0};
+    Model impact_model = {0};
+    RenderPosView impact_matrix = {0};
+    coord3d impact_position = {{0.0f, 0.0f, 0.0f}};
+    coord3d impact_normal = {{0.0f, 1.0f, 0.0f}};
+    int type;
+    impact_matrix.pos.m[0][0] = impact_matrix.pos.m[1][1] = 1.0f;
+    impact_matrix.pos.m[2][2] = impact_matrix.pos.m[3][3] = 1.0f;
+    impact_prop.obj = &impact_object;
+    impact_object.model = &impact_model;
+    impact_model.render_pos = &impact_matrix;
+    assert(impactimages != NULL && explosion_smokeimages != NULL
+           && scattered_explosions != NULL && flareimage2 != NULL);
+    assert(impactimages[7].index == IMAGE_IMPACT4
+           && impactimages[7].width == 32U && impactimages[7].height == 32U);
+    assert(explosion_smokeimages[5].index == IMAGE_SMOKE6);
+    assert(scattered_explosions[4].index == IMAGE_SMOKEBALLS5);
+    assert(flareimage2[0].index == IMAGE_WHITEBOX);
+    for (type = 0; type < 20; ++type) {
+        const int impact_index = g_NumImpactEntries;
+        explosionCreateBulletImpact(&impact_position, &impact_normal,
+            (s16)type, 1, &impact_prop, 0, 0);
+        assert(g_BulletImpactBuffer[impact_index].vertex_list[0].v.tc[1]
+               == (s16)(impactimages[type].height << 5U));
+        assert(g_BulletImpactBuffer[impact_index].vertex_list[2].v.tc[0]
+               == (s16)(impactimages[type].width << 5U));
+    }
+    free(g_BulletImpactBuffer);
+    g_BulletImpactBuffer = saved;
+    g_NumImpactEntries = saved_count;
+    puts("Bullet impacts: all 20 canonical image records drive original UV construction");
+}
+
 int main(int argc, char **argv)
 {
     GeStanCollisionSurface surface;
@@ -209,6 +259,7 @@ int main(int argc, char **argv)
                native_bytes, native_size, &native) == GE_STAN_COLLISION_OK);
     assert(ge_stan_native_bind_original(&native) == GE_STAN_COLLISION_OK);
     prepare_player(&player, &permissions, &prop_state, &native, &view);
+    test_canonical_impact_images();
 
     ge_original_pp7_fire_reset();
     status = ge_original_pp7_fire_tick();

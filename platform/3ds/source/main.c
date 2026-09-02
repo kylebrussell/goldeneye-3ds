@@ -541,6 +541,9 @@ typedef struct RuntimeFineProfile {
     uint64_t guard_overlay_commit_calls;
     uint64_t guard_gpu_upload_ticks;
     uint64_t guard_gpu_upload_calls;
+    uint64_t guard_gpu_upload_vertices;
+    uint64_t guard_gpu_full_upload_vertices;
+    uint64_t guard_gpu_uv_remap_vertices;
     uint64_t world_gpu_flush_ticks;
     uint64_t world_gpu_flush_calls;
     uint64_t world_gpu_flush_vertices;
@@ -565,6 +568,8 @@ typedef struct RuntimeFineProfile {
     uint64_t world_frustum_tests;
     uint64_t world_frustum_culled_batches;
     uint64_t world_frustum_culled_vertices;
+    uint64_t world_frustum_bounds_inside;
+    uint64_t world_frustum_bounds_outside;
 } RuntimeFineProfile;
 
 static RuntimeFineProfile fine_profile;
@@ -1285,6 +1290,8 @@ typedef struct RuntimeDamPreview {
     GeDamRoomDrawBatch *batches;
     RuntimeDamRenderBatch *render_batches;
     size_t render_batch_count;
+    GeDrawBatchWorldBounds *gpu_batch_bounds;
+    size_t gpu_batch_bounds_capacity;
     float spawn_screen_x;
     float spawn_screen_y;
     bool original_camera_ready;
@@ -2958,6 +2965,26 @@ static bool write_input_probe_result(
         (unsigned)objects->last_guard_lighting_status,
         (unsigned)objects->last_guard_matrix_status,
         (unsigned)objects->active_props.last_binding_mismatch);
+    {
+        size_t failure_line;
+        int32_t failure_chr;
+        ge_original_stage_guard_runtime_matrix_failure(
+            objects->guards, &failure_line, &failure_chr);
+        fprintf(stream, "guard_matrix_failure=%lu,%ld\n",
+            (unsigned long)failure_line, (long)failure_chr);
+        if (failure_line != 0U) {
+            size_t matrix_index;
+            int retained;
+            float values[16];
+            ge_original_stage_guard_runtime_matrix_failure_values(
+                objects->guards, &matrix_index, &retained, values);
+            fprintf(stream, "guard_matrix_values=%lu,%d",
+                (unsigned long)matrix_index, retained);
+            for (size_t value = 0U; value < 16U; ++value)
+                fprintf(stream, ",%a", (double)values[value]);
+            fprintf(stream, "\n");
+        }
+    }
     fprintf(stream,
         "guard_visibility_publish=%llu,%llu,%llu,%llu,%llu,%llu\n",
         (unsigned long long)objects->guard_visibility_publish_calls,
@@ -3397,6 +3424,10 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.rendered_frames,
             (unsigned long long)fine_profile.world_gpu_flush_calls,
             (unsigned long long)fine_profile.world_gpu_flush_vertices);
+        fprintf(stream, "guard_gpu_range_vertices=%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.guard_gpu_upload_vertices,
+            (unsigned long long)fine_profile.guard_gpu_full_upload_vertices,
+            (unsigned long long)fine_profile.guard_gpu_uv_remap_vertices);
         fprintf(stream, "draw_profile_calls=%llu,%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.world_draw_calls,
             (unsigned long long)fine_profile.world_authored_batches,
@@ -3420,6 +3451,9 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.world_frustum_tests,
             (unsigned long long)fine_profile.world_frustum_culled_batches,
             (unsigned long long)fine_profile.world_frustum_culled_vertices);
+        fprintf(stream, "draw_profile_bounds=%llu,%llu\n",
+            (unsigned long long)fine_profile.world_frustum_bounds_inside,
+            (unsigned long long)fine_profile.world_frustum_bounds_outside);
     }
     return fclose(stream) == 0;
 }
@@ -7754,13 +7788,6 @@ static bool refresh_stage_guard_overlay(
         }
     }
     objects->guard_scene = scene;
-    {
-        size_t batch_index;
-        for (batch_index = 0U; batch_index < segment->batch_count;
-                ++batch_index)
-            storage.batches[batch_index].coordinate_space =
-                GE_DAM_ROOM_COORDINATE_EYE;
-    }
     if (objects->guard_scene_cache.unchanged_builds != unchanged_before)
         return true;
     if (objects->guard_scene_cache.cached_builds == cached_before)
@@ -7769,22 +7796,40 @@ static bool refresh_stage_guard_overlay(
      * which was absent from the initial resident-room scene.  Make the exact
      * batch texture set resident before committing it; this is renderer-only
      * and never writes PropRecord visibility or character state. */
-    if (!ensure_stage_guard_overlay_textures(
-            objects, segment->batches, segment->batch_count)) return false;
+    /* Immutable textures need residency checks only on topology changes. */
     {
         const uint64_t commit_start = svcGetSystemTick();
-        size_t batch_index;
-        for (batch_index = 0U; batch_index < segment->batch_count;
-                ++batch_index) {
-            GeDamRoomDrawBatch batch = segment->batches[batch_index];
-            batch.first_vertex += segment->vertex_offset;
-            dynamic_scene->overlay_batches[
-                segment->batch_offset + batch_index] = batch;
+        size_t range_index;
+        for (range_index = 0U;
+                range_index < objects->guard_scene_cache.publication_range_count;
+                ++range_index) {
+            const GeOriginalModelScenePublicationRange *range =
+                &objects->guard_scene_cache.publication_ranges[range_index];
+            size_t batch_index;
+            if (range->static_data_changed
+                    && !ensure_stage_guard_overlay_textures(objects,
+                        segment->batches + range->batch_offset,
+                        range->batch_count)) return false;
+            for (batch_index = range->batch_offset;
+                    batch_index < range->batch_offset + range->batch_count;
+                    ++batch_index) {
+                GeDamRoomDrawBatch batch = segment->batches[batch_index];
+                batch.coordinate_space = GE_DAM_ROOM_COORDINATE_EYE;
+                segment->batches[batch_index].coordinate_space =
+                    GE_DAM_ROOM_COORDINATE_EYE;
+                batch.first_vertex += segment->vertex_offset;
+                dynamic_scene->overlay_batches[
+                    segment->batch_offset + batch_index] = batch;
+            }
+            if (range->batch_count != 0U) {
+                objects->overlay_status =
+                    ge_dam_dynamic_scene_commit_overlay_batches(
+                        dynamic_scene, segment->batch_offset + range->batch_offset,
+                        range->batch_count);
+                if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK)
+                    return false;
+            }
         }
-        objects->overlay_status =
-            ge_dam_dynamic_scene_commit_overlay_batches(
-                dynamic_scene, segment->batch_offset,
-                segment->batch_count);
         fine_profile.guard_overlay_commit_ticks +=
             svcGetSystemTick() - commit_start;
         fine_profile.guard_overlay_commit_calls++;
@@ -8275,18 +8320,37 @@ static bool refresh_stage_live_overlays(
                 objects->door_overlay.batch_count, false)) return false;
         if (guard_updated && objects->guard_overlay.vertex_count != 0U) {
             const uint64_t upload_start = svcGetSystemTick();
-            const bool uploaded = upload_dam_gpu_world_scene_range(
-                objects->preview, gpu_destination,
-                overlay_scene_vertex_base
-                    + objects->guard_overlay.vertex_offset,
-                objects->guard_overlay.vertex_count,
-                overlay_scene_batch_base
-                    + objects->guard_overlay.batch_offset,
-                objects->guard_overlay.batch_count, false);
+            size_t range_index;
+            fine_profile.guard_gpu_full_upload_vertices +=
+                objects->guard_overlay.vertex_count;
+            /* Carry the model cache's changed-input ranges to GPU storage.
+             * Topology changes must remap UVs even when their counts match
+             * the previous scene; unchanged peers retain their GPU data. */
+            for (range_index = 0U;
+                    range_index
+                        < objects->guard_scene_cache.publication_range_count;
+                    ++range_index) {
+                const GeOriginalModelScenePublicationRange *range =
+                    &objects->guard_scene_cache.publication_ranges[range_index];
+                if (!upload_dam_gpu_world_scene_range(
+                        objects->preview, gpu_destination,
+                        overlay_scene_vertex_base
+                            + objects->guard_overlay.vertex_offset
+                            + range->vertex_offset,
+                        range->vertex_count,
+                        overlay_scene_batch_base
+                            + objects->guard_overlay.batch_offset
+                            + range->batch_offset,
+                        range->batch_count,
+                        range->static_data_changed != 0U)) return false;
+                fine_profile.guard_gpu_upload_calls++;
+                fine_profile.guard_gpu_upload_vertices += range->vertex_count;
+                if (range->static_data_changed)
+                    fine_profile.guard_gpu_uv_remap_vertices +=
+                        range->vertex_count;
+            }
             fine_profile.guard_gpu_upload_ticks +=
                 svcGetSystemTick() - upload_start;
-            fine_profile.guard_gpu_upload_calls++;
-            if (!uploaded) return false;
         }
         objects->preview->gpu_uploaded_scene_generation =
             objects->preview->dynamic_scene.generation;
@@ -9015,9 +9079,23 @@ static bool renderer_world_batch_may_draw(
     else if (batch->coordinate_space == GE_DAM_ROOM_COORDINATE_EYE)
         object_to_clip = preview->eye_to_clip;
     fine_profile.world_frustum_tests++;
-    visible = ge_draw_batch_world_may_intersect_clip_frustum(
-        preview->source_vertices, preview->source_vertex_count, batch,
-        object_to_clip);
+    {
+        const GeDrawBatchBoundsVisibility bounded =
+            preview->gpu_batch_bounds != NULL
+                    && source_index < preview->gpu_batch_bounds_capacity
+                ? ge_draw_batch_world_bounds_classify(
+                    &preview->gpu_batch_bounds[source_index], object_to_clip)
+                : GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+        if (bounded == GE_DRAW_BATCH_BOUNDS_INSIDE)
+            fine_profile.world_frustum_bounds_inside++;
+        else if (bounded == GE_DRAW_BATCH_BOUNDS_OUTSIDE)
+            fine_profile.world_frustum_bounds_outside++;
+        visible = bounded == GE_DRAW_BATCH_BOUNDS_INSIDE
+            || (bounded == GE_DRAW_BATCH_BOUNDS_UNCERTAIN
+                && ge_draw_batch_world_may_intersect_clip_frustum(
+                    preview->source_vertices, preview->source_vertex_count,
+                    batch, object_to_clip));
+    }
     if (!visible) {
         fine_profile.world_frustum_culled_batches++;
         fine_profile.world_frustum_culled_vertices += batch->vertex_count;
@@ -10351,6 +10429,23 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
             || batch_count > preview->batch_count - batch_offset) {
         return false;
     }
+    if (preview->gpu_batch_bounds_capacity < preview->batch_count) {
+        GeDrawBatchWorldBounds *bounds = realloc(preview->gpu_batch_bounds,
+            preview->batch_count * sizeof(*bounds));
+        if (bounds != NULL) {
+            memset(bounds + preview->gpu_batch_bounds_capacity, 0,
+                (preview->batch_count - preview->gpu_batch_bounds_capacity)
+                    * sizeof(*bounds));
+            preview->gpu_batch_bounds = bounds;
+            preview->gpu_batch_bounds_capacity = preview->batch_count;
+        } else {
+            /* Bounds are an optional acceleration, never a reason to lose
+             * geometry or retain stale indices after a topology change. */
+            free(preview->gpu_batch_bounds);
+            preview->gpu_batch_bounds = NULL;
+            preview->gpu_batch_bounds_capacity = 0U;
+        }
+    }
     for (vertex_index = vertex_offset;
             vertex_index < vertex_offset + vertex_count;
             ++vertex_index) {
@@ -10369,10 +10464,28 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
         };
     }
     for (batch_index = batch_offset;
-            map_texture_uv && batch_index < batch_offset + batch_count;
+            batch_index < batch_offset + batch_count;
             ++batch_index) {
         const GeDamRoomDrawBatch *batch = &preview->batches[batch_index];
-        const Ge3dsSceneTextureSlot *slot = ge_3ds_scene_textures_find(
+        const Ge3dsSceneTextureSlot *slot;
+
+        if (preview->gpu_batch_bounds != NULL) {
+            GeDrawBatchWorldBounds *bounds =
+                &preview->gpu_batch_bounds[batch_index];
+            bounds->valid = 0;
+            /* Static rooms amortize the bound construction across camera
+             * updates. Short batches and per-tick animated overlays keep
+             * the original vertex test, avoiding more work than it saves. */
+            if (preview->batch_count >= preview->dynamic_scene.overlay_batch_count
+                    && batch_index < preview->batch_count
+                        - preview->dynamic_scene.overlay_batch_count
+                    && batch->vertex_count >= 12U)
+                (void)ge_draw_batch_world_bounds_build(
+                    preview->source_vertices, preview->source_vertex_count,
+                    batch, bounds);
+        }
+        if (!map_texture_uv) continue;
+        slot = ge_3ds_scene_textures_find(
             preview->scene_textures, batch->texture.texture_id);
 
         if (slot == NULL) continue;
@@ -12002,7 +12115,8 @@ static bool prepare_original_frontend_pitem_scene(
                 GeTextureUv uv;
                 const GeDamRoomWorldVertex *source =
                     &runtime->logo_source_vertices[vertex];
-                if (prop == PROP_GOLDENEYELOGO
+                if ((prop == PROP_GOLDENEYELOGO
+                            || prop == PROP_NINTENDOLOGO)
                         && batch->material.lighting_enabled != 0U) {
                     uint8_t ambient_rgb[3];
                     uint8_t diffuse_rgb[3];
@@ -12019,14 +12133,26 @@ static bool prepare_original_frontend_pitem_scene(
                     float top_u, top_v, bottom_u, bottom_v;
                     /* guLookAtReflect's +X/+Y axes drive the logo's exact
                      * G_TEXTURE_GEN reflection coordinates. */
-                    ambient_rgb[0] = presentation->title_light_ambient;
-                    ambient_rgb[1] = presentation->title_light_ambient;
-                    ambient_rgb[2] = presentation->title_light_ambient;
-                    diffuse_rgb[0] = presentation->title_light_diffuse;
-                    diffuse_rgb[1] = presentation->title_light_diffuse;
-                    diffuse_rgb[2] = presentation->title_light_diffuse;
+                    if (prop == PROP_NINTENDOLOGO) {
+                        ambient_rgb[0] = presentation->nintendo_ambient;
+                        ambient_rgb[1] = presentation->nintendo_ambient;
+                        ambient_rgb[2] = presentation->nintendo_ambient;
+                        diffuse_rgb[0] = 0U;
+                        diffuse_rgb[1] = 0U;
+                        diffuse_rgb[2] = 0U;
+                    } else {
+                        ambient_rgb[0] = presentation->title_light_ambient;
+                        ambient_rgb[1] = presentation->title_light_ambient;
+                        ambient_rgb[2] = presentation->title_light_ambient;
+                        diffuse_rgb[0] = presentation->title_light_diffuse;
+                        diffuse_rgb[1] = presentation->title_light_diffuse;
+                        diffuse_rgb[2] = presentation->title_light_diffuse;
+                    }
                     if (!ge_original_frontend_generate_lit_vertex(
-                            packed_normal, source->source.alpha, 0.0f,
+                            packed_normal, source->source.alpha,
+                            prop == PROP_NINTENDOLOGO
+                                ? presentation->nintendo_rotation_radians
+                                : 0.0f,
                             ambient_rgb, diffuse_rgb,
                             presentation->title_light_direction,
                             &generated))
@@ -13692,13 +13818,22 @@ static void draw_original_frontend_list(
                     &batch->material, &binding, &material_result,
                     NULL, NULL, NULL, NULL) == GE_3DS_MATERIAL_OK
                     && material_result.state.draw_enabled != 0U) {
-                /* goldeneyelogo_MRD uses CULLMODE_BOTH and disables Z. The
-                 * top-down orthographic realization also reverses winding,
-                 * so preserve that explicit model-level override after the
-                 * display-list material state has been applied. */
-                C3D_CullFace(GPU_CULL_NONE);
-                C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
-                C3D_AlphaTest(false, GPU_ALWAYS, 0U);
+                /* CULLMODE_BOTH is zero in the original ModelRenderData and
+                 * therefore deliberately does not call modelApplyCullMode.
+                 * The display list remains authoritative for culling, alpha,
+                 * and any explicit render-mode changes.  The translated
+                 * material already includes the constructor's inherited
+                 * zbufferenabled=false state.  CPU projection above maps
+                 * authored +Y to screen -Y, reversing triangle winding, so
+                 * invert only the effective display-list cull face at this
+                 * final screen-space boundary. */
+                if (material_result.state.cull
+                        == GE_PICA_APPLY_CULL_FRONT) {
+                    C3D_CullFace(GPU_CULL_BACK_CCW);
+                } else if (material_result.state.cull
+                        == GE_PICA_APPLY_CULL_BACK) {
+                    C3D_CullFace(GPU_CULL_FRONT_CCW);
+                }
                 C3D_DrawArrays(GPU_TRIANGLES,
                     ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET
                         + batch->first_vertex,
@@ -18373,6 +18508,7 @@ cleanup_runtime:
         free(dam_preview.batches);
     }
     free(dam_preview.render_batches);
+    free(dam_preview.gpu_batch_bounds);
     ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);
     close_dam_world_objects(&dam_objects);
     close_stage_ordinary_objects(&stage_ordinary_objects);

@@ -996,3 +996,103 @@ mutation occurred. The next validation remains the accumulated-candidate A/B
 against that verified build, including the full opening sequence, Facility
 movement, Dam combat, and streaming beyond initial rooms. Sustained 60 FPS,
 hardware timing and high-fidelity mission completion are still unverified.
+
+## Unlocked emulator verification: accumulated `04d7b78d` candidate
+
+macOS was unlocked on the next check. Reused the single Azahar 2126.0 process,
+with Vulkan, no save resets or manual save edits, and no DSP configuration
+changes; no concurrent build.
+Used a bounded one-hour `caffeinate -di` session. The baseline executable was
+saved separately under `build/3ds-candidates/verified-0797edaa/` before switching
+the virtual-SD executable. Asset SHA-256 remains `938536d4...` throughout.
+
+Fresh, same-config Dam aim/fire runs (750 simulation ticks each):
+
+| Metric | Baseline `0797edaa` | Candidate `04d7b78d` |
+| --- | ---: | ---: |
+| Presented frames | 836 | 750 |
+| Total measured frame work | 12,576 ms | 10,888 ms |
+| Measured work / simulation tick | 16.768 ms | 14.517 ms |
+| Measured work / presentation | 15.043 ms | 14.517 ms |
+| Post-warmup samples over 16 ms | 99 / 716 | 21 / 630 |
+| Post-warmup peak | 28 ms | 27 ms |
+| Movement / actor / gun ticks | 750 / 750 / 750 | 750 / 750 / 750 |
+| PP7 shots / decoded sound starts | 5 / 21 | 5 / 21 |
+| NDSP queued blocks | 549 | 548 |
+
+The 13.4% reduction is accumulated measured work per equal simulation interval,
+not a 13.4% FPS claim. Candidate skipped 1,615 idle polls and retained the same
+player endpoint and shot count. End camera recoil/guard states are not byte
+identical across runs; this is not a deterministic full-state replay proof.
+Both runs report zero guard matrix, gun-sight and overlay publication failures.
+Evidence: `build/visual-probe/check-now-{baseline-0797,candidate-04d7}-aim.result`.
+
+Candidate Facility stick/look/fire trace: 750 simulation/presented frames,
+seven PP7 shots, exact previous stage-capable endpoint
+`-199.956543,292.746887,-193.684525`, 7.576 ms measured work per simulation tick,
+14 ms post-warmup maximum, zero samples over 16 ms, zero matrix/overlay errors.
+Evidence: `check-now-candidate-04d7-facility.result`. A fresh Facility timing
+comparison against `0797edaa` is **not available**: that old build gates input
+probes to Dam (`706aa4d6` source), and ran interactively rather than executing
+the trace. An accidentally copied stale candidate result was renamed
+`check-now-invalid-facility-stale-result.txt` and excluded. Screenshots of both
+builds show substantial blue gaps around the Facility vent geometry. These
+remain a fidelity issue, not proof that this stage renders correctly.
+
+Same authored 160-target combat/travel config, no invincibility or gameplay
+changes: baseline reached 11 targets before death at 4,300 simulation ticks
+(8,752 presentations); candidate reached 13 before death at 5,851 simulation
+ticks (5,850 presentations; one pass serviced multiple ready ticks). Neither
+route completed; both reports correctly say `status=failed` and mission failed.
+Baseline fired 25 PP7 shots, candidate 50; both registered three damaging guard
+hits. Candidate handled 2,187 guard-fire dispatches, 738 decoded sounds,
+4,258 NDSP blocks and 45 guard topology replacements with zero reported matrix,
+overlay, AI-opcode or sound decode failures. Screen captures show textured
+guards, reloading/ammo changes, truck movement and colored damage gauges.
+This verifies those observed paths, not complete visual/audio fidelity.
+
+Combat post-warmup peak was 38 ms baseline / 31 ms candidate, with 27 / 10
+samples over 25 ms respectively. Candidate still had 733 / 5,730 presented
+samples over 16 ms. Different survival lengths, encounters and idle-presentation
+denominators prevent a controlled combat FPS ratio. Candidate guard-refresh
+peak was 13.85 ms (including 6.94 ms replacement work, 5.50 ms cache build,
+and zero texture import); the worst renderer submission region was 8.77 ms, including
+5.58 ms sky/world work and 2.29 ms CPU prep. These remain useful optimization
+targets. Movement only reached rooms 135, 133, 132 and 124, within the initial
+resident set: room/texture reuse counters were not exercised by this route.
+Evidence: `check-now-{baseline-0797,candidate-04d7}-combat.result` and matching
+private screenshots/config under `build/visual-probe/`.
+
+The existing 177-view Dam authored-pad tour then completed all camera/visibility
+checks with 62 successful streamed room installations, zero stream failures,
+10-room peak residency, 114 peak textures, and 39 peak visible rooms. All 138
+ready materializer records constructed with zero failures. This exercises
+room eviction/reinstallation beyond the initial live-combat residency; it is a
+diagnostic camera tour, not player traversal or mission completion, and the
+few inspected captures are not an exhaustive visual comparison. Evidence:
+`check-now-candidate-04d7-tour.result`, matching `.diag` and screenshots.
+
+Normal boot was restored by moving the temporary stage/input/tour configs to
+private evidence filenames. Captures show classification, rotating Nintendo
+and Rareware models, and the gunbarrel animation. Some logo angles are very
+dark; an additional boot of the immediately preceding `3ae75757` executable
+shows the same dark/banded appearance before the prepared-lighting change.
+The wall-clock captures do not match exact poses, so this is not a pixel-exact
+regression test or an N64-reference fidelity certification. Retain an opening
+reflection/lighting audit as a remaining fidelity task.
+
+The accumulated candidate is now installed in Azahar and hardware staging:
+code `04d7b78d9c77973e28e5c4f607efa38734589f64ee9318f30f442cd078aaca23`,
+assets `938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Both copies were hash-checked. The verified baseline remains recoverable in
+`build/3ds-candidates/verified-0797edaa/`. Hardware staging's existing `cradle`
+stage selection was not changed; Azahar has no active stage/input/tour override
+and boots the normal opening. No public push or new production-code change
+was made in this verification pass; the previously tested ARM binary is exact.
+
+Next priorities: the measured guard-refresh and sky/world submission peaks;
+Facility's vent visibility gaps; an N64-referenced opening lighting/reflection
+comparison; and a real Dam playthrough through both gates and the objectives.
+The combat probes still die before leaving initial room residency, and the
+camera tour does not substitute for that playthrough. Sustained 60 FPS,
+hardware performance, audible fidelity and mission completion remain unproven.

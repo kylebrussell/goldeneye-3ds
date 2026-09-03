@@ -705,6 +705,38 @@ void ge_original_character_model_provider_destroy(GeOriginalCharacterModelProvid
  for(i=0;i<p->instance_count;++i){free(p->instances[i].render_positions);free(p->instances[i].rwdata);free_instance_topology(&p->instances[i]);}
  free(p->resources);free(p->instances);free(p);}
 
+int ge_original_character_models_visit_texture_ids(
+    const GeOriginalCharacterModelProvider *provider, void *context,
+    int (*visitor)(void *context, uint16_t image_id))
+{
+    size_t resource_index, texture_index;
+    if (provider == NULL || visitor == NULL) return 0;
+    /* Validate before the first callback so malformed native IDs cannot
+     * partially publish a resource dependency set. Tables remain ROM-owned. */
+    for (resource_index = 0U; resource_index < provider->resource_count;
+            ++resource_index) {
+        const GeCharacterResource *resource = &provider->resources[resource_index];
+        if (resource->header.numtextures < 0
+                || resource->header.Textures != resource->textures) return 0;
+        for (texture_index = 0U;
+                texture_index < (size_t)resource->header.numtextures;
+                ++texture_index)
+            if (resource->textures[texture_index].TextureID > UINT16_MAX)
+                return 0;
+    }
+    for (resource_index = 0U; resource_index < provider->resource_count;
+            ++resource_index) {
+        const GeCharacterResource *resource = &provider->resources[resource_index];
+        for (texture_index = 0U;
+                texture_index < (size_t)resource->header.numtextures;
+                ++texture_index)
+            if (!visitor(context,
+                    (uint16_t)resource->textures[texture_index].TextureID))
+                return 0;
+    }
+    return 1;
+}
+
 size_t ge_original_character_model_dependency_count(void)
 {return sizeof(ge_character_dependencies)/sizeof(ge_character_dependencies[0]);}
 

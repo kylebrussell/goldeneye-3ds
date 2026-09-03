@@ -228,6 +228,44 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare(
                                           : GE_3DS_SCENE_TEXTURE_PARTIAL;
 }
 
+Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_include_image(
+    GeTextureCache *cache, const Ge3dsSceneTextures *current,
+    Ge3dsSceneTextures *candidate, uint16_t image_id,
+    Ge3dsSceneTextureReconcileStats *stats)
+{
+    const Ge3dsSceneTextureSlot *resident;
+    Ge3dsSceneTextureSlot *slot;
+    if (cache == NULL || current == NULL || candidate == NULL
+            || current == candidate || candidate->slots == NULL
+            || candidate->slots == current->slots
+            || candidate->texture_count > candidate->capacity)
+        return GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT;
+    slot = ge_3ds_scene_texture_find_mutable(candidate, image_id);
+    if (slot != NULL) return slot->loaded != 0U
+        ? GE_3DS_SCENE_TEXTURE_OK : GE_3DS_SCENE_TEXTURE_PARTIAL;
+    if (candidate->texture_count == candidate->capacity)
+        return GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED;
+    slot = &candidate->slots[candidate->texture_count++];
+    memset(slot, 0, sizeof(*slot));
+    slot->image_id = image_id;
+    if (stats != NULL) ++stats->required_count;
+    resident = ge_3ds_scene_texture_find_any(current, image_id);
+    if (resident != NULL && resident->loaded != 0U && resident->owned != 0U) {
+        *slot = *resident;
+        slot->owned = 0U;
+        ++candidate->loaded_count;
+        if (stats != NULL) ++stats->retained_count;
+    } else if (ge_3ds_scene_texture_import(cache, slot)) {
+        ++candidate->loaded_count;
+        if (stats != NULL) ++stats->imported_count;
+    } else {
+        ++candidate->missing_count;
+        if (stats != NULL) ++stats->missing_count;
+        return GE_3DS_SCENE_TEXTURE_PARTIAL;
+    }
+    return GE_3DS_SCENE_TEXTURE_OK;
+}
+
 Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_commit(
     Ge3dsSceneTextures *current,
     Ge3dsSceneTextures *candidate,

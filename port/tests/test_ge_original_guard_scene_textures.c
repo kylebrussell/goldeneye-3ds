@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct TextureVisit {
@@ -16,6 +17,36 @@ static int visit_texture(void *context, uint16_t texture_id)
     assert(visit != NULL && visit->count < 4U);
     visit->ids[visit->count++] = texture_id;
     return texture_id != visit->reject;
+}
+
+static int visit_full_id_domain(void *context, uint16_t texture_id)
+{
+    size_t *count = context;
+    /* Reverse order verifies first appearance, not numeric ID ordering. */
+    assert(texture_id == UINT16_MAX - *count);
+    (*count)++;
+    return 1;
+}
+
+static void test_full_id_domain(void)
+{
+    const size_t id_count = (size_t)UINT16_MAX + 1U;
+    GeDamRoomDrawBatch *batches = calloc(id_count * 3U, sizeof(*batches));
+    size_t count = 0U;
+    assert(batches != NULL);
+    for (size_t i = 0U; i < id_count; ++i) {
+        GeDamRoomDrawBatch *batch = &batches[i];
+        batch->texture_valid = 1U;
+        batch->texture.texture_id = (uint16_t)(UINT16_MAX - i);
+        batch->material.texture_enabled = 1U;
+        batch->material.texture_source = GE_PICA_TEXTURE_SOURCE_RARE_ID;
+        batches[i + id_count] = *batch;
+        batches[i + id_count * 2U] = *batch;
+    }
+    assert(ge_original_model_scene_visit_textures(
+        batches, id_count * 3U, &count, visit_full_id_domain));
+    assert(count == id_count);
+    free(batches);
 }
 
 int main(void)
@@ -63,5 +94,17 @@ int main(void)
         NULL, 0U, &visit, visit_texture));
     assert(!ge_original_model_scene_visit_textures(
         NULL, 1U, &visit, visit_texture));
+    assert(!ge_original_model_scene_visit_textures(
+        batches, 6U, &visit, NULL));
+    /* Disabled/GBI-only references must not suppress a later valid Rare ID. */
+    batches[0].material.texture_enabled = 0U;
+    batches[1].material.texture_source = GE_PICA_TEXTURE_SOURCE_GBI_IMAGE;
+    memset(&visit, 0, sizeof(visit));
+    visit.reject = UINT16_MAX;
+    assert(ge_original_model_scene_visit_textures(
+        batches, 6U, &visit, visit_texture));
+    assert(visit.count == 3U && visit.ids[0] == 17U
+        && visit.ids[1] == 73U && visit.ids[2] == 42U);
+    test_full_id_domain();
     return 0;
 }

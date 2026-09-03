@@ -1647,25 +1647,24 @@ int ge_original_model_scene_visit_textures(
     void *context, GeOriginalModelSceneTextureVisitor visitor)
 {
     size_t batch_index;
+    /* Texture IDs are 16-bit. An exact bitmap keeps first-appearance order
+     * while avoiding a quadratic scan of all earlier actor draw batches.
+     * Per-call storage also preserves visitor reentrancy and stage lifetime. */
+    uint8_t visited[(UINT16_MAX + 1U) / 8U] = {0};
 
     if ((batches == NULL && batch_count != 0U) || visitor == NULL) return 0;
     for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
-        size_t prior;
+        uint16_t texture_id;
+        uint8_t mask;
         if (batches[batch_index].texture_valid == 0U
                 || batches[batch_index].material.texture_enabled == 0U
                 || batches[batch_index].material.texture_source
                     != GE_PICA_TEXTURE_SOURCE_RARE_ID) continue;
-        for (prior = 0U; prior < batch_index; ++prior)
-            if (batches[prior].texture_valid != 0U
-                    && batches[prior].material.texture_enabled != 0U
-                    && batches[prior].material.texture_source
-                        == GE_PICA_TEXTURE_SOURCE_RARE_ID
-                    && batches[prior].texture.texture_id
-                        == batches[batch_index].texture.texture_id)
-                break;
-        if (prior != batch_index) continue;
-        if (!visitor(context, batches[batch_index].texture.texture_id))
-            return 0;
+        texture_id = batches[batch_index].texture.texture_id;
+        mask = (uint8_t)(1U << (texture_id & 7U));
+        if ((visited[texture_id >> 3U] & mask) != 0U) continue;
+        visited[texture_id >> 3U] |= mask;
+        if (!visitor(context, texture_id)) return 0;
     }
     return 1;
 }

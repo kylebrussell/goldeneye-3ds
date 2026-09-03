@@ -2,7 +2,10 @@
 """Keep the 3DS submission cache exact, local to each authored draw pass."""
 
 from pathlib import Path
+import os
 import re
+import subprocess
+import tempfile
 
 
 def function_body(source: str, name: str) -> str:
@@ -88,6 +91,102 @@ dam_overlay = source.index("if (guard_runtime_updated")
 assert "rendered_player_generation = UINT64_MAX" not in source[
     dam_overlay:stage_overlay
 ]
+
+# Compile the actual preparation/cache bodies, not a parallel implementation.
+# GPU submission is outside this test; material compilation is the real port
+# implementation. Deliberate collisions must retain exact bindings/results.
+material_source = (repo / "platform/3ds/source/ge_3ds_material.c").read_text()
+cache_start = source.index("enum {\n    RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY")
+cache_end = source.index("static bool renderer_material_result_gpu_equal(", cache_start)
+test_source = r'''
+#include "ge_3ds_material.h"
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+static void ge_3ds_material_replace_texture_source(
+    GePicaApplyChannel *channel, GePicaApplySource replacement)
+''' + function_body(material_source, "ge_3ds_material_replace_texture_source") + r'''
+Ge3dsMaterialStatus ge_3ds_material_prepare(const GePicaMaterial *material,
+    const Ge3dsMaterialBinding *binding, Ge3dsMaterialResult *result)
+''' + function_body(material_source, "ge_3ds_material_prepare") + source[cache_start:cache_end] + r'''
+static RuntimeRendererPreparedMaterialCache cache;
+static uint64_t hits, misses;
+static void check(const GePicaMaterial *material, Ge3dsMaterialBinding binding)
+{
+    Ge3dsMaterialResult expected = {0}, actual = {0};
+    assert(ge_3ds_material_prepare(material, &binding, &expected)
+        == GE_3DS_MATERIAL_OK);
+    assert(renderer_prepare_material_cached(&cache, material, &binding,
+        &actual, &hits, &misses) == GE_3DS_MATERIAL_OK);
+    assert(memcmp(&actual.state, &expected.state, sizeof(actual.state)) == 0);
+    assert(actual.texture_bound == expected.texture_bound);
+}
+int main(void)
+{
+    GePicaMaterial material = {0}, colliders[3];
+    C3D_Tex textures[2] = {0};
+    Ge3dsMaterialBinding binding = {&textures[0], GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE};
+    size_t count = 0, set;
+    material.color_combine = GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE;
+    material.alpha_combine = GE_PICA_ALPHA_PRIMITIVE;
+    material.texture_enabled = 1;
+    set = renderer_material_hash(&material, &binding);
+    for (uint32_t i = 0; i < 65536U && count < 3U; ++i) {
+        material.primitive_color.red = (uint8_t)i;
+        material.primitive_color.green = (uint8_t)(i >> 8U);
+        if (renderer_material_hash(&material, &binding) == set)
+            colliders[count++] = material;
+    }
+    assert(count == 3U);
+    for (size_t i = 0; i < 1000U; ++i) check(&colliders[i % 2U], binding);
+    assert(misses == 2U && hits == 998U);
+    check(&colliders[0], binding); /* 1 becomes least-recently used. */
+    check(&colliders[2], binding); /* Evicts 1, retains 0. */
+    assert(misses == 3U);
+    check(&colliders[0], binding);
+    assert(misses == 3U);
+    check(&colliders[1], binding);
+    assert(misses == 4U);
+    /* Every decoded byte, texture identity and fallback remain part of the
+     * key. Randomized deterministic churn checks evictions against uncached
+     * compilation, including unknown enum values handled by the compiler. */
+    for (size_t i = 0; i < sizeof(material); ++i) {
+        material = colliders[0];
+        ((uint8_t *)&material)[i] ^= 1U;
+        uint64_t before = misses;
+        check(&material, binding);
+        assert(misses == before + 1U);
+        check(&material, binding);
+        assert(misses == before + 1U);
+    }
+    for (size_t i = 0; i < 4000U; ++i) {
+        material = colliders[i % 3U];
+        material.fallback_flags = (i % 7U == 0U)
+            ? GE_PICA_FALLBACK_MISSING_TEXTURE : 0U;
+        binding.texture0 = i % 3U == 0U ? NULL : &textures[i % 2U];
+        binding.missing_texture_fallback = (Ge3dsMaterialTextureFallback)(i % 3U);
+        check(&material, binding);
+    }
+    assert(renderer_prepare_material_cached(NULL, &material, &binding,
+        NULL, NULL, NULL) == GE_3DS_MATERIAL_INVALID_ARGUMENT);
+    return 0;
+}
+'''
+with tempfile.TemporaryDirectory(prefix="ge-material-cache-") as directory:
+    test_path = Path(directory) / "cache.c"
+    test_path.write_text(test_source)
+    executable = Path(directory) / "cache-test"
+    subprocess.run([
+        os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+        "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+        "-I" + str(repo / "platform/3ds/tests/include"),
+        "-I" + str(repo / "platform/3ds/include"),
+        "-I" + str(repo / "port/include"), str(test_path),
+        str(repo / "port/src/ge_pica_apply.c"), "-o", str(executable),
+    ], check=True)
+    subprocess.run([str(executable)], check=True)
 
 print(
     "3DS renderer submission cache: exact prepared state, pass-local, "

@@ -82,6 +82,15 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare(
     Ge3dsSceneTextures *candidate,
     Ge3dsSceneTextureReconcileStats *stats);
 
+/* Extends a prepared transaction with a known authored resource dependency
+ * even when its draw switches are inactive. Borrows resident textures with
+ * the same ownership rules as prepare; imports only new IDs. Failure leaves
+ * current untouched; discard the candidate to roll back the transaction. */
+Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_include_image(
+    GeTextureCache *cache, const Ge3dsSceneTextures *current,
+    Ge3dsSceneTextures *candidate, uint16_t image_id,
+    Ge3dsSceneTextureReconcileStats *stats);
+
 /* Atomically transfers borrowed ownership to candidate, releases resident
  * textures no longer present, and clears current. After success candidate is
  * the sole owner of every loaded slot. The caller may then move its slots into

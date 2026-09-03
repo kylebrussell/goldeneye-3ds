@@ -342,6 +342,60 @@ static void test_stale_borrow_commit_is_side_effect_free(void)
     assert(deletion_count(606U) == 1U);
 }
 
+static void test_authored_hidden_dependencies(void)
+{
+    for (int commit = 0; commit < 2; ++commit) {
+        GeTextureCache cache = {0};
+        Ge3dsSceneTextureSlot current_slots[2], candidate_slots[4];
+        Ge3dsSceneTextures current = {current_slots, 2U, 2U, 2U, 0U};
+        Ge3dsSceneTextures candidate;
+        Ge3dsSceneTextureReconcileStats stats;
+        GeDamRoomDrawBatch batch = authored_batch(2U);
+        reset_counters();
+        resident_slot(&current_slots[0], 1U, 701U);
+        resident_slot(&current_slots[1], 2U, 702U);
+        assert(ge_3ds_scene_textures_reconcile_prepare(&cache, &batch, 1U,
+            &current, candidate_slots, 4U, &candidate, &stats)
+            == GE_3DS_SCENE_TEXTURE_OK);
+        /* Hidden resident body part is borrowed, new head part is imported. */
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &candidate, 1U, &stats) == GE_3DS_SCENE_TEXTURE_OK);
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &candidate, 3U, &stats) == GE_3DS_SCENE_TEXTURE_OK);
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &candidate, 3U, &stats) == GE_3DS_SCENE_TEXTURE_OK);
+        assert(stats.retained_count == 2U && stats.imported_count == 1U
+            && stats.required_count == 3U && import_count == 1U);
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &candidate, 9U, &stats) == GE_3DS_SCENE_TEXTURE_PARTIAL);
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &candidate, 9U, &stats) == GE_3DS_SCENE_TEXTURE_PARTIAL);
+        assert(stats.missing_count == 1U && stats.required_count == 4U);
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &candidate, 4U, &stats) == GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED);
+        assert(import_count == 1U && delete_count == 0U);
+        assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+            &current, 1U, &stats) == GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT);
+        if (commit) {
+            assert(ge_3ds_scene_textures_reconcile_commit(
+                &current, &candidate, &stats) == GE_3DS_SCENE_TEXTURE_PARTIAL);
+            assert(stats.released_count == 0U);
+        }
+        ge_3ds_scene_textures_close(&candidate);
+        assert(delete_count == (commit ? 3U : 1U));
+        if (!commit) {
+            assert(current_slots[0].owned == 1U
+                && current_slots[0].texture.test_handle == 701U);
+            assert(current_slots[1].owned == 1U
+                && current_slots[1].texture.test_handle == 702U);
+            ge_3ds_scene_textures_close(&current);
+        }
+        assert(delete_count == 3U);
+        assert(deletion_count(701U) == 1U && deletion_count(702U) == 1U
+            && deletion_count(1003U) == 1U);
+    }
+}
+
 int main(void)
 {
     test_abort_keeps_current_and_releases_only_import();
@@ -350,6 +404,7 @@ int main(void)
     test_capacity_preflight_has_no_side_effects();
     test_empty_candidate_releases_all_on_commit();
     test_stale_borrow_commit_is_side_effect_free();
-    puts("ge_3ds_scene_texture reconciliation: 6 cases passed");
+    test_authored_hidden_dependencies();
+    puts("ge_3ds_scene_texture reconciliation: 8 cases passed");
     return 0;
 }

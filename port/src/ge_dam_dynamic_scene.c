@@ -300,6 +300,8 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_init_for_stage(
     next.vertices = candidate.vertices;
     next.batches = candidate.batches;
     next.scene = candidate.scene;
+    next.vertex_storage_capacity = next.scene.vertex_count;
+    next.batch_storage_capacity = next.scene.batch_count;
     next.initialized = 1U;
     *cache = next;
     return GE_DAM_DYNAMIC_SCENE_OK;
@@ -438,6 +440,8 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit(
     cache->vertices = transaction->vertices;
     cache->batches = transaction->batches;
     cache->scene = transaction->scene;
+    cache->vertex_storage_capacity = cache->scene.vertex_count;
+    cache->batch_storage_capacity = cache->scene.batch_count;
     ge_dam_refresh_overlay_vertex_alias(cache);
     memset(cache->room_ids, 0, sizeof(cache->room_ids));
     memset(cache->resident, 0, sizeof(cache->resident));
@@ -554,6 +558,19 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_tick_visibility(
         cache, queue, &transaction, includes_request);
     if (status != GE_DAM_DYNAMIC_SCENE_OK) return status;
     return ge_dam_dynamic_scene_commit(cache, queue, &transaction);
+}
+
+static void *ge_dam_allocate_overlay_capacity(
+    size_t required, size_t *capacity, size_t element_size)
+{
+    void *allocation = malloc(*capacity * element_size);
+    /* Headroom is optional: memory pressure must not reject a scene that
+     * would fit with the original exact-size allocation policy. */
+    if (allocation == NULL && *capacity > required) {
+        *capacity = required;
+        allocation = malloc(required * element_size);
+    }
+    return allocation;
 }
 
 static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
@@ -691,6 +708,9 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     size_t total_batch_count;
     size_t old_vertex_end;
     size_t old_batch_end;
+    size_t vertex_allocation;
+    size_t batch_allocation;
+    size_t overlay_batch_allocation;
     size_t index;
     size_t triangle_count = 0U;
 
@@ -762,17 +782,71 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
             || total_batch_count > SIZE_MAX / sizeof(*new_batches)
             || new_overlay_batch_count > SIZE_MAX / sizeof(*new_overlay_batches))
         return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
+
+    /* A guard visibility/LOD change replaces the final overlay segment. All
+     * input and count checks precede mutation; no allocation or failing work
+     * follows this preflight. memmove also supports callers publishing from
+     * our own retained arrays. Prefix vertices/batches stay byte-identical. */
+    if (old_vertex_end == cache->overlay_vertex_count
+            && old_batch_end == cache->overlay_batch_count
+            && total_vertex_count <= cache->vertex_storage_capacity
+            && total_batch_count <= cache->batch_storage_capacity
+            && new_overlay_batch_count <= cache->overlay_batch_storage_capacity) {
+        for (index = 0U; index < room_batch_count + overlay_batch_offset; ++index) {
+            if (cache->batches[index].triangle_count > SIZE_MAX - triangle_count)
+                return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
+            triangle_count += cache->batches[index].triangle_count;
+        }
+        for (index = 0U; index < batch_count; ++index) {
+            if (batches[index].triangle_count > SIZE_MAX - triangle_count)
+                return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
+            triangle_count += batches[index].triangle_count;
+        }
+        if (vertex_count != 0U)
+            memmove(cache->vertices + room_vertex_count + overlay_vertex_offset,
+                vertices, vertex_count * sizeof(*vertices));
+        if (batch_count != 0U)
+            memmove(cache->overlay_batches + overlay_batch_offset,
+                batches, batch_count * sizeof(*batches));
+        for (index = 0U; index < batch_count; ++index) {
+            GeDamRoomDrawBatch *local =
+                &cache->overlay_batches[overlay_batch_offset + index];
+            local->first_vertex += overlay_vertex_offset;
+            cache->batches[room_batch_count + overlay_batch_offset + index] = *local;
+            cache->batches[room_batch_count + overlay_batch_offset + index]
+                .first_vertex += room_vertex_count;
+        }
+        goto publish_counts;
+    }
+
+    /* Reserve one quarter of the overlay only, not the much larger room
+     * prefix. This is allocation policy, not extra geometry or simulation.
+     * Clamp to both the caller's limits and representable allocation sizes. */
+    vertex_allocation = cache->limits.vertex_capacity;
+    if (vertex_allocation > SIZE_MAX / sizeof(*new_vertices))
+        vertex_allocation = SIZE_MAX / sizeof(*new_vertices);
+    if (vertex_allocation - total_vertex_count > new_overlay_vertex_count / 4U)
+        vertex_allocation = total_vertex_count + new_overlay_vertex_count / 4U;
+    batch_allocation = cache->limits.batch_capacity;
+    if (batch_allocation > SIZE_MAX / sizeof(*new_batches))
+        batch_allocation = SIZE_MAX / sizeof(*new_batches);
+    if (batch_allocation - total_batch_count > new_overlay_batch_count / 4U)
+        batch_allocation = total_batch_count + new_overlay_batch_count / 4U;
+    overlay_batch_allocation = batch_allocation - room_batch_count;
     if (total_vertex_count != 0U) {
-        new_vertices = malloc(total_vertex_count * sizeof(*new_vertices));
+        new_vertices = ge_dam_allocate_overlay_capacity(
+            total_vertex_count, &vertex_allocation, sizeof(*new_vertices));
         if (new_vertices == NULL) goto no_memory;
     }
     if (total_batch_count != 0U) {
-        new_batches = malloc(total_batch_count * sizeof(*new_batches));
+        new_batches = ge_dam_allocate_overlay_capacity(
+            total_batch_count, &batch_allocation, sizeof(*new_batches));
         if (new_batches == NULL) goto no_memory;
     }
     if (new_overlay_batch_count != 0U) {
-        new_overlay_batches = malloc(new_overlay_batch_count
-            * sizeof(*new_overlay_batches));
+        new_overlay_batches = ge_dam_allocate_overlay_capacity(
+            new_overlay_batch_count, &overlay_batch_allocation,
+            sizeof(*new_overlay_batches));
         if (new_overlay_batches == NULL) goto no_memory;
     }
 
@@ -830,6 +904,10 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     cache->vertices = new_vertices;
     cache->batches = new_batches;
     cache->overlay_batches = new_overlay_batches;
+    cache->vertex_storage_capacity = vertex_allocation;
+    cache->batch_storage_capacity = batch_allocation;
+    cache->overlay_batch_storage_capacity = overlay_batch_allocation;
+publish_counts:
     cache->overlay_vertex_count = new_overlay_vertex_count;
     cache->overlay_batch_count = new_overlay_batch_count;
     cache->scene.vertex_count = total_vertex_count;

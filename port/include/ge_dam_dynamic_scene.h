@@ -34,6 +34,12 @@ typedef struct GeDamDynamicScene {
     size_t room_count;
     GeDamRoomWorldVertex *vertices;
     GeDamRoomDrawBatch *batches;
+    /* CPU allocation extents, distinct from authored/published counts. Small
+     * overlay growth reserves let the final actor segment change topology
+     * without copying immutable resident rooms. Never exceed scene limits. */
+    size_t vertex_storage_capacity;
+    size_t batch_storage_capacity;
+    size_t overlay_batch_storage_capacity;
     /* Aliases the overlay tail of vertices; only overlay_batches owns a
      * separate local-index copy for future room rebuilds. */
     GeDamRoomWorldVertex *overlay_vertices;

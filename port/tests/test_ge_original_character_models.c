@@ -66,6 +66,21 @@ static size_t audit_tree(ModelFileHeader *header, size_t *display_lists,
     return visited;
 }
 
+typedef struct TextureAudit {
+    uint16_t expected[4096];
+    size_t count;
+    size_t visited;
+    size_t stop_after;
+} TextureAudit;
+
+static int audit_texture(void *context, uint16_t image_id)
+{
+    TextureAudit *audit = context;
+    assert(audit->visited < audit->count);
+    assert(image_id == audit->expected[audit->visited++]);
+    return audit->stop_after == 0U || audit->visited < audit->stop_after;
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -78,6 +93,7 @@ int main(int argc, char **argv)
     size_t nodes = 0U, parts = 0U;
     void *maximum_part_model = NULL;
     size_t maximum_part_count = 0U;
+    TextureAudit textures = {0};
 
     assert(argc == 2);
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
@@ -86,6 +102,13 @@ int main(int argc, char **argv)
     provider = ge_original_character_model_provider_create(
         &pack, dependency_count, dependency_count + 38U, &status);
     assert(provider != NULL && status == GE_ORIGINAL_CHARACTER_MODEL_OK);
+    assert(ge_original_character_models_visit_texture_ids(
+        provider, &textures, audit_texture));
+    assert(textures.visited == 0U);
+    assert(!ge_original_character_models_visit_texture_ids(
+        NULL, &textures, audit_texture));
+    assert(!ge_original_character_models_visit_texture_ids(
+        provider, &textures, NULL));
 
     for (index = 0U; index < dependency_count; ++index) {
         GeOriginalCharacterModelMetadata metadata;
@@ -122,6 +145,14 @@ int main(int argc, char **argv)
                && model->render_pos != NULL && model->datas != NULL
                && model->rwdatalen == header->numRecords);
         assert(isfinite(scale) && scale > 0.0f && isfinite(pov) && pov > 0.0f);
+        for (size_t image_index = 0U;
+                image_index < (size_t)header->numtextures; ++image_index) {
+            assert(textures.count < sizeof(textures.expected)
+                / sizeof(textures.expected[0]));
+            assert(header->Textures[image_index].TextureID <= UINT16_MAX);
+            textures.expected[textures.count++] =
+                (uint16_t)header->Textures[image_index].TextureID;
+        }
         nodes += audit_tree(header, &parts, &has_header, &has_head);
         if (metadata.is_body_dependency) {
             assert(has_header);
@@ -140,6 +171,20 @@ int main(int argc, char **argv)
         }
     }
     assert(body_count == 38U && head_count == 33U);
+    {
+        GeOriginalCharacterModelStats before = {0}, after = {0};
+        ge_original_character_model_get_stats(provider, &before);
+        assert(ge_original_character_models_visit_texture_ids(
+            provider, &textures, audit_texture));
+        assert(textures.visited == textures.count && textures.count > 0U);
+        ge_original_character_model_get_stats(provider, &after);
+        assert(memcmp(&before, &after, sizeof(before)) == 0);
+        textures.visited = 0U;
+        textures.stop_after = 1U;
+        assert(!ge_original_character_models_visit_texture_ids(
+            provider, &textures, audit_texture));
+        assert(textures.visited == 1U);
+    }
     assert(integrated_count > 0U);
     for (index = 0U; index < dependency_count; ++index) {
         GeOriginalCharacterModelMetadata metadata;

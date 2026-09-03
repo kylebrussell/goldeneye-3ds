@@ -565,6 +565,10 @@ typedef struct RuntimeFineProfile {
     uint64_t first_person_peak_ticks;
     uint64_t guard_visibility_update_ticks;
     uint64_t guard_visibility_publish_ticks;
+    uint64_t guard_texture_ticks;
+    uint64_t guard_replace_ticks;
+    uint64_t guard_import_ticks;
+    uint64_t guard_refresh_peak[7];
 } RuntimeFineProfile;
 
 static RuntimeFineProfile fine_profile;
@@ -3363,6 +3367,14 @@ static bool write_input_probe_result(
     fprintf(stream, "guard_visibility_ticks=%llu,%llu\n",
         (unsigned long long)fine_profile.guard_visibility_update_ticks,
         (unsigned long long)fine_profile.guard_visibility_publish_ticks);
+    fprintf(stream, "guard_refresh_peak=%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+        (unsigned long long)fine_profile.guard_refresh_peak[0],
+        (unsigned long long)fine_profile.guard_refresh_peak[1],
+        (unsigned long long)fine_profile.guard_refresh_peak[2],
+        (unsigned long long)fine_profile.guard_refresh_peak[3],
+        (unsigned long long)fine_profile.guard_refresh_peak[4],
+        (unsigned long long)fine_profile.guard_refresh_peak[5],
+        (unsigned long long)fine_profile.guard_refresh_peak[6]);
     fprintf(stream, "frame_peak_ms=%llu\n",
         (unsigned long long)runtime->displayed_peak_ms);
     fprintf(stream, "frame_tail_ms=%llu,%lu,%lu,%lu,%lu,%lu\n",
@@ -7096,6 +7108,37 @@ static int stage_ordinary_scene_part(
         objects->models, entry->model_id, part_index, part);
 }
 
+typedef struct RuntimeGuardTextureResidency {
+    GeTextureCache *cache;
+    Ge3dsSceneTextures *candidate;
+    Ge3dsSceneTextureReconcileStats *stats;
+} RuntimeGuardTextureResidency;
+
+static int include_stage_guard_texture(void *context, uint16_t image_id)
+{
+    RuntimeGuardTextureResidency *residency = context;
+    const Ge3dsSceneTextureStatus status =
+        ge_3ds_scene_textures_reconcile_include_image(residency->cache,
+            &dam_scene_textures, residency->candidate, image_id,
+            residency->stats);
+    return status == GE_3DS_SCENE_TEXTURE_OK
+        || status == GE_3DS_SCENE_TEXTURE_PARTIAL;
+}
+
+static bool prepare_stage_guard_texture_residency(
+    RuntimeStageOrdinaryObjects *objects, Ge3dsSceneTextures *candidate,
+    Ge3dsSceneTextureReconcileStats *stats)
+{
+    RuntimeGuardTextureResidency residency = {
+        objects->preview->texture_cache, candidate, stats};
+    /* Loaded body/head tables describe this stage's actual chosen guards.
+     * Import hidden parts during level installation, and borrow them through
+     * room-residency changes. No pose, visibility, AI or RNG is advanced. */
+    return objects->guard_models == NULL
+        || ge_original_character_models_visit_texture_ids(
+            objects->guard_models, &residency, include_stage_guard_texture);
+}
+
 static bool install_stage_ordinary_object_scenes(
     RuntimeStageOrdinaryObjects *objects)
 {
@@ -7220,6 +7263,9 @@ static bool install_stage_ordinary_object_scenes(
                     &candidate_textures, &texture_stats);
             if (texture_status != GE_3DS_SCENE_TEXTURE_OK
                     && texture_status != GE_3DS_SCENE_TEXTURE_PARTIAL)
+                goto fail_stage_scene;
+            if (!prepare_stage_guard_texture_residency(
+                    objects, &candidate_textures, &texture_stats))
                 goto fail_stage_scene;
             texture_status = ge_3ds_scene_textures_reconcile_commit(
                 &dam_scene_textures, &candidate_textures, &texture_stats);
@@ -7600,6 +7646,9 @@ static bool install_stage_ordinary_object_scenes(
         if (texture_status != GE_3DS_SCENE_TEXTURE_OK
                 && texture_status != GE_3DS_SCENE_TEXTURE_PARTIAL)
             goto fail_stage_scene;
+        if (!prepare_stage_guard_texture_residency(
+                objects, &candidate_textures, &texture_stats))
+            goto fail_stage_scene;
         texture_status = ge_3ds_scene_textures_reconcile_commit(
             &dam_scene_textures, &candidate_textures, &texture_stats);
         if (texture_status != GE_3DS_SCENE_TEXTURE_OK
@@ -7853,8 +7902,10 @@ static int ensure_stage_guard_scene_texture(void *context,
             || objects->preview->scene_textures == NULL) return 0;
     if (ge_3ds_scene_textures_find(
             objects->preview->scene_textures, texture_id) != NULL) return 1;
+    const uint64_t started = svcGetSystemTick();
     status = ge_3ds_scene_textures_ensure_image(
         objects->preview->texture_cache, &dam_scene_textures, texture_id);
+    fine_profile.guard_import_ticks += svcGetSystemTick() - started;
     return status == GE_3DS_SCENE_TEXTURE_OK
         || status == GE_3DS_SCENE_TEXTURE_PARTIAL;
 }
@@ -7863,11 +7914,14 @@ static bool ensure_stage_guard_overlay_textures(
     RuntimeStageOrdinaryObjects *objects,
     const GeDamRoomDrawBatch *batches, size_t batch_count)
 {
-    return ge_original_model_scene_visit_textures(
+    const uint64_t started = svcGetSystemTick();
+    const bool result = ge_original_model_scene_visit_textures(
         batches, batch_count, objects, ensure_stage_guard_scene_texture) != 0;
+    fine_profile.guard_texture_ticks += svcGetSystemTick() - started;
+    return result;
 }
 
-static bool refresh_stage_guard_overlay(
+static bool refresh_stage_guard_overlay_impl(
     RuntimeStageOrdinaryObjects *objects, bool *updated)
 {
     RuntimeDamOverlaySegment *segment;
@@ -8031,6 +8085,7 @@ replace_topology:
                 return false;
             }
         }
+        const uint64_t replace_start = svcGetSystemTick();
         objects->overlay_status =
             ge_dam_dynamic_scene_replace_overlay_segment(
                 dynamic_scene, segment->vertex_offset,
@@ -8038,6 +8093,7 @@ replace_topology:
                 scene.required_vertex_count, segment->batch_offset,
                 segment->batch_count, replacement_batches,
                 scene.required_batch_count);
+        fine_profile.guard_replace_ticks += svcGetSystemTick() - replace_start;
         if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK) {
             objects->guard_topology_replace_failures++;
             objects->last_guard_topology_replace_status =
@@ -8065,6 +8121,30 @@ replace_topology:
         if (updated != NULL) *updated = true;
         return true;
     }
+}
+
+static bool refresh_stage_guard_overlay(
+    RuntimeStageOrdinaryObjects *objects, bool *updated)
+{
+    if (objects == NULL) return false;
+    const uint64_t before[7] = {svcGetSystemTick(),
+        objects->guard_scene_cache.profile_build_ticks,
+        objects->guard_scene_cache.profile_topology_ticks,
+        objects->guard_scene_cache.profile_vertex_transform_ticks,
+        fine_profile.guard_texture_ticks, fine_profile.guard_replace_ticks,
+        fine_profile.guard_import_ticks};
+    const bool result = refresh_stage_guard_overlay_impl(objects, updated);
+    const uint64_t after[7] = {svcGetSystemTick(),
+        objects->guard_scene_cache.profile_build_ticks,
+        objects->guard_scene_cache.profile_topology_ticks,
+        objects->guard_scene_cache.profile_vertex_transform_ticks,
+        fine_profile.guard_texture_ticks, fine_profile.guard_replace_ticks,
+        fine_profile.guard_import_ticks};
+    if (fine_profile.rendered_frames >= 120U
+            && after[0] - before[0] > fine_profile.guard_refresh_peak[0])
+        for (size_t i = 0U; i < 7U; ++i)
+            fine_profile.guard_refresh_peak[i] = after[i] - before[i];
+    return result;
 }
 
 static const RuntimeStageScenePartRange *stage_monitor_scene_part_range(
@@ -9181,7 +9261,13 @@ typedef struct RuntimeRendererMaterialCache {
     bool valid;
 } RuntimeRendererMaterialCache;
 
-enum { RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY = 256 };
+enum {
+    RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY = 256,
+    RENDERER_PREPARED_MATERIAL_CACHE_WAYS = 2,
+    RENDERER_PREPARED_MATERIAL_CACHE_SETS =
+        RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY
+            / RENDERER_PREPARED_MATERIAL_CACHE_WAYS
+};
 
 typedef struct RuntimeRendererPreparedMaterialEntry {
     GePicaMaterial material;
@@ -9194,6 +9280,7 @@ typedef struct RuntimeRendererPreparedMaterialEntry {
 typedef struct RuntimeRendererPreparedMaterialCache {
     RuntimeRendererPreparedMaterialEntry
         entries[RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY];
+    uint8_t least_recent[RENDERER_PREPARED_MATERIAL_CACHE_SETS];
 } RuntimeRendererPreparedMaterialCache;
 
 static size_t renderer_material_hash(
@@ -9204,7 +9291,16 @@ static size_t renderer_material_hash(
     uint32_t hash = UINT32_C(2166136261);
     size_t index;
 
-    for (index = 0U; index < sizeof(*material); ++index) {
+    /* Hash words using memcpy so unaligned material storage and strict
+     * aliasing remain valid. Exact byte comparison still decides every hit. */
+    for (index = 0U; index + sizeof(uint32_t) <= sizeof(*material);
+            index += sizeof(uint32_t)) {
+        uint32_t word;
+        memcpy(&word, bytes + index, sizeof(word));
+        hash ^= word;
+        hash *= UINT32_C(16777619);
+    }
+    for (; index < sizeof(*material); ++index) {
         hash ^= bytes[index];
         hash *= UINT32_C(16777619);
     }
@@ -9213,7 +9309,14 @@ static size_t renderer_material_hash(
     hash ^= (uint32_t)(texture_bits >> 16U);
     hash *= UINT32_C(16777619);
     hash ^= (uint32_t)binding->missing_texture_fallback;
-    return hash & (RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY - 1U);
+    /* Mix high bits into the set index: texture pointers and authored enum
+     * fields are commonly aligned and correlated in their low bits. */
+    hash ^= hash >> 16U;
+    hash *= UINT32_C(0x85ebca6b);
+    hash ^= hash >> 13U;
+    hash *= UINT32_C(0xc2b2ae35);
+    hash ^= hash >> 16U;
+    return hash & (RENDERER_PREPARED_MATERIAL_CACHE_SETS - 1U);
 }
 
 static Ge3dsMaterialStatus renderer_prepare_material_cached(
@@ -9222,18 +9325,34 @@ static Ge3dsMaterialStatus renderer_prepare_material_cached(
     Ge3dsMaterialResult *result, uint64_t *hits, uint64_t *misses)
 {
     RuntimeRendererPreparedMaterialEntry *entry;
+    size_t set;
+    size_t way;
+    size_t victim = RENDERER_PREPARED_MATERIAL_CACHE_WAYS;
 
     if (cache == NULL || material == NULL || binding == NULL
             || result == NULL) return GE_3DS_MATERIAL_INVALID_ARGUMENT;
-    entry = &cache->entries[renderer_material_hash(material, binding)];
-    if (entry->valid && entry->texture == binding->texture0
-            && entry->fallback == binding->missing_texture_fallback
-            && memcmp(&entry->material, material,
-                      sizeof(entry->material)) == 0) {
-        *result = entry->result;
-        if (hits != NULL) (*hits)++;
-        return GE_3DS_MATERIAL_OK;
+    set = renderer_material_hash(material, binding);
+    /* Two ways retain colliding authored materials without increasing the
+     * entry budget. Hashes only select candidates: the entire key must match.
+     * Recency belongs to this preparation cache, never to GPU draw ordering. */
+    for (way = 0U; way < RENDERER_PREPARED_MATERIAL_CACHE_WAYS; ++way) {
+        entry = &cache->entries[
+            set * RENDERER_PREPARED_MATERIAL_CACHE_WAYS + way];
+        if (entry->valid && entry->texture == binding->texture0
+                && entry->fallback == binding->missing_texture_fallback
+                && memcmp(&entry->material, material,
+                          sizeof(entry->material)) == 0) {
+            *result = entry->result;
+            cache->least_recent[set] = (uint8_t)(way ^ 1U);
+            if (hits != NULL) (*hits)++;
+            return GE_3DS_MATERIAL_OK;
+        }
+        if (!entry->valid) victim = way;
     }
+    if (victim == RENDERER_PREPARED_MATERIAL_CACHE_WAYS)
+        victim = cache->least_recent[set];
+    entry = &cache->entries[
+        set * RENDERER_PREPARED_MATERIAL_CACHE_WAYS + victim];
     if (misses != NULL) (*misses)++;
     if (ge_3ds_material_prepare(material, binding, result)
             != GE_3DS_MATERIAL_OK) {
@@ -9245,6 +9364,7 @@ static Ge3dsMaterialStatus renderer_prepare_material_cached(
     entry->texture = binding->texture0;
     entry->fallback = binding->missing_texture_fallback;
     entry->valid = true;
+    cache->least_recent[set] = (uint8_t)(victim ^ 1U);
     return GE_3DS_MATERIAL_OK;
 }
 

@@ -630,3 +630,100 @@ tail counts are not a controlled overall FPS comparison. The active probe
 configuration was moved to the private report directory after completion,
 restoring normal startup. Saves/assets/DSP configuration were unchanged, and
 no second Azahar process was launched.
+
+## Guard texture residency, retained tail buffers, and material hashing
+
+Continued from `d34df8de` without changing canonical gameplay bodies, authored
+model relations, AI, animation, movement, collision, gun behavior, draw order,
+or simulation scheduling. These changes are at the platform/publication boundary:
+
+- Character texture enumeration reads the relocated tables of models already
+  loaded for the stage's actual body/head choices. Scene installation imports
+  hidden switch/LOD textures before play. Texture reconciliation includes and
+  borrows these dependencies across room changes, but still releases obsolete
+  room textures. It does not tick guards or consume RNG. Failed transactions
+  retain the previous texture ownership; missing images remain reported.
+- Model-scene texture visitation uses an exact 65,536-bit set instead of
+  scanning every preceding draw batch. First-appearance order, eligibility,
+  callback rejection and the complete 16-bit ID domain are unchanged.
+- The final overlay segment can grow/shrink/clear inside retained CPU storage
+  without copying resident rooms or earlier props. Allocations reserve at most
+  25% of the overlay size, bounded by scene limits, not 25% of room geometry.
+  If optional headroom allocation fails, exact-size allocation is retried.
+  Validation and triangle-overflow checks precede all in-place mutation.
+  Non-tail changes and growth beyond capacity retain the transactional path.
+- Prepared materials retain 256 entries in two-way sets, with full material,
+  texture pointer and fallback equality. Word-at-a-time hashing uses memcpy
+  (no alignment/aliasing assumptions) and final mixing to distribute aligned
+  pointers and authored enums. Hash collisions never establish equivalence.
+
+The new `guard_refresh_peak` row reports the largest refresh after 120 rendered
+frames: total, nested model-cache work, cache topology, cache vertex transform,
+texture visitation/import, scene replacement, and actual texture import. Units
+are system ticks at `runtime_profile_tick_hz` (268,111,856 in these runs); nested
+phases are not additive. It excludes GPU upload and other overlay services.
+
+Focused ASan/UBSan verification passed for all 71 character resources' texture
+tables, hidden-texture borrow/import/abort/commit/capacity cases, full-domain
+texture visitation, deliberate prepared-material collisions/eviction/key
+mutation, and repeated guard-tail grow/shrink/clear transitions. Tail tests
+compare the complete room vertex/batch prefix and pointer retention, including
+overlapping input and invalid triangle-count rollback. Existing ordinary prop
+insert/grow/shrink/clear and whole-overlay rollback cases still pass. The
+gun/modem suite remains green (`guard-opt-gun-20260902.log`). Full host results
+are in `guard-opt-full-20260902.log`; the final hashing helper was also compiled
+directly from main.c and tested against real uncached material preparation.
+
+No-concurrent-build Azahar aim/look/fire measurements (750 simulation ticks):
+
+| Measurement | Profiling-only checkpoint | Final optimization |
+| --- | ---: | ---: |
+| Executable prefix | f99c8cb1 | 0797edaa |
+| Presented frames | 807 | 836 |
+| Measured frame work | 12,681 ms | 12,586 ms |
+| Work per presented frame | 15.71 ms | 15.06 ms |
+| Post-warmup frames over 16 ms | 199 / 687 | 113 / 716 |
+| Post-warmup peak | 40 ms | 28 ms |
+| Largest guard refresh | 22.87 ms | 12.12 ms |
+| Texture import within that refresh | approximately 10.6 ms in isolated follow-up | 0 ms |
+| Guard matrix / sight failures | 0 / 0 | 0 / 0 |
+
+Private results: `dam-guard-phases-f99c8cb1-aim.result`,
+`dam-guard-linear-46ae71c9-aim.result`, `dam-guard-resident-55d3e2a5-aim.result`,
+`dam-guard-tail-25a71623-aim.result`, and `dam-guard-opt-0797edaa-aim.result`.
+The intermediate seven-counter run isolated 10.55 ms of actual texture import.
+The final cache reported 104,597 world preparation hits / 7,541 misses; pointer
+placement affects conflicts, so miss counts alone are not an FPS measurement.
+Scene-buffer replacement still costs about 6.05 ms on the cold growth that
+exceeds reserved capacity; retained-buffer tests are not proof that every live
+replacement avoids allocation. These results reduce hitches, not establish
+sustained 60 FPS everywhere, hardware performance, audiovisual equivalence, or
+mission completion.
+
+Longer final-artifact combat replay (`dam-guard-opt-0797edaa-combat.result`):
+9,627 presented / 5,131 simulation frames, 39 PP7 shots / six guard hits,
+3,809 NDSP blocks, zero guard-matrix/sight failures, and 43 successful guard
+topology replacements with no overlay-refresh failures. The localized
+six-part command-321 prop replacement remained working (9.40 ms). Post-warmup:
+9,507 samples, 837 over 16 ms, 43 over 25 ms, one over 33 ms, none over 50 ms,
+41 ms peak. The largest guard refresh was 13.86 ms with zero texture-import
+ticks; its cold scene replacement still took 6.82 ms. This encounter ran
+longer and fired more shots than the prior checkpoint, so it is not a
+controlled overall combat FPS comparison. Bond died after 13/160 scripted
+targets; Dam completion remains unproven. The private probe configuration was
+moved out of the virtual SD root afterward to restore ordinary menu startup.
+
+Final full-suite repeat passed (`guard-opt-final-20260902.log`), including the
+new texture and exact compiled material-cache tests. ARM/3DSX build passed in
+`arm-material-wordhash-20260902.log`; the linked ELF retains MoveBond,
+bondviewProcessInput, ge_original_gun_live_tick,
+ge_original_stage_active_props_tick_exact and both new texture APIs.
+
+Final executable SHA-256:
+`0797edaa862003dfd1925a06c073519d62a176bf74c46ea58a04827154e0b975`.
+Unchanged assets SHA-256:
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Build, hardware-stage and Azahar executable copies match; both staged asset
+copies match. Saves and emulator DSP configuration were untouched. Only the
+existing Azahar instance was used. Source/tests/docs are the public checkpoint;
+ROM-derived assets, executable artifacts and local probe outputs stay private.

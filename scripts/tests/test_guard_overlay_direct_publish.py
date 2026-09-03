@@ -9,7 +9,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def main() -> None:
     source = (REPO / "platform/3ds/source/main.c").read_text()
-    start = source.index("static bool refresh_stage_guard_overlay(")
+    start = source.index("static bool refresh_stage_guard_overlay_impl(")
     end = source.index("static const RuntimeStageScenePartRange", start)
     body = source[start:end]
     direct = body.index(

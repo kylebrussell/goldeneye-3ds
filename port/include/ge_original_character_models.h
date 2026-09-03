@@ -86,6 +86,12 @@ int ge_original_character_model_dependency_metadata(
     size_t dependency_index, GeOriginalCharacterModelMetadata *metadata);
 int ge_original_character_model_load(void *context, int32_t model_id);
 int ge_original_character_model_available(void *context, int32_t model_id);
+/* Visits the relocated texture tables of resources already loaded for this
+ * stage, including currently hidden LOD/switch parts. Does not load models,
+ * traverse or mutate instance relations, animate, or consume original RNG. */
+int ge_original_character_models_visit_texture_ids(
+    const GeOriginalCharacterModelProvider *provider, void *context,
+    int (*visitor)(void *context, uint16_t image_id));
 int ge_original_character_model_resolve_instance(
     void *context, int32_t model_id, void **model_header,
     void **model_instance, float *scale, float *pov);

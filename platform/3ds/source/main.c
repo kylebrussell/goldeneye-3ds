@@ -324,6 +324,10 @@ static size_t renderer_vertex_flush_bytes(size_t vertex_count,
 /* Preserve the old byte / 255.0f result exactly, not multiplication by a
  * rounded reciprocal. Constant expressions put the 256 rounded results in
  * read-only storage; animated colors still sample the current source bytes. */
+#ifndef GE_3DS_EXPERIMENT_COLOR_LOOKUP
+#define GE_3DS_EXPERIMENT_COLOR_LOOKUP 0
+#endif
+
 static const float renderer_normalized_color[UINT8_MAX + 1U] = {
     0.0f / 255.0f, 1.0f / 255.0f, 2.0f / 255.0f, 3.0f / 255.0f, 4.0f / 255.0f, 5.0f / 255.0f, 6.0f / 255.0f, 7.0f / 255.0f,
     8.0f / 255.0f, 9.0f / 255.0f, 10.0f / 255.0f, 11.0f / 255.0f, 12.0f / 255.0f, 13.0f / 255.0f, 14.0f / 255.0f, 15.0f / 255.0f,
@@ -368,10 +372,14 @@ static void renderer_upload_world_vertices(
             source[index].world[0], source[index].world[1], source[index].world[2],
             map_texture_uv ? source[index].processed.texture[0] : destination[index].u,
             map_texture_uv ? source[index].processed.texture[1] : destination[index].v,
-            renderer_normalized_color[source[index].processed.rgba[0]],
-            renderer_normalized_color[source[index].processed.rgba[1]],
-            renderer_normalized_color[source[index].processed.rgba[2]],
-            renderer_normalized_color[source[index].processed.rgba[3]],
+            GE_3DS_EXPERIMENT_COLOR_LOOKUP ? renderer_normalized_color[source[index].processed.rgba[0]]
+                : (float)source[index].processed.rgba[0] / 255.0f,
+            GE_3DS_EXPERIMENT_COLOR_LOOKUP ? renderer_normalized_color[source[index].processed.rgba[1]]
+                : (float)source[index].processed.rgba[1] / 255.0f,
+            GE_3DS_EXPERIMENT_COLOR_LOOKUP ? renderer_normalized_color[source[index].processed.rgba[2]]
+                : (float)source[index].processed.rgba[2] / 255.0f,
+            GE_3DS_EXPERIMENT_COLOR_LOOKUP ? renderer_normalized_color[source[index].processed.rgba[3]]
+                : (float)source[index].processed.rgba[3] / 255.0f,
         };
     }
 }
@@ -9506,21 +9514,21 @@ static Ge3dsMaterialStatus renderer_prepare_material_cached(
 static bool renderer_material_result_gpu_equal(
     const Ge3dsMaterialResult *left, const Ge3dsMaterialResult *right)
 {
-    GePicaApplyState left_state;
-    GePicaApplyState right_state;
-
     if (left == NULL || right == NULL
             || left->texture_bound != right->texture_bound) return false;
-    left_state = left->state;
-    right_state = right->state;
     /* These two fields are diagnostic provenance only; they never emit PICA
      * commands. Distinct N64 fallback histories with identical effective
-     * state can therefore reuse the already-installed GPU state exactly. */
-    left_state.material_fallback_flags = 0U;
-    left_state.apply_fallback_flags = 0U;
-    right_state.material_fallback_flags = 0U;
-    right_state.apply_fallback_flags = 0U;
-    return memcmp(&left_state, &right_state, sizeof(left_state)) == 0;
+     * state can therefore reuse the already-installed GPU state exactly.
+     * Compare the unchanged suffix directly instead of copying both states
+     * to the stack and zeroing the diagnostic prefix on each query. */
+    _Static_assert(offsetof(GePicaApplyState, material_fallback_flags) == 0U
+        && offsetof(GePicaApplyState, apply_fallback_flags) == sizeof(uint32_t)
+        && offsetof(GePicaApplyState, color) == 2U * sizeof(uint32_t),
+        "GPU comparison may skip only the two diagnostic words");
+    const size_t offset = offsetof(GePicaApplyState, color);
+    return memcmp((const uint8_t *)&left->state + offset,
+                  (const uint8_t *)&right->state + offset,
+                  sizeof(left->state) - offset) == 0;
 }
 
 /* Draw-range gaps and coordinate-space boundaries can prevent geometry

@@ -10,6 +10,8 @@ repo = Path(__file__).resolve().parents[2]
 source = (repo / "platform/3ds/source/main.c").read_text()
 vertex = re.search(r"typedef struct Vertex\s*\{.*?\} Vertex;", source, re.S).group(0)
 table = re.search(r"static const float renderer_normalized_color\[.*?\};", source, re.S).group(0)
+control = re.search(r"#ifndef GE_3DS_EXPERIMENT_COLOR_LOOKUP.*?#endif", source, re.S).group(0)
+assert "#define GE_3DS_EXPERIMENT_COLOR_LOOKUP 0" in control
 start = source.index("static void renderer_upload_world_vertices(")
 end = source.index("static DVLB_s *shader_dvlb;", start)
 helper = source[start:end]
@@ -26,7 +28,7 @@ prefix = '''#include "ge_dam_room.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
-''' + vertex + "\n" + table + "\n" + helper
+''' + vertex + "\n" + control + "\n" + table + "\n" + helper
 reference = r'''
 static void previous_upload(const GeDamRoomWorldVertex *source,
     Vertex *destination, size_t vertex_count, bool map_texture_uv)
@@ -113,11 +115,13 @@ const float *color_table_for_test(void) { return renderer_normalized_color; }
 void upload_for_test(const GeDamRoomWorldVertex *source, Vertex *destination,
     size_t count, bool map) { renderer_upload_world_vertices(source, destination, count, map); }
 ''')
-    subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-                    "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                    "-I", str(repo / "port/include"), str(directory / "test.c"),
-                    "-o", str(directory / "test")], check=True)
-    subprocess.run([str(directory / "test")], check=True)
+    for enabled in (0, 1):
+        subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                        f"-DGE_3DS_EXPERIMENT_COLOR_LOOKUP={enabled}",
+                        "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                        "-I", str(repo / "port/include"), str(directory / "test.c"),
+                        "-o", str(directory / "test")], check=True)
+        subprocess.run([str(directory / "test")], check=True)
 
 
 if len(sys.argv) == 2:

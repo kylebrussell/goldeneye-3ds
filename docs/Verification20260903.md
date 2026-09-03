@@ -401,3 +401,84 @@ FPS average. If target timings regress or fail to improve, drop the lookup
 change; do not stack further assumed wins on top of it. The earlier pending
 optimizations also still require combined target validation. Sustained 60 FPS,
 all-level gameplay, and high-fidelity mission completion remain unproven.
+
+## Follow-up: reject mixed experiments; remove material-state copying
+
+The normal build now defaults `GE_3DS_EXPERIMENT_COLOR_LOOKUP` to zero.
+The saved color-lookup A/B pair above remains available, but its unproven
+lookup is not the default for subsequent work. Both settings pass the actual
+vertex-upload helper's sanitizer/byte-equivalence tests. ARM disassembly
+confirms the normal build uses the original divisions and omits the lookup
+table. This reverses an unvalidated experiment, not an established regression
+in emulator performance.
+
+Several further experiments were **not retained**:
+
+- Reading clip-test XYZ from the 36-byte GPU records instead of the 132-byte
+  decoded records produced exact decisions, but mixed host timings. Removing
+  its temporary XYZ stack copies did not establish a consistent gain. The
+  normal visibility API/renderer remain unchanged. Private source patch:
+  `build/host-tests/strided-position-experiment-20260903.patch`; comparison
+  evidence: `strided-visibility-xyz-20260903.log`.
+- An exact most-recent preparation-key check avoided hashes but added a
+  comparison on misses. Dam's authored material sequence was slower, so that
+  extra cache state/check was removed. Evidence:
+  `material-locality-{optimized,sanitizer}-20260903.log`.
+- Alternative per-word hashes initially looked faster with host enum layout,
+  but short-enum tests revealed mixed timings and additional conflicts in
+  several stages. The previous hash, capacity, key and replacement policy are
+  retained exactly. Do not promote the rotation or shift variants from the
+  private `material-hash-*` / `material-shift-hash-*` probes.
+
+The retained renderer change compares the GPU-state suffix directly, skipping
+only the same two diagnostic words that were previously zeroed in temporary
+copies. A layout assertion prevents silently skipping newly added fields.
+Texture binding equality, all effective state bytes (including padding),
+draw decisions/order and diagnostic results are unchanged. This does not
+borrow mutable materials or add a cache lifetime/invalidation requirement.
+
+On ARM, each such comparison no longer copies two 32-byte state records or
+performs four diagnostic-word stores; `memcmp` reads the original 24-byte
+suffixes. The containing apply helper's stack reservation fell from 84 to
+52 bytes. This is a small CPU-copy reduction, not a new gameplay feature or
+evidence of reaching 60 FPS.
+
+Verification:
+
+- The actual comparison helper matches the prior copy/zero implementation
+  for all 256 mutations of every state byte, both operand orders, null inputs,
+  different texture bindings and diagnostic-only differences. Inputs remain
+  byte-identical. Tests run under ASan/UBSan with both native and short enums.
+- Existing exact preparation, deliberate collision/eviction, all 65,536
+  texture IDs, fallback and material-byte mutation tests pass in both layouts.
+- All 21 initial authored stage room sets match baseline preparation results,
+  complete cache entry bytes, LRU bytes, hit/miss totals and GPU-state equality
+  under short-enum ASan/UBSan. These are renderer inputs, not level completion.
+- Full host suite and ARM/3DSX pass. The linked ELF retains original MoveBond,
+  input, gun and active-prop dispatch. Final evidence under `build/host-tests/`:
+  `material-state-compare-20260903.log`, `color-default-off-20260903.log`,
+  `material-state-all-stages-20260903.log`,
+  `material-state-compare-final-20260903.log`,
+  `arm-material-state-compare-20260903.log`, and
+  `material-state-compare-arm-disassembly-20260903.log`.
+
+A host-only comparison microbenchmark alternated old/new measurement order
+over 6,291,456 calls. With short enums (32-byte state), copies took 11.445 ms
+versus 10.583 ms direct; native 64-byte state took 21.099 versus 12.868 ms.
+These isolate the comparison helpers, exclude the renderer and do not measure
+emulator or hardware FPS. Private driver: `material_state_compare_bench.c`;
+logs: `material-state-compare-bench{,-host}-20260903.log`.
+
+New candidate saved separately:
+`build/3ds-candidates/material-state-ad4136ef/goldeneye-3ds.3dsx`, SHA-256
+`ad4136ef6efc2cda4e8362176ea7c3c66eb36a6b42674ee16636817f1b74b0c3`.
+Assets remain `938536d4...`. macOS stayed locked. Verified hardware staging
+and Azahar still contain `0797edaa...`; no emulator instance, saves, input/stage
+configuration or DSP configuration changed.
+
+Next: prioritize the accumulated candidate's actual Azahar Facility movement
+and Dam aim/combat comparisons as soon as UI access returns. Use the renderer
+phase counters and slow-frame tails to select the next substantial bottleneck;
+do not spend another locked turn retuning the rejected hashes or stacking
+unmeasured micro-optimizations. Sustained 60 FPS and end-to-end high-fidelity
+mission completion remain unverified.

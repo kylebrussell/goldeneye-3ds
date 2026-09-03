@@ -126,6 +126,9 @@ static void ge_3ds_material_replace_texture_source(
 Ge3dsMaterialStatus ge_3ds_material_prepare(const GePicaMaterial *material,
     const Ge3dsMaterialBinding *binding, Ge3dsMaterialResult *result)
 ''' + function_body(material_source, "ge_3ds_material_prepare") + source[cache_start:cache_end] + r'''
+static bool renderer_material_result_gpu_equal(
+    const Ge3dsMaterialResult *left, const Ge3dsMaterialResult *right)
+''' + function_body(source, "renderer_material_result_gpu_equal") + r'''
 static RuntimeRendererPreparedMaterialCache cache;
 static uint64_t hits, misses;
 static size_t material_set(const GePicaMaterial *material,
@@ -144,6 +147,39 @@ static void check(const GePicaMaterial *material, Ge3dsMaterialBinding binding)
         &actual, &hits, &misses) == GE_3DS_MATERIAL_OK);
     assert(memcmp(&actual.state, &expected.state, sizeof(actual.state)) == 0);
     assert(actual.texture_bound == expected.texture_bound);
+}
+static void check_gpu_equality(void)
+{
+    Ge3dsMaterialResult a, b;
+    memset(&a, 0xa5, sizeof(a));
+    a.texture_bound = 1;
+    assert(!renderer_material_result_gpu_equal(NULL, &a));
+    assert(!renderer_material_result_gpu_equal(&a, NULL));
+    for (size_t byte = 0; byte < sizeof(a.state); ++byte) {
+        for (unsigned value = 0; value < 256U; ++value) {
+            memcpy(&b, &a, sizeof(b));
+            ((uint8_t *)&b.state)[byte] = (uint8_t)value;
+            GePicaApplyState left = a.state, right = b.state;
+            left.material_fallback_flags = right.material_fallback_flags = 0U;
+            left.apply_fallback_flags = right.apply_fallback_flags = 0U;
+            const bool expected = memcmp(&left, &right, sizeof(left)) == 0;
+            assert(renderer_material_result_gpu_equal(&a, &b) == expected);
+            assert(renderer_material_result_gpu_equal(&b, &a) == expected);
+        }
+    }
+    memcpy(&b, &a, sizeof(b));
+    b.texture_bound = 0;
+    assert(!renderer_material_result_gpu_equal(&a, &b));
+    /* Diagnostic-only changes must not mutate either published result. */
+    b.texture_bound = a.texture_bound;
+    b.state.material_fallback_flags ^= UINT32_MAX;
+    b.state.apply_fallback_flags ^= UINT32_MAX;
+    Ge3dsMaterialResult before_a, before_b;
+    memcpy(&before_a, &a, sizeof(a));
+    memcpy(&before_b, &b, sizeof(b));
+    assert(renderer_material_result_gpu_equal(&a, &b));
+    assert(memcmp(&a, &before_a, sizeof(a)) == 0);
+    assert(memcmp(&b, &before_b, sizeof(b)) == 0);
 }
 static void check_merge(const GePicaMaterial *left, const GePicaMaterial *right)
 {
@@ -188,6 +224,7 @@ static void check_merge(const GePicaMaterial *left, const GePicaMaterial *right)
 }
 int main(void)
 {
+    check_gpu_equality();
     GePicaMaterial material = {0}, colliders[3];
     C3D_Tex textures[2] = {0};
     Ge3dsMaterialBinding binding = {&textures[0], GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE};
@@ -262,15 +299,17 @@ with tempfile.TemporaryDirectory(prefix="ge-material-cache-") as directory:
     test_path = Path(directory) / "cache.c"
     test_path.write_text(test_source)
     executable = Path(directory) / "cache-test"
-    subprocess.run([
-        os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
-        "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-        "-I" + str(repo / "platform/3ds/tests/include"),
-        "-I" + str(repo / "platform/3ds/include"),
-        "-I" + str(repo / "port/include"), str(test_path),
-        str(repo / "port/src/ge_pica_apply.c"), "-o", str(executable),
-    ], check=True)
-    subprocess.run([str(executable)], check=True)
+    # The target uses short enums, which changes both key and result layout.
+    for layout_flags in ([], ["-fshort-enums"]):
+        subprocess.run([
+            os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+            "-fsanitize=address,undefined", "-fno-omit-frame-pointer", *layout_flags,
+            "-I" + str(repo / "platform/3ds/tests/include"),
+            "-I" + str(repo / "platform/3ds/include"),
+            "-I" + str(repo / "port/include"), str(test_path),
+            str(repo / "port/src/ge_pica_apply.c"), "-o", str(executable),
+        ], check=True)
+        subprocess.run([str(executable)], check=True)
 
 print(
     "3DS renderer submission cache: exact prepared state, pass-local, "

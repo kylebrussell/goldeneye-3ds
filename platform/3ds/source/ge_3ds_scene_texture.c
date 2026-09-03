@@ -202,14 +202,30 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare(
     Ge3dsSceneTextures *candidate,
     Ge3dsSceneTextureReconcileStats *stats)
 {
+    const Ge3dsSceneTextureBatchRange range = {batches, batch_count};
+    return ge_3ds_scene_textures_reconcile_prepare_ranges(cache, &range, 1U,
+        current, candidate_slots, candidate_capacity, candidate, stats);
+}
+
+Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare_ranges(
+    GeTextureCache *cache,
+    const Ge3dsSceneTextureBatchRange *ranges, size_t range_count,
+    const Ge3dsSceneTextures *current,
+    Ge3dsSceneTextureSlot *candidate_slots, size_t candidate_capacity,
+    Ge3dsSceneTextures *candidate, Ge3dsSceneTextureReconcileStats *stats)
+{
     size_t batch_index;
     size_t required_count = 0U;
 
     if (cache == NULL || current == NULL || candidate_slots == NULL
             || candidate_capacity == 0U || candidate == NULL
-            || (batch_count != 0U && batches == NULL)
+            || (range_count != 0U && ranges == NULL)
             || candidate == current || candidate_slots == current->slots)
         return GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT;
+    for (size_t range_index = 0U; range_index < range_count; ++range_index)
+        if (ranges[range_index].batch_count != 0U
+                && ranges[range_index].batches == NULL)
+            return GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT;
     memset(candidate, 0, sizeof(*candidate));
     memset(candidate_slots, 0,
            candidate_capacity * sizeof(*candidate_slots));
@@ -221,24 +237,28 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare(
      * failure side-effect free, including zero calls into Tex3DS. Retain the
      * deduplicated IDs/index in first-use order for the import pass, rather
      * than scanning every authored batch a second time. */
-    for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
-        uint16_t image_id;
-        if (!ge_3ds_scene_texture_batch_image_id(
-                &batches[batch_index], &image_id))
-            continue;
-        if (ge_3ds_scene_texture_find_mutable(candidate, image_id) != NULL)
-            continue;
-        ++required_count;
-        if (required_count > candidate_capacity) {
-            if (stats != NULL) stats->required_count = required_count;
-            memset(candidate_slots, 0,
-                   candidate_capacity * sizeof(*candidate_slots));
-            memset(candidate, 0, sizeof(*candidate));
-            return GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED;
+    for (size_t range_index = 0U; range_index < range_count; ++range_index) {
+        const GeDamRoomDrawBatch *batches = ranges[range_index].batches;
+        for (batch_index = 0U; batch_index < ranges[range_index].batch_count;
+                ++batch_index) {
+            uint16_t image_id;
+            if (!ge_3ds_scene_texture_batch_image_id(
+                    &batches[batch_index], &image_id))
+                continue;
+            if (ge_3ds_scene_texture_find_mutable(candidate, image_id) != NULL)
+                continue;
+            ++required_count;
+            if (required_count > candidate_capacity) {
+                if (stats != NULL) stats->required_count = required_count;
+                memset(candidate_slots, 0,
+                       candidate_capacity * sizeof(*candidate_slots));
+                memset(candidate, 0, sizeof(*candidate));
+                return GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED;
+            }
+            candidate_slots[required_count - 1U].image_id = image_id;
+            candidate->texture_count = required_count;
+            ge_3ds_scene_texture_index_append(candidate);
         }
-        candidate_slots[required_count - 1U].image_id = image_id;
-        candidate->texture_count = required_count;
-        ge_3ds_scene_texture_index_append(candidate);
     }
 
     if (stats != NULL) stats->required_count = required_count;

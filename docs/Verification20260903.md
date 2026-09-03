@@ -671,3 +671,96 @@ sets the overlay before reconciling its textures, and a camera room install
 followed by the object refresh can upload the combined geometry twice. Make
 that boundary failure-safe before attempting deferred/coalesced upload; do not
 just suppress one upload when a following rebuild can fail.
+
+## Follow-up: atomic object overlays and unchanged-room upload reuse
+
+Continued from `3d5725be`. This cycle tightens the object-publication boundary
+and removes redundant CPU-side world-vertex preparation during overlay rebuilds.
+It does **not** defer the first room upload, skip simulation ticks, change room
+selection, or replace any canonical gameplay system.
+
+The texture preparation API accepts ordered batch ranges, with one deduplicated
+capacity preflight before importing. The ordinary-object installer supplies the
+retained room prefix and its candidate overlay separately; it no longer changes
+the live overlay just to discover the candidate texture set. Hidden character
+dependencies are included before the existing commit gate invokes the fallible
+overlay replacement. Both empty and nonempty object installs share this path.
+After success, texture ownership and preview pointers transfer without another
+fallible operation. Guard scene metadata is staged locally until commit. Failed
+installs invalidate only the model cache's abandoned output publication (not its
+decoded topology or original actor state), preventing freed-buffer address reuse
+from being mistaken for an unchanged output buffer.
+
+The optimization captures proof that the room portion of the vertex buffer is
+current **before** an overlay-only rebuild: GPU-world rendering is active, the
+uploaded scene generation/count match, and the current texture set has no missing
+images. A successful overlay replacement preserves the room prefix, room batch
+offsets and retained texture dimensions/orientation. The following publication
+can therefore rewrite/remap just the new overlay, retaining room vertices and
+bounds. Growing, shrinking and empty overlays advance exact draw counts and
+upload generations. Stale generation/count, missing textures, or a non-GPU-world
+path use the existing full upload. In particular, a newly recovered missing room
+texture can require different UVs, so missing-image recovery never takes the
+room-reuse path.
+
+This applies to room-triggered ordinary-object rebuilds and full overlay rebuilds
+in the live actor publication path. The first room publication still completes
+as before; it is the following redundant room-prefix preparation that is avoided.
+These routines write the shared/linear vertex buffer and prepare UVs/bounds.
+Cache flushing occurs later in the display frame, so the work reduction must not
+be described as a measured reduction in GPU transfers or GPU time.
+
+The input report adds `overlay_gpu_room_reuse=overlay_only_publications,room_vertices_reused`.
+These are successful renderer publications, not gameplay tick counts. Install
+phase counters now mean query, ordinary build, guard build, overlay staging, and
+texture/geometry/metadata commit; the last phase includes the gated geometry work.
+
+Verification:
+
+- ASan/UBSan texture tests add ordered-range deduplication, all-range capacity
+  preflight, empty/invalid ranges, and real overlay replacement behind the gate.
+  Texture-capacity and geometry-capacity failures preserve the old geometry,
+  generation and GPU ownership. Success preserves the room prefix, rebases the
+  replacement, retains hidden textures and releases obsolete handles once.
+  The 14-case suite also passes optimized with `-fshort-enums`.
+- `scripts/tests/test_renderer_overlay_room_reuse.py` compiles the actual
+  main.c upload functions and vertex-color helper against host buffers and the
+  real room-bounds builder. Across 240 changing overlay publications, full and
+  partial paths match complete vertex-buffer bytes, active bounds, colors, UVs,
+  draw counts and generations. It checks growth, shrinkage, empty overlays,
+  dirty ranges, stale-upload fallback, invalid arguments, and a recovered room
+  texture with a changed UV scale. Texture lookup/UV mapping are deterministic
+  test seams; this is not PICA/emulator rendering verification.
+- That comparison performs **125,973 full-path vertex writes versus 19,893
+  optimized-path writes**, including conservative fallbacks. This is a synthetic
+  work count, not elapsed time or FPS. The same script checks actual installer
+  wiring and failure invalidation so a detached helper alone cannot satisfy it.
+- The prior actual-pack texture comparison was recompiled and rerun against the
+  ranged API. All 21 stage samples retain the same image IDs, dimensions and
+  importer source-byte hashes/lengths, zero missing images and exactly-once mock
+  handle destruction. It does not execute player movement or GPU rendering.
+
+Evidence under `build/host-tests/`: `overlay-publication-textures-final-20260903.log`,
+`overlay-texture-short-enums-20260903.log`, `overlay-room-upload-final-20260903.log`,
+`overlay-ranges-pack-20260903.log`, and `arm-overlay-room-reuse-final-20260903.log`.
+The complete host suite includes both new publication checks; its first run is
+`overlay-room-reuse-full-20260903.log`, and the populated-directory repeat is
+`overlay-room-reuse-verified-20260903.log`. The ARM ELF retains original MoveBond,
+input, gun and active-prop dispatch along with room and texture transaction APIs.
+Both complete host runs passed; the final focused upload test also passes with
+the recovered-room-texture UV-scale case.
+
+Candidate: `build/3ds-candidates/overlay-room-reuse-e3680b9d/goldeneye-3ds.3dsx`,
+SHA-256 `e3680b9d037021b5d9fdd4333487d1a2382785209f38a294911202b217caf493`.
+The matching asset pack remains `938536d4...`. Verified hardware staging and
+Azahar remain `0797edaa...`. macOS stayed locked, and a nonblocking unlock request
+was sent; no lock bypass, emulator/save/config change, or public push occurred.
+
+Next is target validation, not another speculative micro-optimization: compare
+the saved accumulated candidate to `0797edaa...` in Facility movement, Dam combat
+and travel beyond the initially resident rooms. Check frame-time tails, room and
+overlay work counters, textures after topology/room changes and install-failure
+diagnostics. Reliable 60 FPS across levels and faithful mission completion are
+still unverified. The first room upload is deliberately retained; coalescing it
+with later actor work would need a wider safe publication boundary, not merely
+removal of a call.

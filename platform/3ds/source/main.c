@@ -1375,6 +1375,8 @@ typedef struct RuntimeDamPreview {
     float eye_to_clip[4][4];
     uint64_t gpu_uploaded_scene_generation;
     size_t gpu_uploaded_vertex_count;
+    uint64_t gpu_overlay_only_uploads;
+    uint64_t gpu_room_vertices_reused;
     size_t gpu_dirty_vertex_offset;
     size_t gpu_dirty_vertex_count;
     float original_camera_view[4][4];
@@ -2486,6 +2488,9 @@ static bool dam_visibility_contains_room(const RuntimeDamPreview *preview,
                                          uint32_t room);
 static bool upload_dam_gpu_world_scene(RuntimeDamPreview *preview,
                                        Vertex *destination);
+static bool dam_gpu_room_prefix_is_current(const RuntimeDamPreview *preview);
+static bool upload_dam_gpu_scene_after_overlay(RuntimeDamPreview *preview,
+    Vertex *destination, bool room_prefix_current);
 static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
     Vertex *destination, size_t vertex_offset, size_t vertex_count,
     size_t batch_offset, size_t batch_count, bool map_texture_uv);
@@ -3553,6 +3558,9 @@ static bool write_input_probe_result(
                 (unsigned long long)objects->preview->stream_texture_work[0],
                 (unsigned long long)objects->preview->stream_texture_work[1],
                 (unsigned long long)objects->preview->stream_texture_work[2]);
+            fprintf(stream, "overlay_gpu_room_reuse=%llu,%llu\n",
+                (unsigned long long)objects->preview->gpu_overlay_only_uploads,
+                (unsigned long long)objects->preview->gpu_room_vertices_reused);
             fprintf(stream, "overlay_publication_paths=%llu,%llu,%llu\n",
                 (unsigned long long)scene->overlay_inplace_replacements,
                 (unsigned long long)scene->overlay_allocating_replacements,
@@ -7249,6 +7257,73 @@ static bool prepare_stage_guard_texture_residency(
             objects->guard_models, &residency, include_stage_guard_texture);
 }
 
+typedef struct RuntimeStageOverlayCommit {
+    RuntimeStageOrdinaryObjects *objects;
+    const GeDamRoomWorldVertex *vertices;
+    size_t vertex_count;
+    const GeDamRoomDrawBatch *batches;
+    size_t batch_count;
+} RuntimeStageOverlayCommit;
+
+static int commit_stage_overlay_geometry(void *context)
+{
+    RuntimeStageOverlayCommit *commit = context;
+    commit->objects->scene_install_failure_phase =
+        RUNTIME_STAGE_SCENE_INSTALL_OVERLAY;
+    commit->objects->overlay_status = ge_dam_dynamic_scene_set_overlay(
+        &commit->objects->preview->dynamic_scene,
+        commit->vertices, commit->vertex_count,
+        commit->batches, commit->batch_count);
+    return commit->objects->overlay_status == GE_DAM_DYNAMIC_SCENE_OK;
+}
+
+static bool publish_stage_overlay_with_textures(
+    RuntimeStageOrdinaryObjects *objects,
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batches, size_t batch_count,
+    Ge3dsSceneTextureSlot *candidate_slots, Ge3dsSceneTextures *candidate)
+{
+    GeDamDynamicScene *scene = &objects->preview->dynamic_scene;
+    if (scene->scene.batch_count < scene->overlay_batch_count) return false;
+    const Ge3dsSceneTextureBatchRange ranges[] = {
+        {scene->batches, scene->scene.batch_count - scene->overlay_batch_count},
+        {batches, batch_count},
+    };
+    Ge3dsSceneTextureReconcileStats stats = {0};
+    RuntimeStageOverlayCommit commit = {
+        objects, vertices, vertex_count, batches, batch_count};
+    objects->scene_install_failure_phase = RUNTIME_STAGE_SCENE_INSTALL_TEXTURES;
+    Ge3dsSceneTextureStatus status =
+        ge_3ds_scene_textures_reconcile_prepare_ranges(
+            objects->preview->texture_cache, ranges, 2U, &dam_scene_textures,
+            candidate_slots, DAM_SCENE_TEXTURE_CAPACITY, candidate, &stats);
+    if (status != GE_3DS_SCENE_TEXTURE_OK
+            && status != GE_3DS_SCENE_TEXTURE_PARTIAL) return false;
+    if (!prepare_stage_guard_texture_residency(objects, candidate, &stats))
+        return false;
+    /* The old overlay remains published through every texture failure. The
+     * geometry commit can still reject limits/allocation; ownership moves
+     * only after that succeeds. No concatenated batch scratch buffer needed. */
+    status = ge_3ds_scene_textures_reconcile_commit_after(
+        &dam_scene_textures, candidate, &stats,
+        commit_stage_overlay_geometry, &commit);
+    if (status != GE_3DS_SCENE_TEXTURE_OK
+            && status != GE_3DS_SCENE_TEXTURE_PARTIAL) return false;
+    memcpy(dam_scene_texture_slots, candidate_slots,
+        DAM_SCENE_TEXTURE_CAPACITY * sizeof(*candidate_slots));
+    dam_scene_textures = *candidate;
+    dam_scene_textures.slots = dam_scene_texture_slots;
+    candidate->slots = NULL;
+    objects->preview->scene_textures = &dam_scene_textures;
+    objects->preview->source_vertices = scene->vertices;
+    objects->preview->batches = scene->batches;
+    objects->preview->source_vertex_count = scene->scene.vertex_count;
+    objects->preview->batch_count = scene->scene.batch_count;
+    objects->preview->triangles = scene->scene.triangle_count;
+    objects->preview->draws = scene->scene.batch_count;
+    return true;
+}
+
 static bool install_stage_ordinary_object_scenes(
     RuntimeStageOrdinaryObjects *objects)
 {
@@ -7262,6 +7337,7 @@ static bool install_stage_ordinary_object_scenes(
     Ge3dsSceneTextureSlot *candidate_slots = NULL;
     Ge3dsSceneTextures candidate_textures = {0};
     GeOriginalStageGuardScene guard_query = {0};
+    GeOriginalStageGuardScene candidate_guard_scene = {0};
     RuntimeDamOverlaySegment door_candidate = {0};
     RuntimeDamOverlaySegment guard_candidate = {0};
     size_t input_count = 0U;
@@ -7276,7 +7352,7 @@ static bool install_stage_ordinary_object_scenes(
     size_t guard_batch_offset = 0U;
     size_t entry_index;
     /* Last nonempty install: query, ordinary build, guard build, overlay
-     * transaction, textures/metadata. Keep these outside per-frame hot loops. */
+     * staging, texture/geometry/metadata commit. Outside per-frame hot loops. */
     uint64_t phase_ticks[6] = {svcGetSystemTick()};
     if (objects != NULL) {
         ++objects->scene_install_attempts;
@@ -7343,52 +7419,11 @@ static bool install_stage_ordinary_object_scenes(
     }
     if (input_count == 0U && guard_query.required_vertex_count == 0U
             && guard_query.required_batch_count == 0U) {
-        objects->overlay_status = ge_dam_dynamic_scene_set_overlay(
-            &objects->preview->dynamic_scene, NULL, 0U, NULL, 0U);
-        if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK)
-            return false;
-        objects->preview->source_vertices =
-            objects->preview->dynamic_scene.vertices;
-        objects->preview->batches = objects->preview->dynamic_scene.batches;
-        objects->preview->source_vertex_count =
-            objects->preview->dynamic_scene.scene.vertex_count;
-        objects->preview->batch_count =
-            objects->preview->dynamic_scene.scene.batch_count;
-        objects->preview->triangles =
-            objects->preview->dynamic_scene.scene.triangle_count;
-        objects->preview->draws =
-            objects->preview->dynamic_scene.scene.batch_count;
         candidate_slots = calloc(DAM_SCENE_TEXTURE_CAPACITY,
                                  sizeof(*candidate_slots));
         if (candidate_slots == NULL) goto fail_stage_scene;
-        {
-            Ge3dsSceneTextureReconcileStats texture_stats = {0};
-            Ge3dsSceneTextureStatus texture_status =
-                ge_3ds_scene_textures_reconcile_prepare(
-                    objects->preview->texture_cache,
-                    objects->preview->dynamic_scene.batches,
-                    objects->preview->dynamic_scene.scene.batch_count,
-                    &dam_scene_textures,
-                    candidate_slots, DAM_SCENE_TEXTURE_CAPACITY,
-                    &candidate_textures, &texture_stats);
-            if (texture_status != GE_3DS_SCENE_TEXTURE_OK
-                    && texture_status != GE_3DS_SCENE_TEXTURE_PARTIAL)
-                goto fail_stage_scene;
-            if (!prepare_stage_guard_texture_residency(
-                    objects, &candidate_textures, &texture_stats))
-                goto fail_stage_scene;
-            texture_status = ge_3ds_scene_textures_reconcile_commit(
-                &dam_scene_textures, &candidate_textures, &texture_stats);
-            if (texture_status != GE_3DS_SCENE_TEXTURE_OK
-                    && texture_status != GE_3DS_SCENE_TEXTURE_PARTIAL)
-                goto fail_stage_scene;
-        }
-        memcpy(dam_scene_texture_slots, candidate_slots,
-               DAM_SCENE_TEXTURE_CAPACITY * sizeof(*candidate_slots));
-        dam_scene_textures = candidate_textures;
-        dam_scene_textures.slots = dam_scene_texture_slots;
-        candidate_textures.slots = NULL;
-        objects->preview->scene_textures = &dam_scene_textures;
+        if (!publish_stage_overlay_with_textures(objects, NULL, 0U, NULL, 0U,
+                candidate_slots, &candidate_textures)) goto fail_stage_scene;
         objects->scene_vertices = 0U;
         objects->scene_batches = 0U;
         objects->scene_triangles = 0U;
@@ -7699,10 +7734,7 @@ static bool install_stage_ordinary_object_scenes(
         }
         vertex_count += guard_built.vertex_count;
         batch_count += guard_built.batch_count;
-        objects->guard_scene = guard_built;
-    } else {
-        memset(&objects->guard_scene, 0, sizeof(objects->guard_scene));
-        objects->guard_scene.status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
+        candidate_guard_scene = guard_built;
     }
     phase_ticks[3] = svcGetSystemTick();
     objects->scene_install_failure_phase =
@@ -7724,53 +7756,11 @@ static bool install_stage_ordinary_object_scenes(
                     guard_batch_offset,
                     batch_count - guard_batch_offset)))
         goto fail_stage_scene;
-    objects->overlay_status = ge_dam_dynamic_scene_set_overlay(
-        &objects->preview->dynamic_scene, vertices, vertex_count,
-        batches, batch_count);
-    if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK)
-        goto fail_stage_scene;
-    objects->preview->source_vertices =
-        objects->preview->dynamic_scene.vertices;
-    objects->preview->batches = objects->preview->dynamic_scene.batches;
-    objects->preview->source_vertex_count =
-        objects->preview->dynamic_scene.scene.vertex_count;
-    objects->preview->batch_count =
-        objects->preview->dynamic_scene.scene.batch_count;
-    objects->preview->triangles =
-        objects->preview->dynamic_scene.scene.triangle_count;
-    objects->preview->draws =
-        objects->preview->dynamic_scene.scene.batch_count;
     phase_ticks[4] = svcGetSystemTick();
-    objects->scene_install_failure_phase =
-        RUNTIME_STAGE_SCENE_INSTALL_TEXTURES;
-    {
-        Ge3dsSceneTextureReconcileStats texture_stats = {0};
-        Ge3dsSceneTextureStatus texture_status =
-            ge_3ds_scene_textures_reconcile_prepare(
-            objects->preview->texture_cache,
-            objects->preview->dynamic_scene.batches,
-            objects->preview->dynamic_scene.scene.batch_count,
-            &dam_scene_textures,
-            candidate_slots, DAM_SCENE_TEXTURE_CAPACITY,
-            &candidate_textures, &texture_stats);
-        if (texture_status != GE_3DS_SCENE_TEXTURE_OK
-                && texture_status != GE_3DS_SCENE_TEXTURE_PARTIAL)
-            goto fail_stage_scene;
-        if (!prepare_stage_guard_texture_residency(
-                objects, &candidate_textures, &texture_stats))
-            goto fail_stage_scene;
-        texture_status = ge_3ds_scene_textures_reconcile_commit(
-            &dam_scene_textures, &candidate_textures, &texture_stats);
-        if (texture_status != GE_3DS_SCENE_TEXTURE_OK
-                && texture_status != GE_3DS_SCENE_TEXTURE_PARTIAL)
-            goto fail_stage_scene;
-    }
-    memcpy(dam_scene_texture_slots, candidate_slots,
-           DAM_SCENE_TEXTURE_CAPACITY * sizeof(*candidate_slots));
-    dam_scene_textures = candidate_textures;
-    dam_scene_textures.slots = dam_scene_texture_slots;
-    candidate_textures.slots = NULL;
-    objects->preview->scene_textures = &dam_scene_textures;
+    if (!publish_stage_overlay_with_textures(objects, vertices, vertex_count,
+            batches, batch_count, candidate_slots, &candidate_textures))
+        goto fail_stage_scene;
+    objects->guard_scene = candidate_guard_scene;
     objects->scene_vertices = vertex_count;
     objects->scene_batches = batch_count;
     objects->scene_triangles = triangle_count;
@@ -7816,6 +7806,13 @@ static bool install_stage_ordinary_object_scenes(
     return true;
 
 fail_stage_scene:
+    /* A failed build may have published cache output into candidate buffers
+     * that are about to be freed. Keep decoded topology, but never let an
+     * allocator address reuse turn that abandoned output into a cache hit. */
+    objects->guard_scene_cache.publication_ready = 0U;
+    objects->guard_scene_cache.published_vertices = NULL;
+    objects->guard_scene_cache.published_batches = NULL;
+    objects->guard_scene_cache.publication_range_count = 0U;
     dam_overlay_segment_close(&door_candidate);
     dam_overlay_segment_close(&guard_candidate);
     ge_3ds_scene_textures_close(&candidate_textures);
@@ -8742,6 +8739,8 @@ static bool refresh_stage_live_overlays(
     size_t overlay_scene_batch_base;
     if (objects == NULL || !objects->scene_ready || objects->preview == NULL
             || gpu_destination == NULL) return false;
+    const bool room_prefix_current =
+        dam_gpu_room_prefix_is_current(objects->preview);
     if (!refresh_stage_door_overlay(objects, &door_updated)) {
         objects->door_overlay_refresh_failures++;
         full_rebuild = true;
@@ -8763,8 +8762,9 @@ static bool refresh_stage_live_overlays(
                     objects, gpu_destination, &articulated_updated)
                 || !refresh_stage_monitor_surfaces(
                     objects, gpu_destination, &monitor_updated)
-                || !upload_dam_gpu_world_scene(
-                    objects->preview, gpu_destination)) return false;
+                || !upload_dam_gpu_scene_after_overlay(
+                    objects->preview, gpu_destination,
+                    room_prefix_current)) return false;
     } else {
         objects->preview->source_vertices =
             objects->preview->dynamic_scene.vertices;
@@ -8842,8 +8842,11 @@ static bool refresh_stage_ordinary_object_scenes(
             && objects->resident_eviction_successes
                 == objects->preview->dynamic_scene.eviction_successes)
         return true;
+    const bool room_prefix_current =
+        dam_gpu_room_prefix_is_current(objects->preview);
     if (!install_stage_ordinary_object_scenes(objects)) return false;
-    return upload_dam_gpu_world_scene(objects->preview, gpu_destination);
+    return upload_dam_gpu_scene_after_overlay(
+        objects->preview, gpu_destination, room_prefix_current);
 }
 
 static void publish_stage_ordinary_visibility(
@@ -11030,6 +11033,52 @@ static bool upload_dam_gpu_world_scene(RuntimeDamPreview *preview,
     preview->gpu_uploaded_scene_generation =
         preview->dynamic_scene.generation;
     preview->gpu_uploaded_vertex_count = preview->source_vertex_count;
+    return true;
+}
+
+/* Capture before an overlay-only transaction. Missing images force a full
+ * upload: a newly successful import can change room UVs even without a room
+ * geometry change. Retained loaded room textures otherwise keep exact Tex3DS
+ * dimensions/orientation through the texture ownership transaction. */
+static bool dam_gpu_room_prefix_is_current(const RuntimeDamPreview *preview)
+{
+    return preview != NULL && preview->gpu_world_ready
+        && preview->scene_textures != NULL
+        && preview->scene_textures->missing_count == 0U
+        && preview->gpu_uploaded_vertex_count == preview->source_vertex_count
+        && preview->gpu_uploaded_scene_generation
+            == preview->dynamic_scene.generation;
+}
+
+static bool upload_dam_gpu_scene_after_overlay(RuntimeDamPreview *preview,
+    Vertex *destination, bool room_prefix_current)
+{
+    if (!room_prefix_current)
+        return upload_dam_gpu_world_scene(preview, destination);
+    if (preview == NULL || destination == NULL
+            || preview->source_vertex_count > DAM_ROOM_VERTEX_COUNT
+            || preview->dynamic_scene.overlay_vertex_count
+                > preview->source_vertex_count
+            || preview->dynamic_scene.overlay_batch_count > preview->batch_count)
+        return false;
+    const size_t room_vertices = preview->source_vertex_count
+        - preview->dynamic_scene.overlay_vertex_count;
+    const size_t room_batches = preview->batch_count
+        - preview->dynamic_scene.overlay_batch_count;
+    /* Overlay replacement cannot change the immutable room prefix or its
+     * batch offsets. Upload the new tail, including topology/UV changes, and
+     * keep the already-uploaded room vertices/bounds. An empty overlay only
+     * shrinks draw counts; no deleted GPU tail can be referenced afterward. */
+    if (preview->dynamic_scene.overlay_vertex_count != 0U
+            && !upload_dam_gpu_world_scene_range(preview, destination,
+                room_vertices, preview->dynamic_scene.overlay_vertex_count,
+                room_batches, preview->dynamic_scene.overlay_batch_count, true))
+        return false;
+    preview->vertex_count = preview->source_vertex_count;
+    preview->gpu_uploaded_scene_generation = preview->dynamic_scene.generation;
+    preview->gpu_uploaded_vertex_count = preview->source_vertex_count;
+    ++preview->gpu_overlay_only_uploads;
+    preview->gpu_room_vertices_reused += room_vertices;
     return true;
 }
 

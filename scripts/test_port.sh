@@ -20,6 +20,7 @@ python3 "${repo_dir}/scripts/pack_3ds_assets.py" \
 bash "${repo_dir}/scripts/test_scene_overlay_growth.sh" "${test_dir}/scene-overlay-growth"
 bash "${repo_dir}/scripts/test_3ds_scene_texture_reconcile.sh"
 python3 "${repo_dir}/scripts/tests/test_room_stream_publication.py"
+python3 "${repo_dir}/scripts/tests/test_renderer_overlay_room_reuse.py"
 python3 "${repo_dir}/scripts/tests/test_renderer_room_membership.py"
 python3 "${repo_dir}/scripts/tests/test_renderer_vertex_colors.py" "${test_dir}/renderer-vertex-colors"
 "${repo_dir}/scripts/test_original_gunbarrel.sh" "${repo_dir}"

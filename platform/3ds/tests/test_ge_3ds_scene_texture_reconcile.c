@@ -742,6 +742,117 @@ static void test_sustained_residency_only_imports_new_images(void)
     puts("96 synthetic room texture sets: 159 imports, 5985 retained; exact handles/UVs");
 }
 
+typedef struct OverlayCommitTest {
+    GeDamDynamicScene *scene;
+    const GeDamRoomWorldVertex *vertices;
+    const GeDamRoomDrawBatch *batches;
+    size_t calls;
+} OverlayCommitTest;
+
+static int commit_test_overlay(void *context)
+{
+    OverlayCommitTest *test = context;
+    ++test->calls;
+    return ge_dam_dynamic_scene_set_overlay(test->scene,
+        test->vertices, 6U, test->batches, 2U) == GE_DAM_DYNAMIC_SCENE_OK;
+}
+
+static void test_overlay_range_preflight_and_atomic_publication(void)
+{
+    for (unsigned failure = 0U; failure < 3U; ++failure) {
+        GeTextureCache cache = {0};
+        GeDamDynamicScene scene = {0};
+        scene.initialized = 1U;
+        scene.limits.vertex_capacity = scene.limits.batch_capacity = 64U;
+        scene.vertices = calloc(3U, sizeof(*scene.vertices));
+        scene.batches = calloc(1U, sizeof(*scene.batches));
+        assert(scene.vertices && scene.batches);
+        scene.scene.vertex_count = scene.vertex_storage_capacity = 3U;
+        scene.scene.batch_count = scene.batch_storage_capacity = 1U;
+        scene.batches[0] = authored_batch(1U);
+        scene.batches[0].vertex_count = 3U;
+        scene.batches[0].triangle_count = 1U;
+        scene.scene.triangle_count = 1U;
+        GeDamRoomWorldVertex old[3] = {0}, replacement[6] = {0};
+        GeDamRoomDrawBatch old_batch = authored_batch(2U);
+        old_batch.vertex_count = 3U;
+        old_batch.triangle_count = 1U;
+        assert(ge_dam_dynamic_scene_set_overlay(&scene, old, 3U, &old_batch, 1U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        Ge3dsSceneTextureSlot slots[4], next_slots[4];
+        Ge3dsSceneTextures current, candidate = {0};
+        Ge3dsSceneTextureReconcileStats stats;
+        reset_counters();
+        assert(ge_3ds_scene_textures_load(&cache, scene.batches,
+            scene.scene.batch_count, slots, 4U, &current) == GE_3DS_SCENE_TEXTURE_OK);
+        GeDamRoomDrawBatch next[] = {authored_batch(3U), authored_batch(1U)};
+        next[0].vertex_count = next[1].vertex_count = 3U;
+        next[0].triangle_count = next[1].triangle_count = 1U;
+        next[1].first_vertex = 3U;
+        replacement[0].world[0] = 14.0f;
+        const Ge3dsSceneTextureBatchRange ranges[] = {
+            {scene.batches, scene.scene.batch_count - scene.overlay_batch_count},
+            {NULL, 0U}, {next, 2U},
+        };
+        GeDamRoomWorldVertex *old_vertices = scene.vertices;
+        const uint64_t generation = scene.generation;
+        Ge3dsSceneTextureStatus status = ge_3ds_scene_textures_reconcile_prepare_ranges(
+            &cache, ranges, 3U, &current, next_slots, failure == 0U ? 1U : 4U,
+            &candidate, &stats);
+        OverlayCommitTest commit = {&scene, replacement, next, 0U};
+        if (failure == 0U) {
+            assert(status == GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED);
+            assert(import_count == 2U && delete_count == 0U);
+        } else {
+            assert(status == GE_3DS_SCENE_TEXTURE_OK);
+            assert(candidate.texture_count == 2U && next_slots[0].image_id == 1U
+                && next_slots[1].image_id == 3U);
+            /* An inactive character texture is a dependency of the overlay. */
+            assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &current,
+                &candidate, 4U, &stats) == GE_3DS_SCENE_TEXTURE_OK);
+            if (failure == 1U) scene.limits.vertex_capacity = 6U;
+            status = ge_3ds_scene_textures_reconcile_commit_after(&current,
+                &candidate, &stats, commit_test_overlay, &commit);
+            assert(commit.calls == 1U);
+            assert(status == (failure == 1U ? GE_3DS_SCENE_TEXTURE_COMMIT_REJECTED
+                : GE_3DS_SCENE_TEXTURE_OK));
+        }
+        if (failure < 2U) {
+            assert(scene.vertices == old_vertices && scene.generation == generation);
+            assert(scene.overlay_vertex_count == 3U && scene.overlay_batch_count == 1U);
+            assert(scene.overlay_batches[0].texture.texture_id == 2U);
+            assert(current.texture_count == 2U && slots[0].owned && slots[1].owned);
+            assert(delete_count == 0U);
+        } else {
+            assert(scene.generation == generation + 1U && scene.scene.vertex_count == 9U);
+            assert(scene.overlay_vertex_count == 6U && scene.overlay_batch_count == 2U);
+            assert(scene.vertices[3].world[0] == 14.0f);
+            assert(scene.batches[0].texture.texture_id == 1U
+                && scene.batches[1].texture.texture_id == 3U
+                && scene.batches[1].first_vertex == 3U
+                && scene.batches[2].first_vertex == 6U);
+            assert(stats.retained_count == 1U && stats.imported_count == 2U
+                && stats.released_count == 1U && deletion_count(1002U) == 1U);
+        }
+        ge_3ds_scene_textures_close(&candidate);
+        ge_3ds_scene_textures_close(&current);
+        assert(import_count == delete_count);
+        ge_dam_dynamic_scene_close(&scene);
+    }
+    GeTextureCache cache = {0};
+    Ge3dsSceneTextures current = {0}, candidate = {0};
+    Ge3dsSceneTextureSlot slots[1];
+    const Ge3dsSceneTextureBatchRange invalid[] = {{NULL, 0U}, {NULL, 1U}};
+    reset_counters();
+    assert(ge_3ds_scene_textures_reconcile_prepare_ranges(&cache, invalid, 2U,
+        &current, slots, 1U, &candidate, NULL) == GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT);
+    assert(import_count == 0U && delete_count == 0U && candidate.slots == NULL);
+    assert(ge_3ds_scene_textures_reconcile_prepare_ranges(&cache, NULL, 0U,
+        &current, slots, 1U, &candidate, NULL) == GE_3DS_SCENE_TEXTURE_OK);
+    assert(candidate.texture_count == 0U);
+    ge_3ds_scene_textures_close(&candidate);
+}
+
 int main(void)
 {
     test_abort_keeps_current_and_releases_only_import();
@@ -756,6 +867,7 @@ int main(void)
     test_large_preflight_first_use_order_and_rollback();
     test_room_and_texture_publication_is_atomic();
     test_sustained_residency_only_imports_new_images();
-    puts("ge_3ds_scene_texture reconciliation/index/room commit: 13 cases passed");
+    test_overlay_range_preflight_and_atomic_publication();
+    puts("ge_3ds_scene_texture reconciliation/index/room/overlay commit: 14 cases passed");
     return 0;
 }

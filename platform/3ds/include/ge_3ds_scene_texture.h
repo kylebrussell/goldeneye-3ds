@@ -94,6 +94,21 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare(
     Ge3dsSceneTextures *candidate,
     Ge3dsSceneTextureReconcileStats *stats);
 
+typedef struct Ge3dsSceneTextureBatchRange {
+    const GeDamRoomDrawBatch *batches;
+    size_t batch_count;
+} Ge3dsSceneTextureBatchRange;
+
+/* Same preparation over ordered, separate batch ranges. Used to preflight
+ * resident rooms + a replacement overlay without first publishing/copying
+ * the overlay. Capacity is checked across all ranges before any import. */
+Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare_ranges(
+    GeTextureCache *cache,
+    const Ge3dsSceneTextureBatchRange *ranges, size_t range_count,
+    const Ge3dsSceneTextures *current,
+    Ge3dsSceneTextureSlot *candidate_slots, size_t candidate_capacity,
+    Ge3dsSceneTextures *candidate, Ge3dsSceneTextureReconcileStats *stats);
+
 /* Extends a prepared transaction with a known authored resource dependency
  * even when its draw switches are inactive. Borrows resident textures with
  * the same ownership rules as prepare; imports only new IDs. Failure leaves

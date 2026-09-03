@@ -1047,6 +1047,7 @@ int main(int argc, char **argv)
         };
         const size_t normal_vertices = exact_hand_scene.vertex_count;
         uint64_t rebuilds, reuses;
+        const uint64_t components_before = exact_hand_scene_cache.component_reuses;
         clock_t warm_ticks = 0, cold_ticks = 0;
         size_t part, iteration;
         assert(reference_vertices != NULL && reference_batches != NULL);
@@ -1087,6 +1088,7 @@ int main(int argc, char **argv)
         }
         rebuilds = exact_hand_scene_cache.topology_rebuilds;
         reuses = exact_hand_scene_cache.topology_reuses;
+        assert(exact_hand_scene_cache.component_reuses > components_before);
         for (iteration = 0U; iteration < 16U; ++iteration) {
             GeOriginalFirstPersonSceneCache cold = {0};
             GeOriginalFirstPersonScene reference;

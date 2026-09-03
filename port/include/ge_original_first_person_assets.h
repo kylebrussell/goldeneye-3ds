@@ -203,6 +203,12 @@ size_t ge_original_first_person_assets_native_node_count(
     const GeOriginalFirstPersonAssets *assets, unsigned hand);
 void *ge_original_first_person_assets_native_header(
     const GeOriginalFirstPersonAssets *assets, unsigned hand);
+/* Visit the model's complete ROM-authored texture table, including images
+ * used only by inactive fire/reload switches. Renderer preloading only: no
+ * switch, hand, model, RNG or gameplay state is advanced. */
+int ge_original_first_person_assets_visit_texture_ids(
+    const GeOriginalFirstPersonAssets *assets, unsigned asset_slot,
+    void *context, int (*visitor)(void *context, uint16_t image_id));
 const uint8_t *ge_original_first_person_assets_blob(
     const GeOriginalFirstPersonAssets *assets, unsigned hand,
     size_t *blob_size);

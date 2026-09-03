@@ -27,6 +27,14 @@ int ge_draw_batch_world_may_intersect_clip_frustum(
     const GeDamRoomDrawBatch *batch,
     const float world_to_clip[4][4]);
 
+/* A real on-screen vertex proves the batch cannot have a unanimous outside
+ * clip plane. Test this before the more expensive bounds interval transform.
+ * Invalid/nonfinite first vertices or matrices fail open just like the full
+ * scalar walk. A zero result needs bounds/the full walk, never rejection. */
+int ge_draw_batch_world_first_vertex_visible(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch, const float world_to_clip[4][4]);
+
 /* Renderer-only bounds, rebuilt when the corresponding GPU vertex range is
  * published (not when the camera moves). Invalid bounds always fail open. */
 typedef struct GeDrawBatchWorldBounds {

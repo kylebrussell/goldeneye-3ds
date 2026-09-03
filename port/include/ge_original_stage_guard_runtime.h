@@ -233,6 +233,13 @@ size_t ge_original_stage_guard_runtime_count(
 int ge_original_stage_guard_runtime_snapshot(
     const GeOriginalStageGuardRuntime *runtime, size_t guard_index,
     GeOriginalStageGuardSnapshot *snapshot);
+/* O(1) renderer residency fields, matching the full diagnostic snapshot.
+ * Does not scan the active list or read action/animation state. Retired or
+ * reused prop slots publish invisible/UINT8_MAX without dereferencing the
+ * replacement actor union. */
+int ge_original_stage_guard_runtime_room_visibility(
+    const GeOriginalStageGuardRuntime *runtime, size_t guard_index,
+    uint8_t *room, uint8_t *visible);
 /* Diagnostic-only view publication for controller probes. The point retains
  * the exact 0.25 interpolation used by chrGetOnscreenRenderBounds, anchored
  * to the current canonical character prop so an older view-matrix publication

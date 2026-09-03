@@ -83,6 +83,30 @@ int ge_draw_batch_world_may_intersect_clip_frustum(
     return common==0U;
 }
 
+int ge_draw_batch_world_first_vertex_visible(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch, const float world_to_clip[4][4])
+{
+    const float *world;
+    float clip[4];
+    size_t row, column;
+    if (vertices == NULL || batch == NULL || world_to_clip == NULL
+            || batch->first_vertex > vertex_count || batch->vertex_count == 0U
+            || batch->vertex_count > vertex_count - batch->first_vertex)
+        return 1;
+    world = vertices[batch->first_vertex].world;
+    for (row = 0U; row < 4U; ++row)
+        for (column = 0U; column < 4U; ++column)
+            if (!isfinite(world_to_clip[row][column])) return 1;
+    if (!isfinite(world[0]) || !isfinite(world[1]) || !isfinite(world[2]))
+        return 1;
+    for (column = 0U; column < 4U; ++column)
+        clip[column] = world[0] * world_to_clip[0][column]
+            + world[1] * world_to_clip[1][column]
+            + world[2] * world_to_clip[2][column] + world_to_clip[3][column];
+    return !ge_draw_clip_finite(clip) || ge_draw_clip_outcode(clip) == 0U;
+}
+
 int ge_draw_batch_world_bounds_build(
     const GeDamRoomWorldVertex *vertices, size_t vertex_count,
     const GeDamRoomDrawBatch *batch, GeDrawBatchWorldBounds *bounds)

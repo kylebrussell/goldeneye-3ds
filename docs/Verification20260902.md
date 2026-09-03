@@ -525,3 +525,108 @@ Build, hardware-stage and Azahar executable copies match; both staged asset
 copies match. Probe routes/results remain private under `build/visual-probe`.
 The active emulator probe configuration was moved there after verification,
 restoring normal menu startup without changing saves or DSP configuration.
+
+## Follow-up: first-use weapon hitch and active-frame costs
+
+First-person layout changes now reuse matching immutable display-list parts
+from the previous decoded layout, including their validated capacity queries,
+vertices, materials and matrix indices. The new layout rebuilds its exact
+cross-part transform map and still consumes current canonical hand matrices.
+Keys include ROM resource identity, blob address/size, primary/secondary lists,
+segment-4 offset and matrix count. No live matrix pointers are retained in the
+component keys, and reuse cannot cross resources sharing a hand buffer.
+
+The renderer preloads the selected weapon's complete authored texture table,
+including inactive fire/reload-switch images. This moves texture import work
+to initial weapon publication; it does not remove that work or guarantee
+hitch-free weapon selection. It neither toggles model switches nor advances
+gun state. First-person GPU publication also retains immutable RGBA between
+layout changes, like its existing UV retention; every layout change still
+republishes both, while pose updates write positions only.
+
+World rendering first checks an actual source vertex with the exact scalar
+clip transform. A visible point proves no unanimous outside plane exists,
+avoiding the interval-bounds test in the common case. A failed point check
+never rejects a draw: it continues through the existing bounds/full-vertex
+path. Operation grouping, clip tangency, fail-open nonfinite behavior, room
+visibility, draw ordering and authored material merging remain unchanged.
+Guard room residency now uses an O(1) read of the same two fields previously
+obtained through the full diagnostic snapshot. Retired/reused prop slots
+remain invisible with room UINT8_MAX; canonical guard visibility stays owned
+by chrTick.
+
+Verification:
+
+- Focused ASan/UBSan gun/modem suite passed, including 16 alternating authored
+  SWITCH layouts compared against fresh decodes (source UV/color, eye/world,
+  complete material batches), with actual component reuse asserted. Log:
+  `build/host-tests/fp-components-20260902.log`.
+- Early vertex + existing bounds/scalar composition matched all 20,000
+  randomized reference decisions under ASan/UBSan, with tangency and invalid
+  input checks. The full host run repeats this coverage.
+- The complete host suite passed in `fp-opt-full-20260902.log`: all 42
+  first-person resources' texture visitors matched their native authored
+  tables, callback rejection was retained, and live/retired guard residency
+  matched the full snapshot. Original gameplay, death, collision, gun/modem,
+  sound, menus/watch, campaign and renderer coverage remain green.
+- ARM/3DSX builds passed in `arm-fp-optimized-20260902.log` and
+  `arm-fp-opt-final-20260902.log`.
+
+Baseline profiling-only build `b6e0eae0...` reproduced the prior aiming cost
+(`dam-fp-phases-b6e0eae0-aim.result`). The optimized run
+`dam-fp-optimized-94a854c1-aim.result` and final build's repeat
+`dam-fp-optimized-5258aa50-aim.result` both completed the identical 750-tick
+aim/look/fire sequence, with no concurrent compilation:
+
+| Measurement | Baseline | Final repeat |
+| --- | ---: | ---: |
+| Presented frames | 762 | 807 |
+| Total measured frame work | 13,132 ms | 12,684 ms |
+| Work per presented frame | 17.23 ms | 15.72 ms |
+| Post-warmup frames over 16 ms | 617 / 642 | 205 / 687 |
+| Post-warmup peak | 49 ms | 40 ms |
+| First firing-layout publication | 31 ms | 7 ms |
+| Guard matrix / sight failures | 0 / 0 | 0 / 0 |
+
+The final noninitial first-person peak's four phase tick counts are
+`1236979,151504,285442,159129` (cache, texture, UV, GPU vertex publication),
+6.84 ms total at 268,111,856 Hz. Initial weapon publication is deliberately
+excluded from that peak counter; totals still include it. The initial
+profiling-only build used a peak including initial publication, so do not
+compare those peak-phase rows directly. Component counters report 19 reused
+parts and 21 decoded parts across the two layouts. Static-color retention
+reduced aggregate GPU vertex publication from 115,696,639 to 14,727,989 ticks.
+The early vertex check accepted 586,286 of 738,223 tested batches in the first
+optimized aim run. The final repeat fired five PP7 shots and published 540
+visible canonical sight frames; its additional displayed frames are not
+additional simulation ticks. Azahar displayed 60 FPS during inspected aiming.
+
+This is a repeatable improvement, **not sustained 60 FPS everywhere**. Nearly
+30% of post-warmup aim samples still exceeded 16 ms. The remaining 40 ms frame
+spent 27 ms in guard publication during a cold guard topology/component
+transition. Warm actor/publication/render costs and those guard transitions
+are the next measured performance targets. No hardware timing, all-level
+completion or N64-reference audiovisual equivalence is claimed.
+
+Final executable SHA-256:
+`5258aa5099a954dcf8727471ab0563ecd6dbb232d8b7137546ad1fcd32ef77f3`.
+Unchanged assets SHA-256:
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Build, hardware-stage and Azahar executable copies match, as do both staged
+asset copies. Only source/tests/documentation belong in Git.
+
+Final longer combat confirmation (`dam-fp-optimized-5258aa50-combat.result`):
+8,200 presented / 3,964 simulation frames, 21 PP7 shots / four guard hits,
+2,979 NDSP blocks, zero guard-matrix/sight faults, and 28 successful guard
+topology replacements. The localized six-part command-321 prop replacement
+still succeeded in 9.96 ms, with no full-scene rebuild after installation or
+overlay-refresh failures. Post-warmup: 8,080 samples, 686 over 16 ms, 48 over
+25 ms, four over 33 ms, **none over 50 ms**, 39 ms peak. First-person's
+noninitial peak was 6.77 ms and its 19 shared parts were reused. The worst
+remaining captured frame spent 24 ms in guard overlay publication. The input
+route failed at Bond's death after 11/160 targets; it does not establish Dam
+completion. Encounter timing differs from the prior combat runs, so these
+tail counts are not a controlled overall FPS comparison. The active probe
+configuration was moved to the private report directory after completion,
+restoring normal startup. Saves/assets/DSP configuration were unchanged, and
+no second Azahar process was launched.

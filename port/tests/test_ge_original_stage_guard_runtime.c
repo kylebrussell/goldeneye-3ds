@@ -787,7 +787,10 @@ static size_t audit_stage_guard_construction(
         GeOriginalStageGuardSnapshot snapshot;
         PropRecord *prop;ChrRecord *chr;void *opaque_prop,*opaque_chr;
         int32_t firecount[2]={INT32_MIN,INT32_MIN};
+        uint8_t room, visible;
         assert(ge_original_stage_guard_runtime_snapshot(runtime,index,&snapshot));
+        assert(ge_original_stage_guard_runtime_room_visibility(runtime,index,&room,&visible));
+        assert(room == snapshot.room_id && visible == snapshot.visible);
         assert(snapshot.body_id>=0&&snapshot.model_instance!=NULL
                &&snapshot.room_id<UINT8_MAX&&isfinite(snapshot.angle)
                &&snapshot.prop_record!=NULL&&snapshot.chr_record!=NULL);
@@ -1112,6 +1115,14 @@ static size_t audit_stage_guard_construction(
         assert(after.visible==0U&&after.matrices_ready==0U
                &&after.active_linked==0U&&after.animation_active==0U
                &&after.room_id==UINT8_MAX);
+        {
+            uint8_t room = 0U, visible = 1U;
+            assert(ge_original_stage_guard_runtime_room_visibility(
+                runtime,retired_index,&room,&visible));
+            assert(room == UINT8_MAX && visible == 0U);
+            assert(!ge_original_stage_guard_runtime_room_visibility(
+                runtime,SIZE_MAX,&room,&visible));
+        }
         assert(ge_original_stage_guard_runtime_set_visibility(
             runtime,retired_index,1,before.room_id));
         assert(ge_original_stage_guard_runtime_update_lighting(runtime)

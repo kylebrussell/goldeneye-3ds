@@ -7,11 +7,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Only immutable display-list identity: never retain a live hand matrix
+ * pointer across frames. Resource identity protects reused hand buffers. */
+struct GeOriginalFirstPersonInputKey {
+    const uint8_t *blob;
+    size_t blob_size;
+    uint32_t primary, secondary, segment4;
+    size_t matrix_count;
+};
+
+static GeOriginalFirstPersonInputKey ge_first_person_input_key(
+    const GeOriginalModelSceneInput *input)
+{
+    return (GeOriginalFirstPersonInputKey){input->blob, input->blob_size,
+        input->primary_offset, input->secondary_offset, input->segment4_offset,
+        input->segment3_matrix_count};
+}
+
 /* Retain just one previous immutable layout so alternating authored gun
  * switches do not repeatedly decode the same display lists. Matrix banks,
  * model state and output buffers are never stored in this spare slot. */
 struct GeOriginalFirstPersonTopology {
     GeOriginalModelScene *queries;
+    GeOriginalFirstPersonInputKey *input_keys;
     size_t *input_vertex_offsets;
     size_t *input_batch_offsets;
     GeDamRoomWorldVertex *template_vertices;
@@ -24,6 +42,7 @@ struct GeOriginalFirstPersonTopology {
     size_t triangle_count;
     size_t commands_visited;
     uint64_t topology_signature;
+    uint32_t layout_resource_id;
     uint8_t topology_ready;
 };
 
@@ -37,6 +56,7 @@ static void ge_first_person_topology_close(GeOriginalFirstPersonTopology *layout
     free(layout->input_batch_offsets);
     free(layout->input_vertex_offsets);
     free(layout->queries);
+    free(layout->input_keys);
     free(layout);
 }
 
@@ -46,11 +66,13 @@ static GeOriginalFirstPersonTopology *ge_first_person_topology_create(
     GeOriginalFirstPersonTopology *layout = calloc(1, sizeof(*layout));
     if (layout == NULL) return NULL;
     layout->queries = calloc(capacity, sizeof(*layout->queries));
+    layout->input_keys = calloc(capacity, sizeof(*layout->input_keys));
     layout->input_vertex_offsets = calloc(
         capacity, sizeof(*layout->input_vertex_offsets));
     layout->input_batch_offsets = calloc(
         capacity, sizeof(*layout->input_batch_offsets));
-    if (layout->queries == NULL || layout->input_vertex_offsets == NULL
+    if (layout->queries == NULL || layout->input_keys == NULL
+            || layout->input_vertex_offsets == NULL
             || layout->input_batch_offsets == NULL) {
         ge_first_person_topology_close(layout);
         return NULL;
@@ -65,6 +87,7 @@ static void ge_first_person_topology_swap(GeOriginalFirstPersonSceneCache *cache
     type value = cache->field; cache->field = layout->field; layout->field = value; \
 } while (0)
     GE_SWAP_LAYOUT(GeOriginalModelScene *, queries);
+    GE_SWAP_LAYOUT(GeOriginalFirstPersonInputKey *, input_keys);
     GE_SWAP_LAYOUT(size_t *, input_vertex_offsets);
     GE_SWAP_LAYOUT(size_t *, input_batch_offsets);
     GE_SWAP_LAYOUT(GeDamRoomWorldVertex *, template_vertices);
@@ -77,6 +100,7 @@ static void ge_first_person_topology_swap(GeOriginalFirstPersonSceneCache *cache
     GE_SWAP_LAYOUT(size_t, triangle_count);
     GE_SWAP_LAYOUT(size_t, commands_visited);
     GE_SWAP_LAYOUT(uint64_t, topology_signature);
+    GE_SWAP_LAYOUT(uint32_t, layout_resource_id);
     GE_SWAP_LAYOUT(uint8_t, topology_ready);
 #undef GE_SWAP_LAYOUT
     cache->publication_ready = 0U;
@@ -87,6 +111,24 @@ static int ge_add_size(size_t left, size_t right, size_t *result)
     if (right > SIZE_MAX - left) return 0;
     *result = left + right;
     return 1;
+}
+
+static size_t ge_first_person_previous_component(
+    const GeOriginalFirstPersonSceneCache *cache,
+    const GeOriginalFirstPersonInputKey *key, uint32_t resource_id)
+{
+    const GeOriginalFirstPersonTopology *previous = cache->previous_topology;
+    size_t index;
+    if (previous == NULL || !previous->topology_ready
+            || previous->layout_resource_id != resource_id) return SIZE_MAX;
+    for (index = 0U; index < previous->input_count; ++index) {
+        const GeOriginalFirstPersonInputKey *old = &previous->input_keys[index];
+        if (old->blob == key->blob && old->blob_size == key->blob_size
+                && old->primary == key->primary && old->secondary == key->secondary
+                && old->segment4 == key->segment4 && old->matrix_count == key->matrix_count)
+            return index;
+    }
+    return SIZE_MAX;
 }
 
 static int ge_matrix_valid(const float matrix[4][4])
@@ -373,6 +415,8 @@ int ge_original_first_person_scene_cache_init(
                            sizeof(*cache->inputs));
     cache->queries = calloc(GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS,
                             sizeof(*cache->queries));
+    cache->input_keys = calloc(GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS,
+                               sizeof(*cache->input_keys));
     cache->input_vertex_offsets = calloc(
         GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS,
         sizeof(*cache->input_vertex_offsets));
@@ -385,7 +429,7 @@ int ge_original_first_person_scene_cache_init(
     cache->input_quantized_matrix_hashes = calloc(
         GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS,
         sizeof(*cache->input_quantized_matrix_hashes));
-    if (cache->inputs == NULL || cache->queries == NULL
+    if (cache->inputs == NULL || cache->queries == NULL || cache->input_keys == NULL
             || cache->input_vertex_offsets == NULL
             || cache->input_batch_offsets == NULL
             || cache->input_quantized_matrix_offsets == NULL
@@ -414,6 +458,7 @@ void ge_original_first_person_scene_cache_close(
     free(cache->input_batch_offsets);
     free(cache->input_vertex_offsets);
     free(cache->queries);
+    free(cache->input_keys);
     free(cache->inputs);
     memset(cache, 0, sizeof(*cache));
 }
@@ -502,7 +547,8 @@ static int ge_first_person_matrix_bank_matches(
 
 static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
     GeOriginalFirstPersonSceneCache *cache, size_t input_count,
-    size_t required_vertices, size_t required_batches)
+    size_t required_vertices, size_t required_batches,
+    const size_t *previous_inputs)
 {
     GeDamRoomWorldVertex *vertices = NULL;
     GeDamRoomDrawBatch *batches = NULL;
@@ -544,7 +590,27 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
 
         cache->input_vertex_offsets[input_index] = vertex_cursor;
         cache->input_batch_offsets[input_index] = batch_cursor;
-        if (ge_original_model_scene_build_matrix_template_preflighted(
+        if (previous_inputs[input_index] != SIZE_MAX) {
+            const GeOriginalFirstPersonTopology *previous = cache->previous_topology;
+            const size_t old = previous_inputs[input_index];
+            const size_t old_vertex = previous->input_vertex_offsets[old];
+            const size_t old_batch = previous->input_batch_offsets[old];
+            built = *query;
+            built.vertex_count = query->required_vertex_count;
+            built.batch_count = query->required_batch_count;
+            if (built.vertex_count != 0U) {
+                memcpy(storage.vertices, previous->template_vertices + old_vertex,
+                    built.vertex_count * sizeof(*storage.vertices));
+                memcpy(matrix_indices + vertex_cursor,
+                    previous->template_matrix_indices + old_vertex,
+                    built.vertex_count * sizeof(*matrix_indices));
+            }
+            for (local_batch = 0U; local_batch < built.batch_count; ++local_batch) {
+                storage.batches[local_batch] = previous->template_batches[old_batch + local_batch];
+                storage.batches[local_batch].first_vertex -= old_vertex;
+            }
+            ++cache->component_reuses;
+        } else if (ge_original_model_scene_build_matrix_template_preflighted(
                 &cache->inputs[input_index], query, &storage,
                 matrix_indices + vertex_cursor,
                 query->required_vertex_count, &built)
@@ -553,6 +619,8 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
                 || built.batch_count != query->required_batch_count
                 || built.triangle_count != query->triangle_count)
             goto fail;
+        else
+            ++cache->component_decodes;
         for (prior = 0U; prior < input_index; ++prior)
             if (ge_first_person_matrix_bank_matches(
                     &cache->inputs[input_index],
@@ -804,7 +872,7 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
     memset(scene, 0, sizeof(*scene));
     scene->status = GE_ORIGINAL_FIRST_PERSON_SCENE_INVALID_ARGUMENT;
     if (cache == NULL || cache->initialized == 0U
-            || cache->inputs == NULL || cache->queries == NULL
+            || cache->inputs == NULL || cache->queries == NULL || cache->input_keys == NULL
             || cache->capacity != GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS
             || (storage != NULL
                 && ((storage->vertex_capacity != 0U
@@ -848,13 +916,23 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
         size_t required_batches = 0U;
         size_t triangles = 0U;
         size_t commands = 0U;
+        size_t previous_inputs[GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS];
 
         cache->topology_ready = 0U;
         for (input_index = 0U; input_index < input_count; ++input_index) {
-            const GeOriginalModelSceneStatus model_status =
-                ge_original_model_scene_build(
+            GeOriginalModelSceneStatus model_status;
+            cache->input_keys[input_index] = ge_first_person_input_key(&cache->inputs[input_index]);
+            previous_inputs[input_index] = ge_first_person_previous_component(
+                cache, &cache->input_keys[input_index], resource_id);
+            if (previous_inputs[input_index] != SIZE_MAX) {
+                cache->queries[input_index] = cache->previous_topology->queries[
+                    previous_inputs[input_index]];
+                model_status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
+            } else {
+                model_status = ge_original_model_scene_build(
                     &cache->inputs[input_index], NULL,
                     &cache->queries[input_index]);
+            }
             if (model_status != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED) {
                 status = ge_map_model_status(model_status);
                 goto done;
@@ -876,7 +954,7 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
             }
         }
         status = ge_first_person_decode_templates(
-            cache, input_count, required_vertices, required_batches);
+            cache, input_count, required_vertices, required_batches, previous_inputs);
         if (status != GE_ORIGINAL_FIRST_PERSON_SCENE_OK) goto done;
         cache->input_count = input_count;
         cache->required_vertex_count = required_vertices;
@@ -884,6 +962,7 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
         cache->triangle_count = triangles;
         cache->commands_visited = commands;
         cache->topology_signature = signature;
+        cache->layout_resource_id = resource_id;
         cache->topology_ready = UINT8_C(1);
         cache->publication_ready = UINT8_C(0);
         cache->topology_rebuilds++;

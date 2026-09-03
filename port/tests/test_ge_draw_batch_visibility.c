@@ -186,6 +186,14 @@ static void test_bounds_match_exact_vertex_decisions(void)
         classified = ge_draw_batch_world_bounds_classify(&bounds, matrix);
         exact = ge_draw_batch_world_may_intersect_clip_frustum(
             vertices, 24U, &batch, matrix);
+        /* The early point test may accept, but can never reject on its own.
+         * Composition with the existing bounds/scalar path is byte-for-byte
+         * the same visibility decision, including points behind the eye. */
+        assert((ge_draw_batch_world_first_vertex_visible(
+                    vertices, 24U, &batch, matrix)
+                || classified == GE_DRAW_BATCH_BOUNDS_INSIDE
+                || (classified == GE_DRAW_BATCH_BOUNDS_UNCERTAIN && exact))
+            == exact);
         if (classified == GE_DRAW_BATCH_BOUNDS_INSIDE) {
             ++inside;
             assert(exact);
@@ -214,6 +222,7 @@ static void test_bounds_tangency_and_invalidation(void)
         assert(ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
         assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
                == GE_DRAW_BATCH_BOUNDS_INSIDE);
+        assert(ge_draw_batch_world_first_vertex_visible(vertices, 3U, &batch, matrix));
         for (index = 0U; index < 3U; ++index)
             vertices[index].world[axis] = nextafterf(1.0f, INFINITY);
         assert(ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
@@ -226,6 +235,7 @@ static void test_bounds_tangency_and_invalidation(void)
                == GE_DRAW_BATCH_BOUNDS_OUTSIDE);
     }
     matrix[3][3] = NAN;
+    assert(ge_draw_batch_world_first_vertex_visible(vertices, 3U, &batch, matrix));
     assert(ge_draw_batch_world_bounds_classify(&bounds, matrix)
            == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
     identity(matrix);
@@ -243,6 +253,10 @@ static void test_bounds_tangency_and_invalidation(void)
     assert(!ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
     assert(ge_draw_batch_world_bounds_classify(NULL, matrix)
            == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
+    assert(ge_draw_batch_world_first_vertex_visible(vertices, 3U, &batch, matrix));
+    assert(ge_draw_batch_world_first_vertex_visible(NULL, 3U, &batch, matrix));
+    assert(ge_draw_batch_world_first_vertex_visible(vertices, 3U, NULL, matrix));
+    assert(ge_draw_batch_world_first_vertex_visible(vertices, 3U, &batch, NULL));
 }
 
 int main(void)

@@ -28,6 +28,21 @@ static size_t measured_max_textures;
 static uint8_t right_buffer[GE_ORIGINAL_FIRST_PERSON_HAND_BUFFER_SIZE];
 static uint8_t left_buffer[GE_ORIGINAL_FIRST_PERSON_HAND_BUFFER_SIZE];
 
+typedef struct TextureVisitCheck {
+    const ModelFileHeader *header;
+    size_t count;
+    int reject;
+} TextureVisitCheck;
+
+static int check_texture_id(void *context, uint16_t image_id)
+{
+    TextureVisitCheck *check = context;
+    assert(check->count < (size_t)check->header->numtextures);
+    assert(image_id == check->header->Textures[check->count].TextureID);
+    ++check->count;
+    return !check->reject;
+}
+
 static uint32_t blob_offset(const uint8_t *blob, size_t size,
                             const void *pointer)
 {
@@ -114,6 +129,23 @@ static void measure(GeOriginalFirstPersonAssets *assets,
     }
     assert(display_count != 0U && vertices != 0U && batches != 0U);
     assert(header->numtextures >= 0);
+    {
+        TextureVisitCheck check = {header, 0U, 0};
+        assert(ge_original_first_person_assets_visit_texture_ids(
+            assets, 0U, &check, check_texture_id));
+        assert(check.count == (size_t)header->numtextures);
+        assert(!ge_original_first_person_assets_visit_texture_ids(
+            assets, 2U, &check, check_texture_id));
+        assert(!ge_original_first_person_assets_visit_texture_ids(
+            assets, 0U, &check, NULL));
+        if (header->numtextures > 0) {
+            check.count = 0U;
+            check.reject = 1;
+            assert(!ge_original_first_person_assets_visit_texture_ids(
+                assets, 0U, &check, check_texture_id));
+            assert(check.count == 1U);
+        }
+    }
     assert((size_t)header->numtextures <= LIVE_TEXTURE_CAPACITY);
     assert(display_count <= LIVE_DISPLAY_CAPACITY);
     assert(vertices <= LIVE_VERTEX_CAPACITY);

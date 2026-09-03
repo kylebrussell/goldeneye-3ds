@@ -690,6 +690,26 @@ void *ge_original_first_person_assets_native_header(
     return (void *)(uintptr_t)&model->header;
 }
 
+int ge_original_first_person_assets_visit_texture_ids(
+    const GeOriginalFirstPersonAssets *assets, unsigned asset_slot,
+    void *context, int (*visitor)(void *context, uint16_t image_id))
+{
+    const GeOriginalFirstPersonNativeModel *model;
+    size_t index;
+    if (!ge_original_first_person_assets_native_ready(assets, asset_slot)
+            || visitor == NULL) return 0;
+    model = assets->native_model[asset_slot];
+    if (model->header.numtextures < 0
+            || model->header.numtextures > GE_FIRST_PERSON_MAX_TEXTURE_COUNT
+            || model->header.Textures != model->textures) return 0;
+    for (index = 0U; index < (size_t)model->header.numtextures; ++index)
+        if (model->textures[index].TextureID > UINT16_MAX) return 0;
+    for (index = 0U; index < (size_t)model->header.numtextures; ++index)
+        if (!visitor(context, (uint16_t)model->textures[index].TextureID))
+            return 0;
+    return 1;
+}
+
 const uint8_t *ge_original_first_person_assets_blob(
     const GeOriginalFirstPersonAssets *assets, unsigned hand,
     size_t *blob_size)

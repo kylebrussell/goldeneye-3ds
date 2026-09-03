@@ -745,6 +745,23 @@ size_t ge_original_stage_guard_runtime_count(
     const GeOriginalStageGuardRuntime *runtime)
 {return runtime!=NULL?runtime->count:0U;}
 
+int ge_original_stage_guard_runtime_room_visibility(
+    const GeOriginalStageGuardRuntime *runtime, size_t guard_index,
+    uint8_t *room, uint8_t *visible)
+{
+    if (runtime == NULL || guard_index >= runtime->count
+            || room == NULL || visible == NULL) return 0;
+    *room = UINT8_MAX;
+    *visible = 0U;
+    if (runtime_live_chr(runtime, guard_index) != NULL) {
+        const GeOriginalStageGuardSnapshot *state = &runtime->slots[guard_index].state;
+        const PropRecord *prop = runtime->props[guard_index];
+        *room = prop->rooms[0] != UINT8_MAX ? prop->rooms[0] : state->room_id;
+        *visible = state->visible;
+    }
+    return 1;
+}
+
 int ge_original_stage_guard_runtime_snapshot(
     const GeOriginalStageGuardRuntime *runtime,size_t guard_index,
     GeOriginalStageGuardSnapshot *snapshot)

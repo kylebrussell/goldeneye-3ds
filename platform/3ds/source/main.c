@@ -559,6 +559,12 @@ typedef struct RuntimeFineProfile {
     uint64_t world_frustum_culled_vertices;
     uint64_t world_frustum_bounds_inside;
     uint64_t world_frustum_bounds_outside;
+    uint64_t world_frustum_first_vertex_visible;
+    uint64_t first_person_phase_ticks[4];
+    uint64_t first_person_peak_phase_ticks[4];
+    uint64_t first_person_peak_ticks;
+    uint64_t guard_visibility_update_ticks;
+    uint64_t guard_visibility_publish_ticks;
 } RuntimeFineProfile;
 
 static RuntimeFineProfile fine_profile;
@@ -3345,6 +3351,18 @@ static bool write_input_probe_result(
         (unsigned long long)gun_sight_visible_frames,
         (unsigned long long)gun_sight_failures,
         (unsigned)gun_sight_suppression);
+    fprintf(stream, "first_person_phases=%llu,%llu,%llu,%llu;%llu,%llu,%llu,%llu\n",
+        (unsigned long long)fine_profile.first_person_phase_ticks[0],
+        (unsigned long long)fine_profile.first_person_phase_ticks[1],
+        (unsigned long long)fine_profile.first_person_phase_ticks[2],
+        (unsigned long long)fine_profile.first_person_phase_ticks[3],
+        (unsigned long long)fine_profile.first_person_peak_phase_ticks[0],
+        (unsigned long long)fine_profile.first_person_peak_phase_ticks[1],
+        (unsigned long long)fine_profile.first_person_peak_phase_ticks[2],
+        (unsigned long long)fine_profile.first_person_peak_phase_ticks[3]);
+    fprintf(stream, "guard_visibility_ticks=%llu,%llu\n",
+        (unsigned long long)fine_profile.guard_visibility_update_ticks,
+        (unsigned long long)fine_profile.guard_visibility_publish_ticks);
     fprintf(stream, "frame_peak_ms=%llu\n",
         (unsigned long long)runtime->displayed_peak_ms);
     fprintf(stream, "frame_tail_ms=%llu,%lu,%lu,%lu,%lu,%lu\n",
@@ -3402,6 +3420,9 @@ static bool write_input_probe_result(
             (unsigned long long)first_person_cache->topology_rebuilds,
             (unsigned long long)first_person_cache->topology_reuses,
             (unsigned long long)first_person_cache->topology_publications);
+        fprintf(stream, "first_person_components=%llu,%llu\n",
+            (unsigned long long)first_person_cache->component_reuses,
+            (unsigned long long)first_person_cache->component_decodes);
         fprintf(stream, "first_person_profile_ticks=%llu,%llu,%llu,%llu,%llu\n",
             (unsigned long long)first_person_cache->profile_build_ticks,
             (unsigned long long)first_person_cache->profile_input_topology_ticks,
@@ -3499,6 +3520,8 @@ static bool write_input_probe_result(
         fprintf(stream, "draw_profile_bounds=%llu,%llu\n",
             (unsigned long long)fine_profile.world_frustum_bounds_inside,
             (unsigned long long)fine_profile.world_frustum_bounds_outside);
+        fprintf(stream, "draw_profile_first_vertex=%llu\n",
+            (unsigned long long)fine_profile.world_frustum_first_vertex_visible);
     }
     return fclose(stream) == 0;
 }
@@ -3634,6 +3657,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
     bool uv_updated = false;
     size_t batch_index;
     size_t vertex_index;
+    uint64_t phase_ticks[5];
 
     if (models == NULL || runtime == NULL || dam_preview == NULL
             || texture_cache == NULL || destination == NULL
@@ -3656,6 +3680,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         runtime->batches, FIRST_PERSON_BATCH_CAPACITY,
     };
     unchanged_builds_before = runtime->cache.unchanged_builds;
+    phase_ticks[0] = svcGetSystemTick();
     topology_publications_before = runtime->cache.topology_publications;
     ge_original_first_person_scene_cache_bind_profile_clock(
         &runtime->cache, runtime_profile_clock, NULL);
@@ -3667,6 +3692,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         runtime->ready = false;
         return false;
     }
+    phase_ticks[1] = svcGetSystemTick();
     publication_unchanged = runtime->cache.unchanged_builds
         != unchanged_builds_before;
     runtime->vertex_count = runtime->scene.vertex_count;
@@ -3699,8 +3725,17 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         runtime->loaded_model = loaded_model;
         runtime->uv_ready = false;
         if (!runtime->textures_ready) return false;
+        /* Import the authored resource's inactive switch images when the
+         * weapon is first published, not on the first muzzle/reload switch. */
+        if (!ge_original_first_person_assets_visit_texture_ids(
+                &models->assets, asset_slot, texture_cache,
+                ensure_first_person_scene_texture)) {
+            runtime->textures_ready = false;
+            return false;
+        }
     }
 
+    phase_ticks[2] = svcGetSystemTick();
     if (!runtime->uv_ready) {
         for (batch_index = 0U; batch_index < runtime->batch_count;
                 ++batch_index) {
@@ -3728,27 +3763,42 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         uv_updated = true;
     }
 
+    phase_ticks[3] = svcGetSystemTick();
     runtime->camera_status = GE_DAM_CAMERA_OK;
     runtime->render_vertex_count = runtime->vertex_count;
     runtime->render_batch_count = runtime->batch_count;
     runtime->generation = runtime->scene.generation;
     runtime->ready = true;
-    if (publication_unchanged && !uv_updated) return false;
-
-    for (vertex_index = 0U; vertex_index < runtime->vertex_count;
+    for (vertex_index = 0U; !(publication_unchanged && !uv_updated)
+            && vertex_index < runtime->vertex_count;
             ++vertex_index) {
         const GeDamRoomWorldVertex *source =
             &runtime->source_vertices[vertex_index];
-        destination[vertex_index] = (Vertex){
-            source->world[0], source->world[1], source->world[2],
-            destination[vertex_index].u, destination[vertex_index].v,
-            (float)source->processed.rgba[0] / 255.0f,
-            (float)source->processed.rgba[1] / 255.0f,
-            (float)source->processed.rgba[2] / 255.0f,
-            (float)source->processed.rgba[3] / 255.0f,
-        };
+        destination[vertex_index].x = source->world[0];
+        destination[vertex_index].y = source->world[1];
+        destination[vertex_index].z = source->world[2];
+        /* Cached first-person RGBA is immutable display-list data, like UVs.
+         * Pose changes only republish positions; every layout switch above
+         * invalidates UVs and therefore republishes these colors as well. */
+        if (uv_updated) {
+            destination[vertex_index].r = (float)source->processed.rgba[0] / 255.0f;
+            destination[vertex_index].g = (float)source->processed.rgba[1] / 255.0f;
+            destination[vertex_index].b = (float)source->processed.rgba[2] / 255.0f;
+            destination[vertex_index].a = (float)source->processed.rgba[3] / 255.0f;
+        }
     }
-    return true;
+    phase_ticks[4] = svcGetSystemTick();
+    for (batch_index = 0U; batch_index < 4U; ++batch_index)
+        fine_profile.first_person_phase_ticks[batch_index] +=
+            phase_ticks[batch_index + 1U] - phase_ticks[batch_index];
+    if (topology_publications_before != 0U
+            && phase_ticks[4] - phase_ticks[0] > fine_profile.first_person_peak_ticks) {
+        fine_profile.first_person_peak_ticks = phase_ticks[4] - phase_ticks[0];
+        for (batch_index = 0U; batch_index < 4U; ++batch_index)
+            fine_profile.first_person_peak_phase_ticks[batch_index] =
+                phase_ticks[batch_index + 1U] - phase_ticks[batch_index];
+    }
+    return !publication_unchanged || uv_updated;
 }
 
 static void close_first_person_scene(RuntimeFirstPersonScene *runtime)
@@ -6954,6 +7004,7 @@ fail:
 static bool update_stage_guard_visibility(
     RuntimeStageOrdinaryObjects *objects, bool *changed)
 {
+    const uint64_t started = svcGetSystemTick();
     size_t guard_index;
     size_t guard_count;
     if (changed != NULL) *changed = false;
@@ -6962,18 +7013,19 @@ static bool update_stage_guard_visibility(
             || !objects->preview->original_camera_ready) return true;
     guard_count = ge_original_stage_guard_runtime_count(objects->guards);
     for (guard_index = 0U; guard_index < guard_count; ++guard_index) {
-        GeOriginalStageGuardSnapshot snapshot;
-        const int visible = ge_original_stage_guard_runtime_snapshot(
-                objects->guards, guard_index, &snapshot)
-            ? dam_visibility_contains_room(objects->preview, snapshot.room_id)
+        uint8_t room, was_visible;
+        const int visible = ge_original_stage_guard_runtime_room_visibility(
+                objects->guards, guard_index, &room, &was_visible)
+            ? dam_visibility_contains_room(objects->preview, room)
             : -1;
         if (visible < 0) return false;
-        if ((snapshot.visible != 0U) == (visible != 0)) continue;
+        if ((was_visible != 0U) == (visible != 0)) continue;
         if (!ge_original_stage_guard_runtime_set_visibility(
-                objects->guards, guard_index, visible, snapshot.room_id))
+                objects->guards, guard_index, visible, room))
             return false;
         if (changed != NULL) *changed = true;
     }
+    fine_profile.guard_visibility_update_ticks += svcGetSystemTick() - started;
     return true;
 }
 
@@ -8593,6 +8645,7 @@ static void publish_stage_ordinary_visibility(
     RuntimeStageOrdinaryObjects *objects,
     bool guard_visibility_is_current)
 {
+    const uint64_t started = svcGetSystemTick();
     size_t index;
     if (objects == NULL || !objects->scene_ready || objects->preview == NULL
             || !objects->preview->original_camera_ready) return;
@@ -8661,6 +8714,7 @@ static void publish_stage_ordinary_visibility(
      * publication below; doing it here repeated both walks during movement. */
     (void)ge_original_door_interaction_bind_onscreen_doors();
 #endif
+    fine_profile.guard_visibility_publish_ticks += svcGetSystemTick() - started;
 }
 
 static void close_stage_ordinary_objects(
@@ -9293,7 +9347,12 @@ static bool renderer_world_batch_may_draw(
     else if (batch->coordinate_space == GE_DAM_ROOM_COORDINATE_EYE)
         object_to_clip = preview->eye_to_clip;
     fine_profile.world_frustum_tests++;
-    {
+    if (ge_draw_batch_world_first_vertex_visible(
+            preview->source_vertices, preview->source_vertex_count,
+            batch, object_to_clip)) {
+        ++fine_profile.world_frustum_first_vertex_visible;
+        visible = true;
+    } else {
         const GeDrawBatchBoundsVisibility bounded =
             preview->gpu_batch_bounds != NULL
                     && source_index < preview->gpu_batch_bounds_capacity

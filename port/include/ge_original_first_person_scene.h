@@ -48,10 +48,12 @@ typedef struct GeOriginalFirstPersonSceneRequirements {
 typedef uint64_t (*GeOriginalFirstPersonSceneProfileClock)(void *context);
 
 typedef struct GeOriginalFirstPersonTopology GeOriginalFirstPersonTopology;
+typedef struct GeOriginalFirstPersonInputKey GeOriginalFirstPersonInputKey;
 
 typedef struct GeOriginalFirstPersonSceneCache {
     GeOriginalModelSceneInput *inputs;
     GeOriginalModelScene *queries;
+    GeOriginalFirstPersonInputKey *input_keys;
     size_t *input_vertex_offsets;
     size_t *input_batch_offsets;
     GeDamRoomWorldVertex *template_vertices;
@@ -74,6 +76,9 @@ typedef struct GeOriginalFirstPersonSceneCache {
     uint64_t topology_rebuilds;
     uint64_t topology_reuses;
     uint64_t topology_publications;
+    uint32_t layout_resource_id;
+    uint64_t component_reuses;
+    uint64_t component_decodes;
     /* One inactive decoded layout, not another gameplay/model instance. */
     GeOriginalFirstPersonTopology *previous_topology;
     uint64_t single_pass_builds;

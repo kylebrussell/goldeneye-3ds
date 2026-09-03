@@ -173,6 +173,17 @@ GeOriginalModelSceneStatus ge_original_model_scene_build(
     const GeDamRoomSceneStorage *storage,
     GeOriginalModelScene *scene);
 
+/* Reuse a successful capacity query for the same unchanged display lists.
+ * The write traversal still validates every command and output bound, and
+ * rejects mismatched counts before publishing the scene. On failure, storage
+ * may contain partial output and must not be published. This avoids repeating
+ * the count traversal when a room installer has already sized its buffers. */
+GeOriginalModelSceneStatus ge_original_model_scene_build_preflighted(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelScene *query,
+    const GeDamRoomSceneStorage *storage,
+    GeOriginalModelScene *scene);
+
 /* Initial renderer-template decode. Each flattened output vertex receives the
  * canonical segment-3 matrix index that was active when its N64 vertex load
  * occurred. This lets platform renderers retain decoded local geometry and

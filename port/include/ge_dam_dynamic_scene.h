@@ -135,10 +135,11 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_tick_visibility(
     GeDamDynamicScene *cache, GeDamPreloadQueue *queue,
     const uint8_t *rendered_rooms, size_t rendered_room_count);
 
-/* Atomically installs decomp-owned dynamic model geometry on top of every
- * authored-room rebuild. Input batches use overlay-local vertex offsets; the
- * cache rebases them after the room vertices. A failure preserves the last
- * published scene and overlay. */
+/* Atomically replaces the decomp-owned dynamic model geometry while retaining
+ * the already-decoded room prefix. No assets are read or room GBI traversed.
+ * Input batches use overlay-local vertex offsets; the cache rebases them after
+ * the room vertices. A failure preserves the last published scene and overlay.
+ * Subsequent residency transactions carry this overlay into their room rebuild. */
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_set_overlay(
     GeDamDynamicScene *cache,
     const GeDamRoomWorldVertex *vertices,
@@ -161,8 +162,8 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_update_overlay_segment(
     size_t batch_count);
 
 /* Transactionally replaces one overlay segment whose authored topology has
- * changed. Unlike set_overlay, this preserves the already-decoded room and
- * every other overlay segment, shifting retained suffix offsets as needed.
+ * changed. This preserves the already-decoded room and every other overlay
+ * segment, shifting retained suffix offsets as needed.
  * Input batches are local to the replacement vertices. */
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
     GeDamDynamicScene *cache,

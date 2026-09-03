@@ -556,6 +556,13 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_tick_visibility(
     return ge_dam_dynamic_scene_commit(cache, queue, &transaction);
 }
 
+static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
+    GeDamDynamicScene *cache,
+    size_t overlay_vertex_offset, size_t old_vertex_count,
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    size_t overlay_batch_offset, size_t old_batch_count,
+    const GeDamRoomDrawBatch *batches, size_t batch_count);
+
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_set_overlay(
     GeDamDynamicScene *cache,
     const GeDamRoomWorldVertex *vertices,
@@ -563,12 +570,6 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_set_overlay(
     const GeDamRoomDrawBatch *batches,
     size_t batch_count)
 {
-    GeDamDynamicScene shadow;
-    GeDamDynamicSceneTransaction candidate;
-    GeDamRoomDrawBatch *new_batches = NULL;
-    GeDamDynamicSceneStatus status;
-    size_t index;
-
     if (cache == NULL || cache->initialized == 0U
             || (vertex_count != 0U && vertices == NULL)
             || (batch_count != 0U && batches == NULL)
@@ -576,47 +577,13 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_set_overlay(
             || vertex_count > cache->limits.vertex_capacity
             || batch_count > cache->limits.batch_capacity)
         return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
-    for (index = 0U; index < batch_count; ++index) {
-        if (batches[index].first_vertex > vertex_count
-                || batches[index].vertex_count
-                    > vertex_count - batches[index].first_vertex)
-            return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
-    }
-    if (vertex_count != 0U) {
-        if (batch_count > SIZE_MAX / sizeof(*new_batches))
-            return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
-        new_batches = malloc(batch_count * sizeof(*new_batches));
-        if (new_batches == NULL) return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
-        memcpy(new_batches, batches, batch_count * sizeof(*new_batches));
-    }
-    shadow = *cache;
-    /* The candidate copies the caller's vertices directly into its combined
-     * room+overlay publication. Once installed, overlay_vertices aliases that
-     * published tail. Retaining a second full vertex copy used several MiB on
-     * object-heavy stages and made otherwise valid room-stream transactions
-     * fail under the 3DS heap budget. */
-    shadow.overlay_vertices = (GeDamRoomWorldVertex *)(void *)vertices;
-    shadow.overlay_batches = new_batches;
-    shadow.overlay_vertex_count = vertex_count;
-    shadow.overlay_batch_count = batch_count;
-    status = ge_dam_build_candidate(
-        &shadow, shadow.room_ids, shadow.room_count, &candidate);
-    if (status != GE_DAM_DYNAMIC_SCENE_OK) {
-        free(new_batches);
-        return status;
-    }
-    free(cache->batches);
-    free(cache->vertices);
-    free(cache->overlay_batches);
-    cache->vertices = candidate.vertices;
-    cache->batches = candidate.batches;
-    cache->scene = candidate.scene;
-    cache->overlay_batches = new_batches;
-    cache->overlay_vertex_count = vertex_count;
-    cache->overlay_batch_count = batch_count;
-    ge_dam_refresh_overlay_vertex_alias(cache);
-    ++cache->generation;
-    return GE_DAM_DYNAMIC_SCENE_OK;
+    /* Only the overlay changes. Residency transactions own room decoding;
+     * rereading all resident GBI here made even one prop topology change
+     * stall for an entire world rebuild. Share the atomic segment writer,
+     * retaining the historical set_overlay counter semantics. */
+    return ge_dam_replace_overlay_segment(cache,
+        0U, cache->overlay_vertex_count, vertices, vertex_count,
+        0U, cache->overlay_batch_count, batches, batch_count);
 }
 
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_update_overlay_segment(
@@ -702,7 +669,7 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_update_overlay_segment(
     return GE_DAM_DYNAMIC_SCENE_OK;
 }
 
-GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
+static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     GeDamDynamicScene *cache,
     size_t overlay_vertex_offset,
     size_t old_vertex_count,
@@ -727,7 +694,6 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
     size_t index;
     size_t triangle_count = 0U;
 
-    if (cache != NULL) cache->overlay_update_attempts++;
     if (cache == NULL || cache->initialized == 0U
             || (vertex_count != 0U && vertices == NULL)
             || (batch_count != 0U && batches == NULL)
@@ -745,7 +711,6 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
                 > SIZE_MAX - vertex_count
             || cache->overlay_batch_count - old_batch_count
                 > SIZE_MAX - batch_count) {
-        if (cache != NULL) cache->overlay_update_failures++;
         return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
     }
     room_vertex_count = cache->scene.vertex_count
@@ -758,17 +723,14 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
         - old_batch_count + batch_count;
     if (room_vertex_count > SIZE_MAX - new_overlay_vertex_count
             || room_batch_count > SIZE_MAX - new_overlay_batch_count) {
-        cache->overlay_update_failures++;
         return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
     }
     total_vertex_count = room_vertex_count + new_overlay_vertex_count;
     total_batch_count = room_batch_count + new_overlay_batch_count;
     if (total_vertex_count > cache->limits.vertex_capacity) {
-        cache->overlay_update_failures++;
         return GE_DAM_DYNAMIC_SCENE_VERTEX_CAPACITY;
     }
     if (total_batch_count > cache->limits.batch_capacity) {
-        cache->overlay_update_failures++;
         return GE_DAM_DYNAMIC_SCENE_BATCH_CAPACITY;
     }
     old_vertex_end = overlay_vertex_offset + old_vertex_count;
@@ -786,7 +748,6 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
                         || batch_end > old_vertex_end))
                 || (index >= old_batch_end
                     && batch->first_vertex < old_vertex_end)) {
-            cache->overlay_update_failures++;
             return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
         }
     }
@@ -794,10 +755,13 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
         if (batches[index].first_vertex > vertex_count
                 || batches[index].vertex_count
                     > vertex_count - batches[index].first_vertex) {
-            cache->overlay_update_failures++;
             return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
         }
     }
+    if (total_vertex_count > SIZE_MAX / sizeof(*new_vertices)
+            || total_batch_count > SIZE_MAX / sizeof(*new_batches)
+            || new_overlay_batch_count > SIZE_MAX / sizeof(*new_overlay_batches))
+        return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
     if (total_vertex_count != 0U) {
         new_vertices = malloc(total_vertex_count * sizeof(*new_vertices));
         if (new_vertices == NULL) goto no_memory;
@@ -812,18 +776,21 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
         if (new_overlay_batches == NULL) goto no_memory;
     }
 
-    memcpy(new_vertices, cache->vertices,
-        room_vertex_count * sizeof(*new_vertices));
-    memcpy(new_vertices + room_vertex_count, cache->overlay_vertices,
-        overlay_vertex_offset * sizeof(*new_vertices));
+    if (room_vertex_count != 0U)
+        memcpy(new_vertices, cache->vertices,
+            room_vertex_count * sizeof(*new_vertices));
+    if (overlay_vertex_offset != 0U)
+        memcpy(new_vertices + room_vertex_count, cache->overlay_vertices,
+            overlay_vertex_offset * sizeof(*new_vertices));
     if (vertex_count != 0U)
         memcpy(new_vertices + room_vertex_count + overlay_vertex_offset,
             vertices, vertex_count * sizeof(*new_vertices));
-    memcpy(new_vertices + room_vertex_count + overlay_vertex_offset
-            + vertex_count,
-        cache->overlay_vertices + old_vertex_end,
-        (cache->overlay_vertex_count - old_vertex_end)
-            * sizeof(*new_vertices));
+    if (cache->overlay_vertex_count != old_vertex_end)
+        memcpy(new_vertices + room_vertex_count + overlay_vertex_offset
+                + vertex_count,
+            cache->overlay_vertices + old_vertex_end,
+            (cache->overlay_vertex_count - old_vertex_end)
+                * sizeof(*new_vertices));
 
     if (overlay_batch_offset != 0U)
         memcpy(new_overlay_batches, cache->overlay_batches,
@@ -841,8 +808,9 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
             + index - old_batch_end] = shifted;
     }
 
-    memcpy(new_batches, cache->batches,
-        room_batch_count * sizeof(*new_batches));
+    if (room_batch_count != 0U)
+        memcpy(new_batches, cache->batches,
+            room_batch_count * sizeof(*new_batches));
     for (index = 0U; index < new_overlay_batch_count; ++index) {
         GeDamRoomDrawBatch published = new_overlay_batches[index];
         if (published.first_vertex > SIZE_MAX - room_vertex_count)
@@ -870,7 +838,6 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
     cache->scene.required_batch_count = total_batch_count;
     cache->scene.triangle_count = triangle_count;
     ge_dam_refresh_overlay_vertex_alias(cache);
-    cache->overlay_update_successes++;
     cache->generation++;
     return GE_DAM_DYNAMIC_SCENE_OK;
 
@@ -878,14 +845,32 @@ invalid_built:
     free(new_overlay_batches);
     free(new_batches);
     free(new_vertices);
-    cache->overlay_update_failures++;
     return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
 no_memory:
     free(new_overlay_batches);
     free(new_batches);
     free(new_vertices);
-    cache->overlay_update_failures++;
     return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
+}
+
+GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
+    GeDamDynamicScene *cache,
+    size_t overlay_vertex_offset, size_t old_vertex_count,
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    size_t overlay_batch_offset, size_t old_batch_count,
+    const GeDamRoomDrawBatch *batches, size_t batch_count)
+{
+    const GeDamDynamicSceneStatus status = ge_dam_replace_overlay_segment(
+        cache, overlay_vertex_offset, old_vertex_count, vertices, vertex_count,
+        overlay_batch_offset, old_batch_count, batches, batch_count);
+    if (cache != NULL) {
+        cache->overlay_update_attempts++;
+        if (status == GE_DAM_DYNAMIC_SCENE_OK)
+            cache->overlay_update_successes++;
+        else
+            cache->overlay_update_failures++;
+    }
+    return status;
 }
 
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit_overlay_batches(

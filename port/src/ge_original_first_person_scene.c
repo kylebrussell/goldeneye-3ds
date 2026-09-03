@@ -7,6 +7,81 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Retain just one previous immutable layout so alternating authored gun
+ * switches do not repeatedly decode the same display lists. Matrix banks,
+ * model state and output buffers are never stored in this spare slot. */
+struct GeOriginalFirstPersonTopology {
+    GeOriginalModelScene *queries;
+    size_t *input_vertex_offsets;
+    size_t *input_batch_offsets;
+    GeDamRoomWorldVertex *template_vertices;
+    GeDamRoomDrawBatch *template_batches;
+    uint16_t *template_matrix_indices;
+    uint32_t *template_transform_sources;
+    size_t input_count;
+    size_t required_vertex_count;
+    size_t required_batch_count;
+    size_t triangle_count;
+    size_t commands_visited;
+    uint64_t topology_signature;
+    uint8_t topology_ready;
+};
+
+static void ge_first_person_topology_close(GeOriginalFirstPersonTopology *layout)
+{
+    if (layout == NULL) return;
+    free(layout->template_transform_sources);
+    free(layout->template_matrix_indices);
+    free(layout->template_batches);
+    free(layout->template_vertices);
+    free(layout->input_batch_offsets);
+    free(layout->input_vertex_offsets);
+    free(layout->queries);
+    free(layout);
+}
+
+static GeOriginalFirstPersonTopology *ge_first_person_topology_create(
+    size_t capacity)
+{
+    GeOriginalFirstPersonTopology *layout = calloc(1, sizeof(*layout));
+    if (layout == NULL) return NULL;
+    layout->queries = calloc(capacity, sizeof(*layout->queries));
+    layout->input_vertex_offsets = calloc(
+        capacity, sizeof(*layout->input_vertex_offsets));
+    layout->input_batch_offsets = calloc(
+        capacity, sizeof(*layout->input_batch_offsets));
+    if (layout->queries == NULL || layout->input_vertex_offsets == NULL
+            || layout->input_batch_offsets == NULL) {
+        ge_first_person_topology_close(layout);
+        return NULL;
+    }
+    return layout;
+}
+
+static void ge_first_person_topology_swap(GeOriginalFirstPersonSceneCache *cache)
+{
+    GeOriginalFirstPersonTopology *layout = cache->previous_topology;
+#define GE_SWAP_LAYOUT(type, field) do { \
+    type value = cache->field; cache->field = layout->field; layout->field = value; \
+} while (0)
+    GE_SWAP_LAYOUT(GeOriginalModelScene *, queries);
+    GE_SWAP_LAYOUT(size_t *, input_vertex_offsets);
+    GE_SWAP_LAYOUT(size_t *, input_batch_offsets);
+    GE_SWAP_LAYOUT(GeDamRoomWorldVertex *, template_vertices);
+    GE_SWAP_LAYOUT(GeDamRoomDrawBatch *, template_batches);
+    GE_SWAP_LAYOUT(uint16_t *, template_matrix_indices);
+    GE_SWAP_LAYOUT(uint32_t *, template_transform_sources);
+    GE_SWAP_LAYOUT(size_t, input_count);
+    GE_SWAP_LAYOUT(size_t, required_vertex_count);
+    GE_SWAP_LAYOUT(size_t, required_batch_count);
+    GE_SWAP_LAYOUT(size_t, triangle_count);
+    GE_SWAP_LAYOUT(size_t, commands_visited);
+    GE_SWAP_LAYOUT(uint64_t, topology_signature);
+    GE_SWAP_LAYOUT(uint8_t, topology_ready);
+#undef GE_SWAP_LAYOUT
+    cache->publication_ready = 0U;
+}
+
 static int ge_add_size(size_t left, size_t right, size_t *result)
 {
     if (right > SIZE_MAX - left) return 0;
@@ -64,7 +139,8 @@ static GeOriginalFirstPersonSceneStatus ge_map_model_status(
 static GeOriginalFirstPersonSceneStatus ge_first_person_scene_inputs(
     const GeOriginalFirstPersonAssets *assets, unsigned hand,
     const float view_to_world[4][4], GeOriginalModelSceneInput *inputs,
-    size_t input_capacity, size_t *input_count, uint64_t *generation)
+    size_t input_capacity, size_t *input_count, uint64_t *generation,
+    uint32_t *resource_id)
 {
     GeOriginalGunLiveHand live;
     const uint8_t *blob;
@@ -72,6 +148,7 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_scene_inputs(
     Model *model;
     ModelNode *node;
     size_t cursor = 0U;
+    unsigned asset_slot = 0U;
 
     if (assets == NULL || hand >= 2U || !ge_matrix_valid(view_to_world)
             || inputs == NULL || input_capacity == 0U
@@ -89,7 +166,7 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_scene_inputs(
             || live.matrix_count != (size_t)model->obj->numMatrices)
         return GE_ORIGINAL_FIRST_PERSON_SCENE_MODEL_LAYOUT_ERROR;
     blob = ge_original_first_person_assets_blob_for_root(
-        assets, model->obj->RootNode, &blob_size, NULL);
+        assets, model->obj->RootNode, &blob_size, &asset_slot);
     if (blob == NULL)
         return GE_ORIGINAL_FIRST_PERSON_SCENE_MODEL_LAYOUT_ERROR;
 
@@ -151,6 +228,8 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_scene_inputs(
         return GE_ORIGINAL_FIRST_PERSON_SCENE_MODEL_LAYOUT_ERROR;
     *input_count = cursor;
     *generation = live.generation;
+    if (resource_id != NULL)
+        *resource_id = (uint32_t)assets->loaded_model[asset_slot];
     return GE_ORIGINAL_FIRST_PERSON_SCENE_OK;
 }
 
@@ -181,7 +260,7 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build(
     scene->status = ge_first_person_scene_inputs(
         assets, hand, view_to_world, inputs,
         GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS,
-        &input_count, &generation);
+        &input_count, &generation, NULL);
     if (scene->status != GE_ORIGINAL_FIRST_PERSON_SCENE_OK)
         return scene->status;
 
@@ -323,6 +402,7 @@ void ge_original_first_person_scene_cache_close(
     GeOriginalFirstPersonSceneCache *cache)
 {
     if (cache == NULL) return;
+    ge_first_person_topology_close(cache->previous_topology);
     free(cache->input_quantized_matrix_hashes);
     free(cache->input_quantized_matrix_offsets);
     free(cache->template_matrix_indices);
@@ -707,6 +787,7 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
     size_t input_count = 0U;
     uint64_t generation = 0U;
     uint64_t signature;
+    uint32_t resource_id = 0U;
     uint64_t publication_signature;
     size_t input_index;
     size_t vertex_cursor = 0U;
@@ -737,9 +818,30 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
     cache->build_attempts++;
     status = ge_first_person_scene_inputs(
         assets, hand, view_to_world, cache->inputs, cache->capacity,
-        &input_count, &generation);
+        &input_count, &generation, &resource_id);
     if (status != GE_ORIGINAL_FIRST_PERSON_SCENE_OK) goto done;
     signature = ge_first_person_topology_signature(cache->inputs, input_count);
+    /* The two original hand buffers are reused for different ROM resources. */
+    signature = ge_first_person_cache_mix(signature, resource_id);
+    if (cache->topology_ready == 0U || cache->input_count != input_count
+            || cache->topology_signature != signature) {
+        GeOriginalFirstPersonTopology *previous = cache->previous_topology;
+        if (previous != NULL && previous->topology_ready != 0U
+                && previous->input_count == input_count
+                && previous->topology_signature == signature) {
+            ge_first_person_topology_swap(cache);
+            cache->topology_reuses++;
+        } else if (cache->topology_ready != 0U) {
+            if (previous == NULL)
+                cache->previous_topology = ge_first_person_topology_create(
+                    cache->capacity);
+            /* Allocation failure only disables this renderer optimization. */
+            if (cache->previous_topology != NULL)
+                ge_first_person_topology_swap(cache);
+            cache->topology_ready = 0U;
+        }
+        cache->topology_publications++;
+    }
     if (cache->topology_ready == 0U || cache->input_count != input_count
             || cache->topology_signature != signature) {
         size_t required_vertices = 0U;

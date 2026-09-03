@@ -221,3 +221,148 @@ Assets remain
 The build, SD staging directory, and Azahar installation are byte-matched.
 The temporary input-probe config was moved back into private probe output to
 restore normal launch. No ROM-derived assets, firmware, or saves are committed.
+
+## Follow-up: guard-tail and weapon-layout publication
+
+The live all-stage scene installer did not initialize the insertion offsets
+for an empty guard segment. When guards became visible it inserted their
+geometry before ordinary props/doors, while subsequent publication assumed
+the guards occupied the tail. The older Dam-only installer already preserved
+that boundary. Both paths now retain the tail offset even with zero guards;
+no validation or fallback behavior was weakened.
+
+The regression first failed on the missing assignments. Sanitizer coverage
+now repeats 24 empty/single/multiple/empty guard transitions while preserving
+the ordinary-prop prefix, room data, batch indices, and segment boundaries.
+The intermediate Azahar report
+`build/visual-probe/dam-empty-guard-tail-9d910345.result` records 27 successful
+topology replacements, zero replacement failures/full-rebuild fallbacks,
+4,060 healthy actor ticks, and no matrix failure. Two full installs remained;
+the initial report covered guard/door/monitor fallback counts but did not
+report articulated-prop fallback counts. They must be distinguished before
+attributing the remaining full rebuild to room residency alone.
+
+First-person rendering now retains one previous immutable decoded layout.
+Original weapon visibility switches can alternate between the two layouts
+without decoding the same GBI repeatedly. Matrices, hand state, gameplay, and
+output buffers are not retained in the spare slot. Resource identity joins
+the cache key because the original hand buffers are reused between weapons.
+Allocation failure simply leaves the uncached decode available. Layout
+changes also invalidate/remap UVs and make newly referenced textures resident,
+even if the weapon resource itself has not changed.
+
+The exact gun/modem sanitizer test warms two authored PP7 SWITCH layouts and
+alternates them 16 times using canonical model relations: 16 cache hits, no
+new decodes. It compares renderer-consumed vertex fields and complete batches
+against a freshly decoded cache each time. Decode-time clip/NDC/screen fields
+are not compared across old/new poses because the projection-only first-person
+renderer does not consume those template intermediates. The focused host
+measurement was 273 us warm versus 4,157 us cold, not an emulator FPS claim.
+
+The intermediate live report
+`build/visual-probe/dam-weapon-layout-cache-843c74e4.result` records 11,587
+first-person builds, two decoded layouts and 45 layout reuses. The previous
+recurring roughly 30 ms first-person stalls no longer appear in its retained
+slow-frame samples. Actor scheduling stayed healthy for 4,842 simulation
+ticks; 23 PP7 shots/two guard hits and 3,635 NDSP blocks were recorded. Bond
+died at 11/160 route targets: **the route failed, Dam was not completed**.
+There were still 742/11,466 post-warmup samples over 16 ms and a 213 ms peak,
+including 205 ms of overlay work during a full scene rebuild. These live runs
+have differing AI/RNG, encounter duration, and host load; do not treat their
+frame-tail counts as a controlled FPS comparison.
+
+## Follow-up: avoid the duplicate prop/door sizing traversal
+
+Room installation already queries each model to size its combined buffers.
+It now passes that preflight to the writer instead of repeating the count
+traversal. The write pass still traverses/validates all GBI commands and checks
+every output bound. All list/vertex/batch/triangle/command counts must match
+before publishing; failed or stale preflights cannot publish a scene. No
+extra persistent geometry cache or authored state changes were introduced.
+The output command-address fields are copied explicitly into the zeroed batch
+to avoid copying indeterminate structure padding from traversal temporaries.
+
+Focused ASan/UBSan coverage compares complete vertex/batch output for PP7,
+window, and Dam gate models, checks aliased query/output variables, and
+rejects failed/stale/overflowing queries, undersized output and invalid lists.
+A bogus zero-sized query with null output pointers still hits the write
+callback's bounds check. The focused host writer measured 95/14/52 us versus
+164/27/93 us for the normal two-pass builder, respectively. This isolates
+model publication only and does not establish the remaining room-hitch cost.
+
+The full host suite and ARM/3DSX build pass for the combined changes. Logs:
+`build/host-tests/preflighted-model-20260902.log`,
+`full-renderer-publication-20260902.log`, and
+`arm-renderer-publication-20260902.log`. Earlier focused logs include
+`first-person-layout-regression-20260902.log` and
+`full-empty-guard-tail-20260902.log`.
+
+## Follow-up: retain room geometry during whole-overlay replacement
+
+The next phase-timed report,
+`build/visual-probe/dam-overlay-phases-4c4d585f.result`, did not reproduce the
+mid-combat full rebuild: it had one initial install, no articulated-prop
+failures/topology changes, 4,129 healthy actor ticks, and a 63 ms post-warmup
+peak. It is **not** evidence that the intermittent full rebuild disappeared.
+It did isolate initial installation: approximately 8.6 ms query, 9.3 ms prop
+build, less than 0.1 ms guard build, **160.9 ms overlay transaction**, and
+43.7 ms texture/metadata publication.
+
+Inspection found that `ge_dam_dynamic_scene_set_overlay` always called the
+resident-room asset loader and GBI builder, even though only overlay geometry
+changed. It now shares the atomic overlay-segment writer, retaining the
+already-decoded room prefix. The existing API's generation/update counters,
+capacity checks, local-to-published batch rebasing, and failure atomicity are
+preserved. Room loading/eviction transactions still own actual room decoding.
+This removes redundant work; it does not skip room geometry or change original
+model, AI, collision, or visibility behavior.
+
+The focused regression fails on the old implementation when the test supplies
+an asset pack with no entries after initial room loading. The fixed code
+passes 13 overlay-only publications without needing that pack, including
+shrink/clear/grow cycles and aliased old-overlay input. Every resident room
+vertex and batch remains byte-identical, along with residency/age metadata.
+Invalid batches, overflowing triangle totals, and total-scene vertex/batch
+capacity failures preserve the published scene and pointers. Existing
+24-cycle guard-tail and room-stream/eviction tests remain part of the suite.
+Logs: `build/host-tests/whole-overlay-before-20260902.log` (expected failure)
+and `whole-overlay-replacement-20260902.log` (ASan/UBSan pass).
+
+Final live report: `build/visual-probe/dam-retained-room-overlay-264dec72.result`.
+The full rebuild recurred, now with `articulated_publication=724,0,1,1`:
+one articulated-prop topology change/fallback, not a guard-tail failure.
+Its displayed frame took 51 ms (41 ms overlay work), versus 207 ms (196 ms
+overlay work) in the earlier `dam-preflighted-room-3d33d0c4.result` run.
+The last install's phases were 8.7/9.3/<0.1/**5.1**/1.1 ms, respectively.
+Thus the room-preserving transaction is live; unrelated encounter timings
+and aggregate FPS remain uncontrolled, not a general speedup measurement.
+
+This run recorded 5,109 healthy simulation/actor ticks, zero matrix faults,
+35 PP7 shots/five guard hits, 51 successful guard topology replacements with
+zero failures, and 69 first-person layout reuses after two decodes. NDSP
+remained active with 3,838 output blocks. It reached 14/160 route targets and
+Bond death: **the route still failed and end-to-end Dam remains unverified**.
+There were 1,078/8,974 post-warmup samples over 16 ms, nine over 33 ms, and a
+68 ms peak. Stable 60 FPS is not achieved. Residual stalls include the first
+weapon-layout decode (~39 ms), cold/changed guard publication (~56 ms overlay
+work), and the still-global articulated-prop rebuild/upload (~41 ms).
+
+Final full host suite and ARM build passed:
+`build/host-tests/full-retained-room-overlay-20260902.log` and
+`arm-retained-room-overlay-20260902.log`. The exact executable SHA-256 is
+`264dec72082d775c014908665993444b00caadd01d4370f9d32b163b338dd6fb`;
+asset pack remains
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Build, SD stage, and Azahar virtual SD copies are byte-matched. The temporary
+input config was moved to `build/visual-probe/dam-publication-264dec72-used.cfg`
+to restore ordinary menu launch. Only one Azahar process was used; no firmware
+marker is present in the hardware staging tree. Audio output is verified, not
+audible N64-reference fidelity.
+
+Next: reduce remaining cold/changed-model publication and replace only the
+affected articulated-prop segment, then validate player-driven objectives and
+the Dam exit. A separate visible fidelity gap was also confirmed by source
+inspection: the live HUD still draws the legacy synthetic crosshair from
+`build_crosshair_from_gbi` unconditionally outside watch/credits. Replace that
+with the canonical sight-rendering path/visibility state, not a recolored
+placeholder. No crosshair change was made in this checkpoint.

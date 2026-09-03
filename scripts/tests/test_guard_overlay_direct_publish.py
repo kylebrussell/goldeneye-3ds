@@ -20,6 +20,22 @@ def main() -> None:
         "ge_dam_dynamic_scene_commit_overlay_batches(", build)
     assert direct < build < commit
     assert "ge_dam_dynamic_scene_update_overlay_segment(" not in body
+    # Empty guard sets still own their insertion point after ordinary props
+    # and doors. The live all-stage installer must preserve it just like the
+    # older Dam-only installer; otherwise the first visible guard is inserted
+    # at zero while subsequent publication assumes it occupies the tail.
+    start = source.index("static bool install_stage_ordinary_object_scenes(")
+    end = source.index("fail_stage_scene:", start)
+    install = source[start:end]
+    # Reuse the existing validated sizing pass when writing prop/door output.
+    assert "ge_original_model_scene_build_preflighted(\n" in install
+    assert "&inputs[input_index], &queries[input_index], &storage, &built)" in install
+    boundary = install.index("guard_vertex_offset = vertex_count;")
+    capture = install.index("&guard_candidate, vertices, guard_vertex_offset")
+    assert boundary < install.index(
+        "guard_candidate.vertex_offset = guard_vertex_offset;") < capture
+    assert boundary < install.index(
+        "guard_candidate.batch_offset = guard_batch_offset;") < capture
     print("3DS guard overlay: model cache writes scene tail directly; batch-only commit retained")
 
 

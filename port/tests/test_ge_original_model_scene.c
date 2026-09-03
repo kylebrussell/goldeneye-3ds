@@ -131,6 +131,98 @@ static uint64_t profile_clock(void *context)
     return ++*tick;
 }
 
+static void exercise_preflighted(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelScene *query,
+    const GeDamRoomSceneStorage *reference,
+    const GeDamRoomSceneStorage *storage)
+{
+    GeOriginalModelScene scene;
+    GeOriginalModelScene stale;
+    GeOriginalModelSceneInput invalid = *input;
+    GeDamRoomSceneStorage small = *storage;
+    const GeDamRoomSceneStorage empty = {NULL, 0U, NULL, 0U};
+    const size_t vertex_bytes = query->required_vertex_count
+        * sizeof(*storage->vertices);
+    const size_t batch_bytes = query->required_batch_count
+        * sizeof(*storage->batches);
+    clock_t start;
+    clock_t regular_ticks;
+    clock_t preflighted_ticks;
+    size_t iteration;
+
+    assert(ge_original_model_scene_build_preflighted(
+        input, query, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(scene.vertex_count == query->required_vertex_count
+           && scene.batch_count == query->required_batch_count);
+    assert(memcmp(storage->vertices, reference->vertices, vertex_bytes) == 0);
+    assert(memcmp(storage->batches, reference->batches, batch_bytes) == 0);
+    scene = *query;
+    assert(ge_original_model_scene_build_preflighted(
+        input, &scene, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    /* A published scene is also a valid preflight; failed queries are not. */
+    assert(ge_original_model_scene_build_preflighted(
+        input, &scene, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(ge_original_model_scene_build_preflighted(
+        input, NULL, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    stale = *query;
+    stale.status = GE_ORIGINAL_MODEL_SCENE_PIPELINE_ERROR;
+    assert(ge_original_model_scene_build_preflighted(
+        input, &stale, storage, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    stale = *query;
+    stale.list_count++;
+    assert(ge_original_model_scene_build_preflighted(
+        input, &stale, storage, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    stale = *query;
+    stale.triangle_count = SIZE_MAX;
+    assert(ge_original_model_scene_build_preflighted(
+        input, &stale, storage, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    /* A stale command count cannot publish an otherwise valid decode. */
+    stale = *query;
+    stale.commands_visited++;
+    assert(ge_original_model_scene_build_preflighted(
+        input, &stale, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    small.vertex_capacity--;
+    assert(ge_original_model_scene_build_preflighted(
+        input, query, &small, &scene) == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    /* Even a bogus zero-sized query cannot bypass the write callback's
+     * bounds checks. No output pointers are supplied to this traversal. */
+    stale = *query;
+    stale.required_vertex_count = 0U;
+    stale.required_batch_count = 0U;
+    stale.triangle_count = 0U;
+    assert(ge_original_model_scene_build_preflighted(
+        input, &stale, &empty, &scene) == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    invalid.primary_offset = (uint32_t)input->blob_size;
+    assert(ge_original_model_scene_build_preflighted(
+        &invalid, query, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    start = clock();
+    for (iteration = 0U; iteration < 16U; ++iteration)
+        assert(ge_original_model_scene_build(input, storage, &scene)
+            == GE_ORIGINAL_MODEL_SCENE_OK);
+    regular_ticks = clock() - start;
+    start = clock();
+    for (iteration = 0U; iteration < 16U; ++iteration)
+        assert(ge_original_model_scene_build_preflighted(
+            input, query, storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    preflighted_ticks = clock() - start;
+    assert(memcmp(storage->vertices, reference->vertices, vertex_bytes) == 0);
+    assert(memcmp(storage->batches, reference->batches, batch_bytes) == 0);
+    printf("preflighted model: %zu vertices, regular=%.3f us, preflighted=%.3f us; "
+           "byte-exact output and failure bounds verified\n",
+           scene.vertex_count,
+           (double)regular_ticks * 1000000.0 / (16.0 * CLOCKS_PER_SEC),
+           (double)preflighted_ticks * 1000000.0 / (16.0 * CLOCKS_PER_SEC));
+}
+
 static void exercise(const char *path, size_t blob_size,
                      uint32_t primary, uint32_t secondary,
                      uint32_t segment4_offset)
@@ -191,6 +283,7 @@ static void exercise(const char *path, size_t blob_size,
             cached_vertices, query.required_vertex_count,
             cached_batches, query.required_batch_count
         };
+        exercise_preflighted(&input, &query, &storage, &cached_storage);
         assert(ge_original_model_scene_cache_build(
             &cache, &input, 1U, &cached_storage, &cached)
             == GE_ORIGINAL_MODEL_SCENE_OK);

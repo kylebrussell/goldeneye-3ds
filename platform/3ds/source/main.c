@@ -2188,6 +2188,7 @@ typedef struct RuntimeStageOrdinaryObjects {
     size_t scene_install_ordinary_input_count;
     size_t scene_install_required_vertices;
     size_t scene_install_required_batches;
+    uint64_t scene_install_phase_ticks[5];
 } RuntimeStageOrdinaryObjects;
 
 static bool input_probe_live_guard_aim_position(
@@ -2665,6 +2666,7 @@ static bool write_input_probe_result(
     const RuntimeInputProbe *runtime,
     const RuntimeStageOrdinaryObjects *objects,
     const RuntimeFirstPersonModels *first_person_models,
+    const GeOriginalFirstPersonSceneCache *first_person_cache,
     const RuntimeDamIntro *intro)
 {
     GeOriginalMusicPortSnapshot music_port = {0};
@@ -3041,6 +3043,17 @@ static bool write_input_probe_result(
         (unsigned)objects->guard_status,
         (unsigned)objects->overlay_status,
         (unsigned)objects->scene_install_failure_phase);
+    fprintf(stream, "stage_scene_install_ticks=%llu,%llu,%llu,%llu,%llu\n",
+        (unsigned long long)objects->scene_install_phase_ticks[0],
+        (unsigned long long)objects->scene_install_phase_ticks[1],
+        (unsigned long long)objects->scene_install_phase_ticks[2],
+        (unsigned long long)objects->scene_install_phase_ticks[3],
+        (unsigned long long)objects->scene_install_phase_ticks[4]);
+    fprintf(stream, "articulated_publication=%llu,%llu,%llu,%llu\n",
+        (unsigned long long)objects->articulated_scene_update_count,
+        (unsigned long long)objects->articulated_scene_unchanged_count,
+        (unsigned long long)objects->articulated_scene_topology_change_count,
+        (unsigned long long)objects->articulated_scene_failure_count);
     fprintf(stream, "guard_scene_cache=%llu,%llu,%llu,%llu,%llu\n",
         (unsigned long long)objects->guard_scene_cache.build_attempts,
         (unsigned long long)objects->guard_scene_cache.cached_builds,
@@ -3383,6 +3396,19 @@ static bool write_input_probe_result(
         (unsigned long long)frame_profile.first_person_ms,
         (unsigned long long)frame_profile.gpu_ms,
         (unsigned long)frame_profile.samples);
+    if (first_person_cache != NULL) {
+        fprintf(stream, "first_person_topology=%llu,%llu,%llu,%llu\n",
+            (unsigned long long)first_person_cache->build_attempts,
+            (unsigned long long)first_person_cache->topology_rebuilds,
+            (unsigned long long)first_person_cache->topology_reuses,
+            (unsigned long long)first_person_cache->topology_publications);
+        fprintf(stream, "first_person_profile_ticks=%llu,%llu,%llu,%llu,%llu\n",
+            (unsigned long long)first_person_cache->profile_build_ticks,
+            (unsigned long long)first_person_cache->profile_input_topology_ticks,
+            (unsigned long long)first_person_cache->profile_matrix_signature_ticks,
+            (unsigned long long)first_person_cache->profile_vertex_transform_ticks,
+            (unsigned long long)first_person_cache->profile_batch_publication_ticks);
+    }
     fprintf(stream,
         "frame_profile_total_ms=%llu,%llu,%llu,%llu,%llu,%llu,%lu\n",
         (unsigned long long)(frame_profile_total.frame_ms
@@ -3583,6 +3609,14 @@ static const float runtime_eye_space_identity[4][4] = {
     {0.0f, 0.0f, 0.0f, 1.0f},
 };
 
+static int ensure_first_person_scene_texture(void *context, uint16_t texture_id)
+{
+    const Ge3dsSceneTextureStatus status = ge_3ds_scene_textures_ensure_image(
+        context, &first_person_scene_textures, texture_id);
+    return status == GE_3DS_SCENE_TEXTURE_OK
+        || status == GE_3DS_SCENE_TEXTURE_PARTIAL;
+}
+
 static bool update_first_person_scene(RuntimeFirstPersonModels *models,
                                       RuntimeFirstPersonScene *runtime,
                                       RuntimeDamPreview *dam_preview,
@@ -3595,6 +3629,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
     const void *published_header;
     unsigned asset_slot = 0U;
     uint64_t unchanged_builds_before;
+    uint64_t topology_publications_before;
     bool publication_unchanged;
     bool uv_updated = false;
     size_t batch_index;
@@ -3621,6 +3656,9 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         runtime->batches, FIRST_PERSON_BATCH_CAPACITY,
     };
     unchanged_builds_before = runtime->cache.unchanged_builds;
+    topology_publications_before = runtime->cache.topology_publications;
+    ge_original_first_person_scene_cache_bind_profile_clock(
+        &runtime->cache, runtime_profile_clock, NULL);
     runtime->scene.status = ge_original_first_person_scene_build_cached(
         &runtime->cache, &models->assets, 0U,
         runtime_eye_space_identity,
@@ -3639,6 +3677,15 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
                 &models->assets, published_header, &asset_slot)
             || asset_slot >= 2U) return false;
     loaded_model = models->assets.loaded_model[asset_slot];
+    if (runtime->cache.topology_publications != topology_publications_before) {
+        /* Original reload/fire switches can change vertex order and texture
+         * coordinates without selecting a different weapon resource. */
+        runtime->uv_ready = false;
+        if (runtime->textures_ready && runtime->loaded_model == loaded_model
+                && !ge_original_model_scene_visit_textures(
+                    runtime->batches, runtime->batch_count, texture_cache,
+                    ensure_first_person_scene_texture)) return false;
+    }
     if (!runtime->textures_ready || runtime->loaded_model != loaded_model) {
         ge_3ds_scene_textures_close(&first_person_scene_textures);
         memset(first_person_texture_slots, 0,
@@ -7023,6 +7070,9 @@ static bool install_stage_ordinary_object_scenes(
     size_t guard_vertex_offset = 0U;
     size_t guard_batch_offset = 0U;
     size_t entry_index;
+    /* Last nonempty install: query, ordinary build, guard build, overlay
+     * transaction, textures/metadata. Keep these outside per-frame hot loops. */
+    uint64_t phase_ticks[6] = {svcGetSystemTick()};
     if (objects != NULL) {
         ++objects->scene_install_attempts;
         objects->scene_install_failure_phase =
@@ -7031,6 +7081,8 @@ static bool install_stage_ordinary_object_scenes(
         objects->scene_install_ordinary_input_count = 0U;
         objects->scene_install_required_vertices = 0U;
         objects->scene_install_required_batches = 0U;
+        memset(objects->scene_install_phase_ticks, 0,
+               sizeof(objects->scene_install_phase_ticks));
     }
     if (objects == NULL || !objects->initialized
             || objects->preview == NULL
@@ -7350,6 +7402,7 @@ static bool install_stage_ordinary_object_scenes(
     triangle_count += guard_query.triangle_count;
     objects->scene_install_required_vertices = vertex_count;
     objects->scene_install_required_batches = batch_count;
+    phase_ticks[1] = svcGetSystemTick();
     objects->scene_install_failure_phase =
         RUNTIME_STAGE_SCENE_INSTALL_ALLOCATE_OUTPUT;
     if (vertex_count == 0U || batch_count == 0U) goto fail_stage_scene;
@@ -7376,8 +7429,8 @@ static bool install_stage_ordinary_object_scenes(
             door_vertex_offset = vertex_count;
             door_batch_offset = batch_count;
         }
-        objects->scene_status = ge_original_model_scene_build(
-            &inputs[input_index], &storage, &built);
+        objects->scene_status = ge_original_model_scene_build_preflighted(
+            &inputs[input_index], &queries[input_index], &storage, &built);
         if (objects->scene_status != GE_ORIGINAL_MODEL_SCENE_OK)
             goto fail_stage_scene;
         if (input_index < ordinary_input_count) {
@@ -7399,6 +7452,12 @@ static bool install_stage_ordinary_object_scenes(
     }
     guard_vertex_offset = vertex_count;
     guard_batch_offset = batch_count;
+    /* Even an empty guard set owns the tail insertion point. A later visible
+     * guard must be appended after ordinary props/doors; refresh assumes that
+     * order when publishing the new segment offsets. */
+    guard_candidate.vertex_offset = guard_vertex_offset;
+    guard_candidate.batch_offset = guard_batch_offset;
+    phase_ticks[2] = svcGetSystemTick();
     objects->scene_install_failure_phase =
         RUNTIME_STAGE_SCENE_INSTALL_GUARD_BUILD;
     if (guard_query.required_vertex_count != 0U
@@ -7429,6 +7488,7 @@ static bool install_stage_ordinary_object_scenes(
         memset(&objects->guard_scene, 0, sizeof(objects->guard_scene));
         objects->guard_scene.status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
     }
+    phase_ticks[3] = svcGetSystemTick();
     objects->scene_install_failure_phase =
         RUNTIME_STAGE_SCENE_INSTALL_OVERLAY;
     if ((guard_vertex_offset > vertex_count
@@ -7464,6 +7524,7 @@ static bool install_stage_ordinary_object_scenes(
         objects->preview->dynamic_scene.scene.triangle_count;
     objects->preview->draws =
         objects->preview->dynamic_scene.scene.batch_count;
+    phase_ticks[4] = svcGetSystemTick();
     objects->scene_install_failure_phase =
         RUNTIME_STAGE_SCENE_INSTALL_TEXTURES;
     {
@@ -7525,6 +7586,10 @@ static bool install_stage_ordinary_object_scenes(
     objects->overlay_full_rebuilds++;
     ++objects->scene_install_successes;
     objects->scene_install_failure_phase = RUNTIME_STAGE_SCENE_INSTALL_NONE;
+    phase_ticks[5] = svcGetSystemTick();
+    for (entry_index = 0U; entry_index < 5U; ++entry_index)
+        objects->scene_install_phase_ticks[entry_index] =
+            phase_ticks[entry_index + 1U] - phase_ticks[entry_index];
     ge_3ds_scene_textures_close(&candidate_textures);
     free(candidate_slots); free(batches); free(vertices);
     free(door_generations); free(door_publications);
@@ -18352,7 +18417,7 @@ start_stage_runtime:
                     &input_probe, &stage_ordinary_objects, false);
                 (void)write_input_probe_result(
                     &input_probe, &stage_ordinary_objects,
-                    &first_person_models, &dam_intro);
+                    &first_person_models, &first_person_scene.cache, &dam_intro);
             }
             (void)ge_original_boss_commit_requested_stage();
             gameplay_stage_ended = true;
@@ -18453,7 +18518,7 @@ start_stage_runtime:
                     >= input_probe.target_frames) {
             (void)write_input_probe_result(
                 &input_probe, &stage_ordinary_objects,
-                &first_person_models, &dam_intro);
+                &first_person_models, &first_person_scene.cache, &dam_intro);
             printf("Input probe complete.\n");
             break;
         }

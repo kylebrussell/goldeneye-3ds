@@ -180,7 +180,11 @@ static int collect_model_draw(const GeGbiPipelineEvent *event,
         memset(batch, 0, sizeof(*batch));
         batch->room_id = context->input->room_id;
         batch->list_kind = context->sequence_kinds[event->sequence_index];
-        batch->command_address = event->command_address;
+        /* Keep the zeroed output padding deterministic: traversal addresses
+         * are returned by value and need not carry initialized padding. */
+        batch->command_address.raw = event->command_address.raw;
+        batch->command_address.offset = event->command_address.offset;
+        batch->command_address.segment = event->command_address.segment;
         batch->texture = event->state->rare_texture;
         batch->material = material;
         batch->first_vertex = context->vertex_cursor;
@@ -372,6 +376,7 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
     const GeOriginalModelSceneInput *input,
     const GeDamRoomSceneStorage *storage,
     uint16_t *matrix_indices, size_t matrix_index_capacity,
+    const GeOriginalModelScene *query,
     GeOriginalModelScene *scene)
 {
     const GeDamRoomSceneStorage empty = {NULL, 0U, NULL, 0U};
@@ -388,8 +393,11 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
     size_t list_count = 0U;
     size_t list_index;
     GeOriginalModelSceneStatus status;
+    /* Callers may reuse their query variable for the published scene. */
+    GeOriginalModelScene expected = {0};
 
     if (scene == NULL) return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
+    if (query != NULL) expected = *query;
     memset(scene, 0, sizeof(*scene));
     scene->status = GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     if (!input_valid(input, actual_storage)) return scene->status;
@@ -397,11 +405,24 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
     for (list_index = 0U; list_index < 2U; ++list_index)
         if (offsets[list_index] != GE_ORIGINAL_MODEL_SCENE_NO_LIST)
             ++list_count;
-    status = execute_lists(input, actual_storage, offsets, UINT8_C(0),
-        &vertices, &batches, &triangles, &commands, NULL, 0U);
-    if (status != GE_ORIGINAL_MODEL_SCENE_OK) {
-        scene->status = status;
-        return status;
+    if (query != NULL) {
+        if ((expected.status != GE_ORIGINAL_MODEL_SCENE_OK
+                && expected.status != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED)
+                || expected.list_count != list_count
+                || expected.triangle_count > SIZE_MAX / 3U
+                || expected.required_vertex_count != expected.triangle_count * 3U)
+            return scene->status;
+        vertices = expected.required_vertex_count;
+        batches = expected.required_batch_count;
+        triangles = expected.triangle_count;
+        commands = expected.commands_visited;
+    } else {
+        status = execute_lists(input, actual_storage, offsets, UINT8_C(0),
+            &vertices, &batches, &triangles, &commands, NULL, 0U);
+        if (status != GE_ORIGINAL_MODEL_SCENE_OK) {
+            scene->status = status;
+            return status;
+        }
     }
     scene->list_count = list_count;
     scene->required_vertex_count = vertices;
@@ -427,6 +448,13 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
         scene->status = status;
         return status;
     }
+    if (vertices != scene->required_vertex_count
+            || batches != scene->required_batch_count
+            || triangles != scene->triangle_count
+            || commands != scene->commands_visited) {
+        scene->status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+        return scene->status;
+    }
     scene->vertex_count = vertices;
     scene->batch_count = batches;
     scene->triangle_count = triangles;
@@ -441,7 +469,24 @@ GeOriginalModelSceneStatus ge_original_model_scene_build(
     GeOriginalModelScene *scene)
 {
     return ge_original_model_scene_build_internal(
-        input, storage, NULL, 0U, scene);
+        input, storage, NULL, 0U, NULL, scene);
+}
+
+GeOriginalModelSceneStatus ge_original_model_scene_build_preflighted(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelScene *query,
+    const GeDamRoomSceneStorage *storage,
+    GeOriginalModelScene *scene)
+{
+    if (query == NULL) {
+        if (scene != NULL) {
+            memset(scene, 0, sizeof(*scene));
+            scene->status = GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
+        }
+        return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
+    }
+    return ge_original_model_scene_build_internal(
+        input, storage, NULL, 0U, query, scene);
 }
 
 GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template(
@@ -453,7 +498,7 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template(
     if (matrix_indices == NULL && matrix_index_capacity != 0U)
         return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     return ge_original_model_scene_build_internal(
-        input, storage, matrix_indices, matrix_index_capacity, scene);
+        input, storage, matrix_indices, matrix_index_capacity, NULL, scene);
 }
 
 static uint64_t cache_hash_u64(uint64_t hash, uint64_t value)

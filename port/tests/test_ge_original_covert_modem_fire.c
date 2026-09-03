@@ -35,6 +35,7 @@ typedef int PLAYERFLAG;
 #include "game/dyn.h"
 #include "game/gun.h"
 #include "game/player.h"
+#include "game/model.h"
 
 bg_portal_data_entry *g_BgPortals;
 extern f32 room_data_float1;
@@ -1027,6 +1028,113 @@ int main(int argc, char **argv)
         assert(ge_original_gun_live_frame_finalize(
             &exact_dyn_frame_audit));
         assert(exact_dyn_frame_audit.within_bounds);
+    }
+    {
+        /* Exercise a real authored model SWITCH, not a substitute animation.
+         * Warm both layouts, then alternate them as original gun behavior
+         * does while firing/reloading. Compare every renderer-consumed field with a
+         * cold cache and prove that repeated layouts are not decoded again. */
+        Model *model = (Model *)(uintptr_t)exact_live_hand.model;
+        ModelNode *toggle = NULL;
+        struct ModelRwData_SwitchRecord *rw = NULL;
+        GeDamRoomWorldVertex *reference_vertices = calloc(
+            exact_hand_storage.vertex_capacity, sizeof(*reference_vertices));
+        GeDamRoomDrawBatch *reference_batches = calloc(
+            exact_hand_storage.batch_capacity, sizeof(*reference_batches));
+        GeDamRoomSceneStorage reference_storage = {
+            reference_vertices, exact_hand_storage.vertex_capacity,
+            reference_batches, exact_hand_storage.batch_capacity,
+        };
+        const size_t normal_vertices = exact_hand_scene.vertex_count;
+        uint64_t rebuilds, reuses;
+        clock_t warm_ticks = 0, cold_ticks = 0;
+        size_t part, iteration;
+        assert(reference_vertices != NULL && reference_batches != NULL);
+        for (part = 0U; part < (size_t)model->obj->numSwitches; ++part) {
+            ModelNode *candidate = model->obj->Switches[part];
+            GeOriginalFirstPersonScene query;
+            GeOriginalFirstPersonSceneStatus result;
+            struct ModelRwData_SwitchRecord *candidate_rw;
+            if (candidate == NULL || candidate->Child == NULL
+                    || (candidate->Opcode & 0xffU) != MODELNODE_OPCODE_SWITCH)
+                continue;
+            candidate_rw = (struct ModelRwData_SwitchRecord *)
+                modelGetNodeRwData(model, candidate);
+            if (!candidate_rw->visible) continue;
+            candidate_rw->visible = 0;
+            modelApplyToggleRelations(model, candidate);
+            result = ge_original_first_person_scene_build(
+                &exact_assets, GUNRIGHT, exact_camera_result.view_to_world,
+                NULL, &query);
+            candidate_rw->visible = 1;
+            modelApplyToggleRelations(model, candidate);
+            if (result == GE_ORIGINAL_FIRST_PERSON_SCENE_CAPACITY_EXCEEDED
+                    && query.required_vertex_count > 0U
+                    && query.required_vertex_count < normal_vertices) {
+                toggle = candidate;
+                rw = candidate_rw;
+                break;
+            }
+        }
+        assert(toggle != NULL && rw != NULL);
+        for (iteration = 0U; iteration < 2U; ++iteration) {
+            rw->visible = iteration != 0U;
+            modelApplyToggleRelations(model, toggle);
+            assert(ge_original_first_person_scene_build_cached(
+                &exact_hand_scene_cache, &exact_assets, GUNRIGHT,
+                exact_camera_result.view_to_world, &exact_hand_storage,
+                &exact_hand_scene) == GE_ORIGINAL_FIRST_PERSON_SCENE_OK);
+        }
+        rebuilds = exact_hand_scene_cache.topology_rebuilds;
+        reuses = exact_hand_scene_cache.topology_reuses;
+        for (iteration = 0U; iteration < 16U; ++iteration) {
+            GeOriginalFirstPersonSceneCache cold = {0};
+            GeOriginalFirstPersonScene reference;
+            clock_t started;
+            rw->visible = (iteration & 1U) != 0U;
+            modelApplyToggleRelations(model, toggle);
+            started = clock();
+            assert(ge_original_first_person_scene_build_cached(
+                &exact_hand_scene_cache, &exact_assets, GUNRIGHT,
+                exact_camera_result.view_to_world, &exact_hand_storage,
+                &exact_hand_scene) == GE_ORIGINAL_FIRST_PERSON_SCENE_OK);
+            warm_ticks += clock() - started;
+            assert(ge_original_first_person_scene_cache_init(&cold));
+            started = clock();
+            assert(ge_original_first_person_scene_build_cached(
+                &cold, &exact_assets, GUNRIGHT,
+                exact_camera_result.view_to_world, &reference_storage,
+                &reference) == GE_ORIGINAL_FIRST_PERSON_SCENE_OK);
+            cold_ticks += clock() - started;
+            assert(reference.vertex_count == exact_hand_scene.vertex_count
+                && reference.batch_count == exact_hand_scene.batch_count);
+            /* clip/ndc/screen are decode-time RSP intermediates, not inputs
+             * to the projection-only PICA path. Eye/world are freshly posed;
+             * source UVs/colors and full material batches must also match. */
+            for (size_t vertex = 0U; vertex < reference.vertex_count; ++vertex) {
+                const GeDamRoomWorldVertex *expected = &reference_vertices[vertex];
+                const GeDamRoomWorldVertex *actual = &exact_hand_vertices[vertex];
+                assert(memcmp(&expected->source, &actual->source,
+                    sizeof(expected->source)) == 0);
+                assert(memcmp(expected->world, actual->world,
+                    sizeof(expected->world)) == 0);
+                assert(memcmp(expected->processed.eye, actual->processed.eye,
+                    sizeof(expected->processed.eye)) == 0);
+                assert(memcmp(expected->processed.rgba, actual->processed.rgba,
+                    sizeof(expected->processed.rgba)) == 0);
+            }
+            assert(memcmp(reference_batches, exact_hand_batches,
+                reference.batch_count * sizeof(*reference_batches)) == 0);
+            ge_original_first_person_scene_cache_close(&cold);
+        }
+        assert(exact_hand_scene_cache.topology_rebuilds == rebuilds);
+        assert(exact_hand_scene_cache.topology_reuses == reuses + 16U);
+        printf("authored first-person SWITCH %zu: 16 byte-identical renderer layout "
+               "reuses, warm %.3f us/cold %.3f us\n", part,
+            (double)warm_ticks * 1000000.0 / CLOCKS_PER_SEC / 16.0,
+            (double)cold_ticks * 1000000.0 / CLOCKS_PER_SEC / 16.0);
+        free(reference_batches);
+        free(reference_vertices);
     }
     free(exact_hand_batches);
     free(exact_hand_vertices);

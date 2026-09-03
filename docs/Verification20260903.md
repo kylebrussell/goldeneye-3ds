@@ -1195,3 +1195,134 @@ beyond initial residency remains necessary to measure actual streaming dips.
 Azahar's temporary Facility and input/tour overrides were removed after the
 checks and normal boot restored, leaving the hash-checked latest code/data
 pair installed. Hardware staging's pre-existing `cradle` selection is unchanged.
+
+## Shared immutable model templates instead of aggregate copies
+
+The next pass removes aggregate vertex/material/matrix-index/duplicate-map
+allocations from `GeOriginalModelSceneCache`. Each immutable component is still
+decoded through the same canonical display-list path and owned by the existing
+component cache. Aggregate variants now store stable component **indices** plus
+the original per-input queries, order, offsets and publication signatures.
+Indices survive descriptor-array growth; retaining or evicting an aggregate
+never frees another aggregate's component payload. Cache close owns all frees.
+The existing eight-variant policy and component keys remain unchanged.
+
+Publication reads the selected component directly. Duplicate-transform indices
+remain component-local; output batch offsets are rebased exactly once at
+publication. Current original matrices, positions, rooms, static/dirty-range
+rules, scalar floating-point order, animation and gameplay scheduling are
+unchanged. No runtime geometry is omitted and no aggregate template payload is
+copied solely because another guard changes authored model relations. The
+new read-only template-view API exposes immutable per-input data for diagnostic
+tests without requiring the former flattened duplicate storage.
+
+Focused ASan/UBSan tests pass for all existing PP7/window/gate model checks,
+matrix/transform byte-equivalence, selective publications and dirty ranges.
+An additional 120-publication test uses 40 separately retained ROM-backed
+components, grows the descriptor array beyond 32 entries, evicts aggregate
+variants, publishes empty/reordered/repeated inputs, and compares every output
+vertex and batch byte against separately published inputs with rebased indices.
+Repeated models at different positions share immutable pointers, not transformed
+output. Borrowed payload addresses remain stable through descriptor growth.
+The full host suite and ARM/3DSX build passed as well.
+
+Evidence: `build/host-tests/shared-model-templates/sanitizer.log`,
+`build/host-tests/shared-model-templates-full.log`, and
+`build/host-tests/arm-shared-model-templates.log`.
+Candidate SHA-256:
+`3579aa3670fdfdb760e7b4a82135f6941269f1cb12de5bd19022f8a4d05135d9`.
+Assets are unchanged (`938536d4…`).
+
+A fresh isolated combat comparison of `952088b7` and this shared-template
+candidate observed worst guard refresh 11.80 / 10.30 ms. Topology work **at
+those respective peak frames** was 1.60 / 0.17 ms. Total topology work was
+127.5 / 108.1 ms despite 36 / 57 aggregate rebuilds; encounters are not
+deterministic, so this is supporting evidence, not a per-rebuild benchmark.
+Post-warmup frame maxima were 39 / 36 ms, with 514/4,798 and 564/4,965 samples
+over 16 ms. Both died before route completion (11 / 13 of 160 targets;
+4,919 / 5,086 simulation ticks; 26 / 38 PP7 shots). No matrix, unknown-AI,
+sound-decode or overlay-growth failures were reported. Evidence:
+`build/visual-probe/shared-templates-{baseline-9520,candidate-3579}-combat.result`.
+
+The same reports' slow-frame records locate the largest stalls in room 135,
+when topology replacement coincides with other original simulation work.
+For example, the 36 ms candidate frame contains 25 ms simulation (including
+15 ms overlay work), 1 ms camera upload, 4 ms first-person work and 7 ms GPU
+submission/end; the integer timings are nested/rounded, not additive buckets.
+At the worst guard-refresh frame, vertex publication alone is 4.84 ms.
+
+The follow-up therefore bulk-copies each component's immutable vertex and
+batch payload into a changed publication buffer, then runs the unchanged
+scalar transforms and batch room/index updates. Stable-buffer reuse is
+unchanged. This removes per-vertex/per-batch large struct copies without
+changing vertex order or skipping original matrix work. The 40-component
+sanitizer test now also varies component lengths (with/without the authored
+secondary list). Focused sanitizers, the complete host suite and ARM build
+pass for the combined candidate. Final logs:
+`shared-model-templates/bulk-sanitizer.log`, `shared-templates-bulk-full.log`
+and `arm-shared-templates-bulk.log` under `build/host-tests/`.
+Combined executable SHA-256:
+`2925d771362e2028c3bd90c9bc8e6e83c89dbad05319c382ef2b177d1d8dee4a`.
+
+The combined build's fresh combat result:
+
+| Metric | Fresh baseline `952088b7` | Shared `3579aa36` | Shared + bulk `2925d771` |
+| --- | ---: | ---: | ---: |
+| Simulation ticks before death | 4,919 | 5,086 | 5,524 |
+| Targets reached / 160 | 11 | 13 | 14 |
+| PP7 shots / damaging guard hits | 26 / 3 | 38 / 4 | 37 / 7 |
+| Aggregate topology rebuilds | 36 | 57 | 99 |
+| Worst measured guard refresh | 11.80 ms | 10.30 ms | 8.74 ms |
+| Topology work at that guard peak | 1.60 ms | 0.17 ms | 0.17 ms |
+| Vertex publication at that guard peak | 4.95 ms | 4.84 ms | 3.71 ms |
+| Post-warmup frame-work peak | 39 ms | 36 ms | 35 ms |
+| Samples over 16 ms | 514 / 4,798 | 564 / 4,965 | 658 / 5,403 |
+| Samples over 25 ms | 5 | 4 | 4 |
+
+All builds used the same authored-route input config, Azahar configuration,
+unchanged pack and original game systems, with no concurrent compilation.
+The different combat outcomes and rebuild counts preclude a controlled
+whole-run FPS ratio; the count/fraction of frames over 16 ms did **not** improve
+in these unequal encounters. The useful measured result is reduced peak
+guard-refresh cost and removal of duplicate immutable aggregate storage.
+The 35 ms frame still includes 24 ms simulation (13 ms nested overlay), 1 ms
+camera, 3 ms first-person and 7 ms rendering. No sustained-60 claim is made.
+
+The combined run completed 5,524 original movement/actor/gun ticks, decoded
+730 sounds without decode failures, queued 4,021 NDSP blocks and retained
+zero guard matrix, unknown AI opcode, overlay growth or scene-publication
+errors. It reached only initial-residency rooms and died before completing
+the route: `status=failed` is expected mission failure, not a crash.
+Evidence: `build/visual-probe/shared-templates-bulk-2925-combat.result`.
+The attempted combined-combat screenshot happened after the runner closed
+Azahar and is explicitly named `shared-templates-bulk-after-probe-closed.png`;
+it is not gameplay evidence. Earlier baseline/shared captures show movement,
+PP7/ammo and textured environment, not an exhaustive fidelity comparison.
+
+Next measured targets: preserve byte-identical publications for unaffected
+component ranges when another input changes topology (currently a topology
+switch invalidates the entire aggregate publication); then world submission
+and first-person costs on the same slow frames. Any cross-topology reuse must
+check component identity, offsets/counts, original matrix/position signatures,
+storage identity, failure invalidation and dirty ranges; shared immutable
+templates alone do not authorize skipping animation or simulation ticks.
+
+Final cross-stage/streaming checks on `2925d771` passed:
+
+- Facility: 750 simulation/presentation/movement/actor/gun ticks, seven shots,
+  exact preceding endpoint, 14 ms post-warmup maximum and zero of 630 samples
+  over 16 ms; no model matrix or overlay-growth errors. This does not resolve
+  Facility's known vent geometry gaps or prove a playthrough.
+- Dam authored-pad tour: all 177 views, 62 installations, 34 evictions, zero
+  camera/visibility/stream or guard/door/monitor/articulated publication
+  failures. This exercises shared-template lifetimes across scene changes,
+  not sustained player-driven streaming or mission completion.
+
+Evidence: `shared-templates-bulk-2925-{facility,tour}.result` and matching
+tour `.diag` under `build/visual-probe/`. Latest executable and unchanged
+asset pack hashes match the build, hardware staging and Azahar copies.
+Temporary stage/input/tour overrides were removed and normal Azahar boot
+restored. Previous `952088b7` and intermediate `3579aa36` binaries remain
+available privately. Hardware staging's existing `cradle` selection remains
+unchanged. No saves or DSP settings were manually edited, and no public push
+was made.

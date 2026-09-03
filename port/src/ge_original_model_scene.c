@@ -557,10 +557,7 @@ static uint64_t cache_topology_signature(
 
 typedef struct GeOriginalModelSceneTopologyVariant {
     GeOriginalModelScene *queries;
-    GeDamRoomWorldVertex *template_vertices;
-    GeDamRoomDrawBatch *template_batches;
-    uint16_t *template_matrix_indices;
-    uint32_t *template_transform_sources;
+    size_t *input_component_indices;
     size_t *input_quantized_matrix_offsets;
     uint64_t *input_quantized_matrix_hashes;
     uint64_t *input_publication_signatures;
@@ -578,8 +575,8 @@ typedef struct GeOriginalModelSceneTopologyVariant {
 /* Aggregate guard topology changes whenever one authored model relation
  * switches display lists.  Caching only whole aggregate scenes makes those
  * independent switches combinatorial.  Retain each immutable input topology
- * once instead: a new aggregate can then be assembled with bounded copies
- * while current matrices, positions and rooms are still republished below. */
+ * once instead: a new aggregate needs only an ordered set of component
+ * indices, while current matrices, positions and rooms are republished below. */
 typedef struct GeOriginalModelSceneTopologyComponent {
     const uint8_t *blob;
     size_t blob_size;
@@ -631,6 +628,27 @@ static void cache_component_free(
     free(component->matrix_indices);
     free(component->transform_sources);
     memset(component, 0, sizeof(*component));
+}
+
+int ge_original_model_scene_cache_template_view(
+    const GeOriginalModelSceneCache *cache, size_t input_index,
+    GeOriginalModelSceneTemplateView *view)
+{
+    if (view == NULL) return 0;
+    memset(view, 0, sizeof(*view));
+    if (cache == NULL || !cache->topology_ready
+            || input_index >= cache->input_count
+            || cache->input_component_indices == NULL
+            || cache->input_component_indices[input_index]
+                >= cache->topology_component_count) return 0;
+    const GeOriginalModelSceneTopologyComponent *component =
+        &((const GeOriginalModelSceneTopologyComponent *)cache->topology_components)
+            [cache->input_component_indices[input_index]];
+    view->vertices = component->vertices;
+    view->batches = component->batches;
+    view->matrix_indices = component->matrix_indices;
+    view->transform_sources = component->transform_sources;
+    return 1;
 }
 
 static void cache_build_component_transform_sources(
@@ -802,10 +820,7 @@ static void cache_variant_free(GeOriginalModelSceneTopologyVariant *variant)
 {
     if (variant == NULL) return;
     free(variant->queries);
-    free(variant->template_vertices);
-    free(variant->template_batches);
-    free(variant->template_matrix_indices);
-    free(variant->template_transform_sources);
+    free(variant->input_component_indices);
     free(variant->input_quantized_matrix_offsets);
     free(variant->input_quantized_matrix_hashes);
     free(variant->input_publication_signatures);
@@ -821,10 +836,7 @@ static void cache_export_topology(
 {
     memset(variant, 0, sizeof(*variant));
     variant->queries = cache->queries;
-    variant->template_vertices = cache->template_vertices;
-    variant->template_batches = cache->template_batches;
-    variant->template_matrix_indices = cache->template_matrix_indices;
-    variant->template_transform_sources = cache->template_transform_sources;
+    variant->input_component_indices = cache->input_component_indices;
     variant->input_quantized_matrix_offsets =
         cache->input_quantized_matrix_offsets;
     variant->input_quantized_matrix_hashes =
@@ -848,10 +860,7 @@ static void cache_import_topology(
     const GeOriginalModelSceneTopologyVariant *variant)
 {
     cache->queries = variant->queries;
-    cache->template_vertices = variant->template_vertices;
-    cache->template_batches = variant->template_batches;
-    cache->template_matrix_indices = variant->template_matrix_indices;
-    cache->template_transform_sources = variant->template_transform_sources;
+    cache->input_component_indices = variant->input_component_indices;
     cache->input_quantized_matrix_offsets =
         variant->input_quantized_matrix_offsets;
     cache->input_quantized_matrix_hashes =
@@ -874,10 +883,7 @@ static void cache_import_topology(
 static void cache_clear_topology_references(GeOriginalModelSceneCache *cache)
 {
     cache->queries = NULL;
-    cache->template_vertices = NULL;
-    cache->template_batches = NULL;
-    cache->template_matrix_indices = NULL;
-    cache->template_transform_sources = NULL;
+    cache->input_component_indices = NULL;
     cache->input_quantized_matrix_offsets = NULL;
     cache->input_quantized_matrix_hashes = NULL;
     cache->input_publication_signatures = NULL;
@@ -963,10 +969,7 @@ void ge_original_model_scene_cache_close(GeOriginalModelSceneCache *cache)
     free(cache->publication_ranges);
     free(cache->input_batch_offsets);
     free(cache->input_vertex_offsets);
-    free(cache->template_matrix_indices);
-    free(cache->template_transform_sources);
-    free(cache->template_batches);
-    free(cache->template_vertices);
+    free(cache->input_component_indices);
     free(cache->queries);
     memset(cache, 0, sizeof(*cache));
 }
@@ -997,10 +1000,7 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
     uint64_t signature)
 {
     GeOriginalModelScene *queries = NULL;
-    GeDamRoomWorldVertex *vertices = NULL;
-    GeDamRoomDrawBatch *batches = NULL;
-    uint16_t *matrix_indices = NULL;
-    uint32_t *transform_sources = NULL;
+    size_t *component_indices = NULL;
     size_t *vertex_offsets = NULL;
     size_t *batch_offsets = NULL;
     size_t *matrix_offsets = NULL;
@@ -1015,6 +1015,7 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
 
     if (input_count != 0U) {
         queries = calloc(input_count, sizeof(*queries));
+        component_indices = calloc(input_count, sizeof(*component_indices));
         vertex_offsets = calloc(input_count, sizeof(*vertex_offsets));
         batch_offsets = calloc(input_count, sizeof(*batch_offsets));
         matrix_offsets = calloc(input_count, sizeof(*matrix_offsets));
@@ -1023,7 +1024,7 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
             input_count, sizeof(*publication_signatures));
         published_publication_signatures = calloc(
             input_count, sizeof(*published_publication_signatures));
-        if (queries == NULL || vertex_offsets == NULL
+        if (queries == NULL || component_indices == NULL || vertex_offsets == NULL
                 || batch_offsets == NULL || matrix_offsets == NULL
                 || matrix_hashes == NULL || publication_signatures == NULL
                 || published_publication_signatures == NULL) goto no_memory;
@@ -1042,6 +1043,8 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
             goto invalid_layout;
         }
         *query = component->query;
+        component_indices[input_index] = (size_t)(component
+            - (GeOriginalModelSceneTopologyComponent *)cache->topology_components);
         if (query->required_vertex_count > SIZE_MAX - vertex_count
                 || query->required_batch_count > SIZE_MAX - batch_count
                 || query->triangle_count > SIZE_MAX - triangle_count
@@ -1054,56 +1057,13 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
         triangle_count += query->triangle_count;
         commands_visited += query->commands_visited;
     }
-    if (vertex_count != 0U) {
-        if (vertex_count > UINT32_MAX) goto no_memory;
-        vertices = malloc(vertex_count * sizeof(*vertices));
-        matrix_indices = malloc(vertex_count * sizeof(*matrix_indices));
-        transform_sources = malloc(
-            vertex_count * sizeof(*transform_sources));
-        if (vertices == NULL || matrix_indices == NULL
-                || transform_sources == NULL) goto no_memory;
-    }
-    if (batch_count != 0U) {
-        batches = malloc(batch_count * sizeof(*batches));
-        if (batches == NULL) goto no_memory;
-    }
-    for (input_index = 0U; input_index < input_count; ++input_index) {
-        const GeOriginalModelScene *query = &queries[input_index];
-        GeOriginalModelSceneTopologyComponent *component =
-            cache_find_component(cache, &inputs[input_index]);
-        const size_t vertex_base = vertex_offsets[input_index];
-        const size_t batch_base = batch_offsets[input_index];
-        size_t local_batch;
-        if (component == NULL)
-            goto invalid_layout;
-        if (query->required_vertex_count != 0U) {
-            size_t local_vertex;
-            memcpy(vertices + vertex_base, component->vertices,
-                   query->required_vertex_count * sizeof(*vertices));
-            memcpy(matrix_indices + vertex_base, component->matrix_indices,
-                   query->required_vertex_count * sizeof(*matrix_indices));
-            for (local_vertex = 0U;
-                    local_vertex < query->required_vertex_count;
-                    ++local_vertex) {
-                transform_sources[vertex_base + local_vertex] =
-                    (uint32_t)vertex_base
-                    + component->transform_sources[local_vertex];
-                cache->topology_transform_map_vertices_reused++;
-            }
-        }
-        if (query->required_batch_count != 0U)
-            memcpy(batches + batch_base, component->batches,
-                   query->required_batch_count * sizeof(*batches));
-        for (local_batch = 0U;
-                local_batch < query->required_batch_count; ++local_batch)
-            batches[batch_base + local_batch].first_vertex += vertex_base;
-
-    }
+    if (vertex_count > UINT32_MAX) goto no_memory;
+    /* Aggregate variants own only input order and offsets. Components already
+     * own these immutable payloads, so no vertex/material/map concatenation
+     * is needed when one authored relation changes. */
+    cache->topology_transform_map_vertices_reused += vertex_count;
     free(cache->queries);
-    free(cache->template_vertices);
-    free(cache->template_batches);
-    free(cache->template_matrix_indices);
-    free(cache->template_transform_sources);
+    free(cache->input_component_indices);
     free(cache->input_vertex_offsets);
     free(cache->input_batch_offsets);
     free(cache->input_quantized_matrix_offsets);
@@ -1111,10 +1071,7 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
     free(cache->input_publication_signatures);
     free(cache->published_input_publication_signatures);
     cache->queries = queries;
-    cache->template_vertices = vertices;
-    cache->template_batches = batches;
-    cache->template_matrix_indices = matrix_indices;
-    cache->template_transform_sources = transform_sources;
+    cache->input_component_indices = component_indices;
     cache->input_vertex_offsets = vertex_offsets;
     cache->input_batch_offsets = batch_offsets;
     cache->input_quantized_matrix_offsets = matrix_offsets;
@@ -1137,17 +1094,15 @@ no_memory:
     free(published_publication_signatures);
     free(publication_signatures);
     free(matrix_hashes); free(matrix_offsets);
-    free(batch_offsets); free(vertex_offsets); free(matrix_indices);
-    free(transform_sources);
-    free(batches); free(vertices); free(queries);
+    free(batch_offsets); free(vertex_offsets); free(component_indices);
+    free(queries);
     return GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
 invalid_layout:
     free(published_publication_signatures);
     free(publication_signatures);
     free(matrix_hashes); free(matrix_offsets);
-    free(batch_offsets); free(vertex_offsets); free(matrix_indices);
-    free(transform_sources);
-    free(batches); free(vertices); free(queries);
+    free(batch_offsets); free(vertex_offsets); free(component_indices);
+    free(queries);
     return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
 }
 
@@ -1477,8 +1432,9 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
             cache->quantized_matrices
                 + cache->input_quantized_matrix_offsets[input_index];
         const GeOriginalModelScene *query = &cache->queries[input_index];
-        const size_t vertex_base = cache->input_vertex_offsets[input_index];
-        const size_t batch_base = cache->input_batch_offsets[input_index];
+        const GeOriginalModelSceneTopologyComponent *component =
+            &((const GeOriginalModelSceneTopologyComponent *)cache->topology_components)
+                [cache->input_component_indices[input_index]];
         size_t local_vertex;
         size_t local_batch;
         const int reuse_input_publication = reuse_publication_storage
@@ -1505,17 +1461,27 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
             cache->identity_outer_vertices_published +=
                 query->required_vertex_count;
         phase_start = cache_profile_now(cache);
+        /* On a topology/buffer change the immutable payload is contiguous.
+         * Publish it once, then change only positions below. This retains
+         * every byte (including padding) without one large struct copy per
+         * flattened triangle vertex. */
+        if (!reuse_publication_storage) {
+            if (query->required_vertex_count != 0U)
+                memcpy(storage->vertices + vertex_cursor, component->vertices,
+                    query->required_vertex_count * sizeof(*storage->vertices));
+        } else {
+            cache->static_vertex_copies_avoided += query->required_vertex_count;
+        }
         for (local_vertex = 0U;
                 local_vertex < query->required_vertex_count; ++local_vertex) {
-            const size_t template_index = vertex_base + local_vertex;
             const GeDamRoomWorldVertex *source =
-                &cache->template_vertices[template_index];
+                &component->vertices[local_vertex];
             GeDamRoomWorldVertex *destination =
                 &storage->vertices[vertex_cursor + local_vertex];
             const uint16_t source_matrix =
-                cache->template_matrix_indices[template_index];
+                component->matrix_indices[local_vertex];
             const uint32_t transform_source =
-                cache->template_transform_sources[template_index];
+                component->transform_sources[local_vertex];
             float transformed[4];
             size_t axis;
             size_t row;
@@ -1526,20 +1492,9 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
                 status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
                 goto done;
             }
-            /* The decoded vertex, colour and texture coordinates are
-             * immutable while the topology signature is retained. Guard
-             * animation changes only the exact segment-3 result and the
-             * derived world position, so avoid recopying the much larger
-             * static payload into the same publication buffer every frame. */
-            if (!reuse_publication_storage) {
-                *destination = *source;
-            } else {
-                cache->static_vertex_copies_avoided++;
-            }
-            if ((size_t)transform_source < template_index
-                    && (size_t)transform_source >= vertex_base) {
+            if ((size_t)transform_source < local_vertex) {
                 const GeDamRoomWorldVertex *prior = &storage->vertices[
-                    vertex_cursor + (size_t)transform_source - vertex_base];
+                    vertex_cursor + (size_t)transform_source];
                 memcpy(destination->processed.eye, prior->processed.eye,
                        sizeof(destination->processed.eye));
                 memcpy(destination->world, prior->world,
@@ -1587,20 +1542,16 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
                 cache->static_batch_copies_avoided++;
             }
         } else {
+            if (query->required_batch_count != 0U)
+                memcpy(storage->batches + batch_cursor, component->batches,
+                    query->required_batch_count * sizeof(*storage->batches));
             for (local_batch = 0U;
                     local_batch < query->required_batch_count;
                     ++local_batch) {
-                GeDamRoomDrawBatch batch =
-                    cache->template_batches[batch_base + local_batch];
-                if (batch.first_vertex < vertex_base) {
-                    cache->topology_ready = UINT8_C(0);
-                    status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
-                    goto done;
-                }
-                batch.first_vertex = vertex_cursor
-                    + batch.first_vertex - vertex_base;
-                batch.room_id = input->room_id;
-                storage->batches[batch_cursor + local_batch] = batch;
+                GeDamRoomDrawBatch *batch =
+                    &storage->batches[batch_cursor + local_batch];
+                batch->first_vertex += vertex_cursor;
+                batch->room_id = input->room_id;
             }
         }
         cache_profile_add(&cache->profile_batch_publication_ticks,

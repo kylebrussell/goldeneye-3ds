@@ -77,14 +77,9 @@ typedef struct GeOriginalModelScenePublicationRange {
  * invalidates the retained templates and falls back to one canonical decode. */
 typedef struct GeOriginalModelSceneCache {
     GeOriginalModelScene *queries;
-    GeDamRoomWorldVertex *template_vertices;
-    GeDamRoomDrawBatch *template_batches;
-    uint16_t *template_matrix_indices;
-    /* For flattened triangle streams, points at the first earlier template
-     * vertex with the same authored position and segment-3 matrix.  This is
-     * renderer-only topology metadata: canonical matrices and output vertex
-     * ordering are unchanged. */
-    uint32_t *template_transform_sources;
+    /* Stable indices, not pointers: adding components can relocate their
+     * descriptor array. Immutable payloads are owned once by that cache. */
+    size_t *input_component_indices;
     float (*quantized_matrices)[4][4];
     size_t *input_quantized_matrix_offsets;
     uint64_t *input_quantized_matrix_hashes;
@@ -158,6 +153,19 @@ typedef struct GeOriginalModelSceneCache {
     uint8_t topology_ready;
     uint8_t publication_ready;
 } GeOriginalModelSceneCache;
+
+/* Borrowed immutable component-local template view, valid until cache close.
+ * Indices in batches and duplicate-transform maps are local to this input. */
+typedef struct GeOriginalModelSceneTemplateView {
+    const GeDamRoomWorldVertex *vertices;
+    const GeDamRoomDrawBatch *batches;
+    const uint16_t *matrix_indices;
+    const uint32_t *transform_sources;
+} GeOriginalModelSceneTemplateView;
+
+int ge_original_model_scene_cache_template_view(
+    const GeOriginalModelSceneCache *cache, size_t input_index,
+    GeOriginalModelSceneTemplateView *view);
 
 /*
  * Flattens the original segment-5 model display lists into the same authored

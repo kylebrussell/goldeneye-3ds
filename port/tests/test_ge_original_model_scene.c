@@ -65,10 +65,12 @@ static void assert_cached_transform_matches_previous_byte_exact(
 {
     const float (*matrices)[4][4] = cache->quantized_matrices
         + cache->input_quantized_matrix_offsets[0];
+    GeOriginalModelSceneTemplateView view;
+    assert(ge_original_model_scene_cache_template_view(cache, 0U, &view));
     size_t index;
     for (index = 0U; index < count; ++index) {
-        const GeDamRoomWorldVertex *source = &cache->template_vertices[index];
-        const uint16_t matrix_index = cache->template_matrix_indices[index];
+        const GeDamRoomWorldVertex *source = &view.vertices[index];
+        const uint16_t matrix_index = view.matrix_indices[index];
         const float object[4] = {
             (float)source->source.x, (float)source->source.y,
             (float)source->source.z, 1.0f
@@ -903,6 +905,99 @@ static void exercise_dirty_publication_ranges(const char *path)
     puts("dirty ranges: sparse/coalesced/unchanged/topology/failure verified");
 }
 
+static void exercise_shared_component_lifetime(const char *path)
+{
+    enum { COMPONENTS = 40, FRAMES = 120 };
+    uint8_t *blobs[COMPONENTS];
+    GeOriginalModelSceneInput inputs[COMPONENTS], ordered[COMPONENTS];
+    GeOriginalModelSceneCache cache = {0}, reference = {0};
+    GeOriginalModelScene scene, single;
+    GeOriginalModelSceneTemplateView original, view;
+    memset(inputs, 0, sizeof(inputs));
+    for (size_t i = 0U; i < COMPONENTS; ++i) {
+        blobs[i] = load_blob(path, GE_ORIGINAL_MODEL62_BLOB_SIZE);
+        assert(blobs[i]);
+        inputs[i].blob = blobs[i];
+        inputs[i].blob_size = GE_ORIGINAL_MODEL62_BLOB_SIZE;
+        inputs[i].primary_offset = UINT32_C(0x5c8);
+        inputs[i].secondary_offset = i != 0U && i % 3U == 0U
+            ? GE_ORIGINAL_MODEL_SCENE_NO_LIST : UINT32_C(0x6b8);
+        inputs[i].segment4_offset = GE_ORIGINAL_MODEL_SCENE_NO_LIST;
+        inputs[i].world_zbuffer_enabled = 1U;
+        set_transform(&inputs[i]);
+    }
+    assert(!ge_original_model_scene_cache_template_view(&cache, 0U, &view));
+    assert(ge_original_model_scene_cache_build(&cache, inputs, 1U, NULL, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    assert(ge_original_model_scene_cache_template_view(&cache, 0U, &original));
+    const size_t nv = scene.required_vertex_count;
+    const size_t nb = scene.required_batch_count;
+    GeDamRoomSceneStorage storage = {
+        calloc(COMPONENTS * nv, sizeof(*storage.vertices)), COMPONENTS * nv,
+        calloc(COMPONENTS * nb, sizeof(*storage.batches)), COMPONENTS * nb
+    };
+    GeDamRoomSceneStorage expected = {
+        calloc(nv, sizeof(*expected.vertices)), nv,
+        calloc(nb, sizeof(*expected.batches)), nb
+    };
+    assert(storage.vertices && storage.batches && expected.vertices && expected.batches);
+    /* Populate enough distinct ROM-backed components to grow the descriptor
+     * array past 32, then swap/evict aggregates while reusing their payloads. */
+    assert(ge_original_model_scene_cache_build(&cache, inputs, COMPONENTS,
+        &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.topology_component_count == COMPONENTS);
+    assert(cache.topology_component_capacity >= COMPONENTS);
+    assert(ge_original_model_scene_cache_template_view(&cache, 0U, &view));
+    assert(view.vertices == original.vertices && view.batches == original.batches
+        && view.matrix_indices == original.matrix_indices
+        && view.transform_sources == original.transform_sources);
+    for (size_t frame = 0U; frame < FRAMES; ++frame) {
+        const size_t count = frame % (COMPONENTS + 1U);
+        for (size_t i = 0U; i < count; ++i) {
+            /* Repeated inputs share a payload but never their transformed
+             * publication; reversed order exercises local->aggregate indices. */
+            ordered[i] = inputs[(COMPONENTS - 1U - i + frame / 3U) % COMPONENTS];
+            if (i == 1U) ordered[i] = ordered[0];
+            ordered[i].position[0] += (float)(frame * 13U + i * 7U);
+            ordered[i].room_id = (uint32_t)(i + 1U);
+        }
+        assert(ge_original_model_scene_cache_build(&cache, ordered, count,
+            &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        size_t vertex_cursor = 0U, batch_cursor = 0U;
+        for (size_t i = 0U; i < count; ++i) {
+            assert(ge_original_model_scene_cache_build(&reference, &ordered[i], 1U,
+                &expected, &single) == GE_ORIGINAL_MODEL_SCENE_OK);
+            assert(memcmp(storage.vertices + vertex_cursor, expected.vertices,
+                single.vertex_count * sizeof(*expected.vertices)) == 0);
+            for (size_t b = 0U; b < single.batch_count; ++b) {
+                GeDamRoomDrawBatch batch = expected.batches[b];
+                batch.first_vertex += vertex_cursor;
+                assert(memcmp(&storage.batches[batch_cursor + b], &batch, sizeof(batch)) == 0);
+            }
+            vertex_cursor += single.vertex_count;
+            batch_cursor += single.batch_count;
+        }
+        assert(scene.vertex_count == vertex_cursor && scene.batch_count == batch_cursor);
+        if (count > 1U) {
+            assert(ge_original_model_scene_cache_template_view(&cache, 0U, &view));
+            GeOriginalModelSceneTemplateView repeated;
+            assert(ge_original_model_scene_cache_template_view(&cache, 1U, &repeated));
+            assert(view.vertices == repeated.vertices && view.batches == repeated.batches);
+        }
+        assert(!ge_original_model_scene_cache_template_view(&cache, count, &view));
+    }
+    assert(cache.topology_variant_evictions > 0U);
+    assert(cache.topology_component_count == COMPONENTS);
+    ge_original_model_scene_cache_close(&reference);
+    ge_original_model_scene_cache_close(&cache);
+    assert(!ge_original_model_scene_cache_template_view(&cache, 0U, &view));
+    free(expected.vertices); free(expected.batches);
+    free(storage.vertices); free(storage.batches);
+    for (size_t i = 0U; i < COMPONENTS; ++i) free(blobs[i]);
+    puts("shared templates: 40 ROM components, descriptor growth, aggregate eviction, "
+         "empty/reordered/repeated inputs; 120 publications byte-exact");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 4);
@@ -918,5 +1013,6 @@ int main(int argc, char **argv)
     exercise_combat_topology_working_set(argv[1]);
     exercise_unchanged_input_publication_reuse(argv[1]);
     exercise_dirty_publication_ranges(argv[1]);
+    exercise_shared_component_lifetime(argv[1]);
     return 0;
 }

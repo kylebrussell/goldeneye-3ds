@@ -1571,3 +1571,122 @@ The candidate is retained privately at
 Temporary emulator input/stage/tour overrides were removed; normal boot was
 restarted in the single Azahar instance. Hardware staging's prior `cradle`
 selection and save/DSP settings were preserved. No public push was made.
+
+## Consolidate changed-model metadata and remove preflight material work
+
+Started from clean `dfaa30d0` / `df804a82`, focusing on the guard-refresh tail.
+The fresh baseline reproduced 4,429 original simulation/actor/gun ticks and
+31 ms maximum post-warmup frame work. Its worst guard refresh was 1,973,893
+ticks (7.36 ms), with 902,594 ticks (3.37 ms) in topology preparation. Evidence:
+`build/visual-probe/topology-storage-baseline-df80-combat.result`.
+
+Two renderer-only changes:
+
+- Each aggregate model topology now uses one zeroed allocation for its eight
+  query/offset/hash arrays. Each typed slice has explicit alignment and checked
+  size/padding arithmetic, including ARM's distinct size_t/uint64_t alignment.
+  Ownership transfers with retained topology variants; their eight-entry
+  policy, component payloads, keys, ordering, zero initialization and failure
+  publication rules are unchanged. This removes seven allocation/free pairs
+  per new nonempty aggregate, rather than caching additional gameplay state.
+- `collect_model_draw` no longer constructs an inherited render-state copy and
+  translates its material during a counts-only sizing pass. It still executes
+  the full display-list pipeline and validates matrices, vertices, triangle
+  indices, counts and ranges. The output pass retains the exact primary versus
+  secondary depth inheritance and material translation. Translation is total
+  for non-NULL arguments: unsupported features set the same fallback flags,
+  not an error. A source-contract test forces review if that condition changes.
+
+No original movement, AI, collision, animation, weapon, audio or frame-order
+body changed. Matrix hashing was inspected but left alone: the ARM compiler
+already folds the trailing zero-byte FNV multiplies into the exact prime^5
+constant (`0x0caee32a7d4f6a63`), so spelling that optimization by hand would not
+remove the work. Inspection: `build/host-tests/guard-hash-baseline-arm.asm`.
+
+Focused sanitizer verification covers aligned/nonoverlapping slices across
+120 reordered/repeated/empty aggregate publications with 40 ROM components,
+descriptor growth, retained-variant eviction, an invalid component followed
+by successful recovery, and repeated close. Final vertex and batch records
+remain byte-identical to separately built inputs. The 120 exact-size
+shrink/grow/empty transaction cases still preserve rejected output bytes and
+publication rules. A small test extracts the actual sizing helper and checks
+multiplication, padding and end-offset overflow under native and simulated
+32-bit limits; it is included in the complete host suite.
+
+Focused logs: `build/host-tests/topology-storage/{sanitizer,layout,material-sanitizer}.log`.
+The storage-only candidate passed the complete host suite and ARM/3DSX build:
+`topology-storage-full.log`, `arm-topology-storage.log`. Its `f57cc55e` combat
+run reached 5,223 ticks, with 26 ms post-warmup maximum, but its worst guard
+refresh remained 7.38 ms / topology 3.36 ms. The encounter differed from the
+baseline: the lower frame maximum alone does not establish an optimization
+gain. Evidence: `build/visual-probe/topology-storage-f57c-combat.result`.
+
+The combined candidate executable SHA-256 is
+`0610f554d703c132f9fc48b6f449f10d11d103cc312d808fdbd1dbca73bdba08`.
+Its combat run reached 4,231 original simulation/actor/gun ticks and 11/160
+route targets, with 22 PP7 shots and three damaging guard hits before death.
+Worst guard refresh was 1,851,274 ticks (6.90 ms), including 777,978 ticks
+(2.90 ms) in topology preparation. The material-work change therefore has a
+lower measured cold-layout tail, but this differing encounter is not a
+controlled whole-run FPS comparison. Post-warmup work still peaked at 31 ms:
+509/4,110 samples over 16 ms, two over 25 ms, none over 33 ms. The route failed
+through death, not a crash or mission completion. Evidence:
+`build/visual-probe/topology-material-0610-combat.result`.
+
+The final complete host suite passed (`build/host-tests/topology-material-full.log`)
+and the final ARM build passed (`arm-topology-material.log`). The retained
+symbol audit (`topology-material-arm-symbols.log`) includes unchanged MoveBond,
+bondviewProcessInput, gun/active-prop dispatch and exact-size model publication.
+
+An ABBA comparison then used the same 750-tick Dam move/strafe/look/fire input
+file, without concurrent builds or emulator instances. All four runs completed
+with identical endpoint `19900.337891,-39.704582,17499.558594`, 750 original
+simulation/actor/gun ticks, seven shots, 36,649 world draws, 759 cache attempts,
+241 publications, nine aggregate rebuilds, and 28 component misses. The guard
+refresh peaks (ticks) were:
+
+- Baseline `df804a82`: 1,251,733 and 1,234,759.
+- Candidate `0610f554`: 1,160,884 and 1,143,910.
+
+The two-run means are 4.64 versus 4.30 ms: **7.31% lower peak guard refresh**
+in this matched workload. Topology components at those respective peaks
+averaged 636,105 versus 552,647 ticks (2.37 versus 2.06 ms; 13.12% lower).
+Those component values belong to the worst guard-refresh frame, not independent
+phase maxima. Overall post-warmup frame maxima remained 19 ms in all runs;
+samples over 16 ms were baseline 7/9 and candidate 9/7 out of 630. This is a
+targeted cold-layout improvement, not an overall FPS gain or a 60 FPS lock.
+Evidence in `build/visual-probe/`:
+`topology-material-baseline-df80-dam750{,-repeat}.result` and
+`topology-material-0610-dam750-{first,repeat}.result`.
+
+Final Facility smoke test: 750 original simulation/actor/gun ticks, seven
+shots, identical endpoint `-199.956543,292.746887,-193.684525`, zero matrix
+failures, 14 ms post-warmup maximum and no samples over 16 ms. Evidence:
+`build/visual-probe/topology-material-0610-facility.result`. This does not
+constitute a Facility playthrough or resolve its existing vent-geometry gaps.
+
+The final combat run retained zero matrix failures and unknown-AI failures,
+392 decoded sound starts with no decode failures, and 3,091 NDSP blocks with
+error zero. Per-frame transforms, first-person publication and GPU buffer
+updates remain relevant costs; the new allocation/preflight work targets
+layout changes, not all steady-state work. Combat's 31 ms peak and the absence
+of end-to-end mission-completion evidence remain explicit gaps.
+
+The exact `0610f554` binary completed the existing 177-view authored-pad Dam
+tour with 62 installations, 34 evictions, 10 peak resident rooms, 114 peak
+textures and 39 peak visible rooms. Camera, visibility, streaming, guard,
+door, monitor and articulated-publication failures were zero; all 138 ready
+materializer records were constructed. Evidence:
+`build/visual-probe/topology-material-0610-tour.{result,diag,png}`. This is a
+synchronous diagnostic tour, not sustained player traversal or a frame-rate
+benchmark; no new camera harness or gameplay logic was added.
+
+The executable is byte-matched across the build output, hardware staging and
+Azahar. Both staged and installed asset packs remain
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+The tested binary is retained at
+`build/3ds-candidates/topology-material-0610f554/goldeneye-3ds.3dsx`;
+the storage-only candidate and `df804a82` rollback are also retained privately.
+Emulator stage/input/tour overrides were removed and normal boot restored in
+one Azahar instance. Hardware staging's existing `cradle` selection and
+save/DSP settings were preserved. No public push was made.

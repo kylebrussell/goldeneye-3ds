@@ -83,8 +83,6 @@ static int collect_model_draw(const GeGbiPipelineEvent *event,
                               void *user_data)
 {
     GeOriginalModelSceneContext *context = user_data;
-    GeGbiRenderState render_state;
-    GePicaMaterial material;
     size_t draw_vertices;
     size_t vertex_end;
     size_t batch_end;
@@ -124,28 +122,6 @@ static int collect_model_draw(const GeGbiPipelineEvent *event,
         context->status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
         return 0;
     }
-    render_state = *event->state;
-    if (context->input->world_zbuffer_enabled != 0U) {
-        /* Exact modelRender world-model contract: zbufferenabled is true and
-         * modelApplyRenderModeType1/2/3/4 selects Z compare+update for the
-         * primary list, then compare-only for a translucent secondary list.
-         * Those commands live in the caller, not the ROM-backed child lists
-         * flattened by this adapter.  Restore that inherited state here so a
-         * character remains behind authored background depth. */
-        render_state.geometry_mode |= UINT32_C(0x00000001);
-        render_state.other_mode_low |= UINT32_C(0x00000010);
-        if (context->sequence_kinds[event->sequence_index]
-                == GE_DAM_ROOM_LIST_PRIMARY) {
-            render_state.other_mode_low |= UINT32_C(0x00000020);
-        } else {
-            render_state.other_mode_low &= ~UINT32_C(0x00000020);
-        }
-    }
-    if (ge_pica_material_translate(&render_state, &material)
-            != GE_PICA_MATERIAL_OK) {
-        context->status = GE_ORIGINAL_MODEL_SCENE_PIPELINE_ERROR;
-        return 0;
-    }
     draw_vertices = (size_t)event->action.data.draw.count * 3U;
     if (!add_size(context->vertex_cursor, draw_vertices, &vertex_end)
             || !add_size(context->batch_cursor, 1U, &batch_end)
@@ -169,11 +145,39 @@ static int collect_model_draw(const GeGbiPipelineEvent *event,
     }
 
     if (context->write_output != 0U) {
+        GeGbiRenderState render_state;
+        GePicaMaterial material;
         GeDamRoomDrawBatch *batch;
         size_t output_index = context->vertex_cursor;
         if (vertex_end > context->storage->vertex_capacity
                 || batch_end > context->storage->batch_capacity) {
             context->status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
+            return 0;
+        }
+        /* Sizing consumes draw counts and validates the full display-list
+         * pipeline, but has no material output. Translation is a total
+         * operation for non-NULL arguments; avoid constructing/discarding
+         * it once during preflight and doing it again during publication. */
+        render_state = *event->state;
+        if (context->input->world_zbuffer_enabled != 0U) {
+            /* Exact modelRender world-model contract: zbufferenabled is true and
+             * modelApplyRenderModeType1/2/3/4 selects Z compare+update for the
+             * primary list, then compare-only for a translucent secondary list.
+             * Those commands live in the caller, not the ROM-backed child lists
+             * flattened by this adapter.  Restore that inherited state here so a
+             * character remains behind authored background depth. */
+            render_state.geometry_mode |= UINT32_C(0x00000001);
+            render_state.other_mode_low |= UINT32_C(0x00000010);
+            if (context->sequence_kinds[event->sequence_index]
+                    == GE_DAM_ROOM_LIST_PRIMARY) {
+                render_state.other_mode_low |= UINT32_C(0x00000020);
+            } else {
+                render_state.other_mode_low &= ~UINT32_C(0x00000020);
+            }
+        }
+        if (ge_pica_material_translate(&render_state, &material)
+                != GE_PICA_MATERIAL_OK) {
+            context->status = GE_ORIGINAL_MODEL_SCENE_PIPELINE_ERROR;
             return 0;
         }
         batch = &context->storage->batches[context->batch_cursor];
@@ -556,6 +560,8 @@ static uint64_t cache_topology_signature(
 #define GE_ORIGINAL_MODEL_SCENE_TOPOLOGY_VARIANTS 8U
 
 typedef struct GeOriginalModelSceneTopologyVariant {
+    void *storage;
+    size_t storage_bytes;
     GeOriginalModelScene *queries;
     size_t *input_component_indices;
     size_t *input_quantized_matrix_offsets;
@@ -819,14 +825,7 @@ failed:
 static void cache_variant_free(GeOriginalModelSceneTopologyVariant *variant)
 {
     if (variant == NULL) return;
-    free(variant->queries);
-    free(variant->input_component_indices);
-    free(variant->input_quantized_matrix_offsets);
-    free(variant->input_quantized_matrix_hashes);
-    free(variant->input_publication_signatures);
-    free(variant->published_input_publication_signatures);
-    free(variant->input_vertex_offsets);
-    free(variant->input_batch_offsets);
+    free(variant->storage);
     memset(variant, 0, sizeof(*variant));
 }
 
@@ -835,6 +834,8 @@ static void cache_export_topology(
     GeOriginalModelSceneTopologyVariant *variant)
 {
     memset(variant, 0, sizeof(*variant));
+    variant->storage = cache->topology_storage;
+    variant->storage_bytes = cache->topology_storage_bytes;
     variant->queries = cache->queries;
     variant->input_component_indices = cache->input_component_indices;
     variant->input_quantized_matrix_offsets =
@@ -859,6 +860,8 @@ static void cache_import_topology(
     GeOriginalModelSceneCache *cache,
     const GeOriginalModelSceneTopologyVariant *variant)
 {
+    cache->topology_storage = variant->storage;
+    cache->topology_storage_bytes = variant->storage_bytes;
     cache->queries = variant->queries;
     cache->input_component_indices = variant->input_component_indices;
     cache->input_quantized_matrix_offsets =
@@ -882,6 +885,8 @@ static void cache_import_topology(
 
 static void cache_clear_topology_references(GeOriginalModelSceneCache *cache)
 {
+    cache->topology_storage = NULL;
+    cache->topology_storage_bytes = 0U;
     cache->queries = NULL;
     cache->input_component_indices = NULL;
     cache->input_quantized_matrix_offsets = NULL;
@@ -961,16 +966,9 @@ void ge_original_model_scene_cache_close(GeOriginalModelSceneCache *cache)
     for (index = 0U; index < cache->topology_component_count; ++index)
         cache_component_free(&components[index]);
     free(components);
-    free(cache->input_quantized_matrix_hashes);
-    free(cache->input_publication_signatures);
-    free(cache->published_input_publication_signatures);
-    free(cache->input_quantized_matrix_offsets);
+    free(cache->topology_storage);
     free(cache->quantized_matrices);
     free(cache->publication_ranges);
-    free(cache->input_batch_offsets);
-    free(cache->input_vertex_offsets);
-    free(cache->input_component_indices);
-    free(cache->queries);
     memset(cache, 0, sizeof(*cache));
 }
 
@@ -994,11 +992,28 @@ static void cache_profile_add(uint64_t *total, uint64_t start, uint64_t end)
     if (total != NULL && end >= start) *total += end - start;
 }
 
+/* Lay out typed SoA slices without assuming that size_t and uint64_t have
+ * the same alignment (they do not on ARM). Each append is overflow checked
+ * before allocation or pointer arithmetic. No canonical model data lives in
+ * this block; variants retain only renderer queries, offsets and hashes. */
+static int cache_append_topology_storage(size_t *bytes, size_t count,
+    size_t element_size, size_t alignment, size_t *offset)
+{
+    const size_t padding = (*bytes % alignment) != 0U
+        ? alignment - (*bytes % alignment) : 0U;
+    if (count > SIZE_MAX / element_size
+            || !add_size(*bytes, padding, offset)
+            || !add_size(*offset, count * element_size, bytes)) return 0;
+    return 1;
+}
+
 static GeOriginalModelSceneStatus cache_rebuild_templates(
     GeOriginalModelSceneCache *cache,
     const GeOriginalModelSceneInput *inputs, size_t input_count,
     uint64_t signature)
 {
+    uint8_t *topology_storage = NULL;
+    size_t topology_storage_bytes = 0U;
     GeOriginalModelScene *queries = NULL;
     size_t *component_indices = NULL;
     size_t *vertex_offsets = NULL;
@@ -1014,20 +1029,35 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
     size_t input_index;
 
     if (input_count != 0U) {
-        queries = calloc(input_count, sizeof(*queries));
-        component_indices = calloc(input_count, sizeof(*component_indices));
-        vertex_offsets = calloc(input_count, sizeof(*vertex_offsets));
-        batch_offsets = calloc(input_count, sizeof(*batch_offsets));
-        matrix_offsets = calloc(input_count, sizeof(*matrix_offsets));
-        matrix_hashes = calloc(input_count, sizeof(*matrix_hashes));
-        publication_signatures = calloc(
-            input_count, sizeof(*publication_signatures));
-        published_publication_signatures = calloc(
-            input_count, sizeof(*published_publication_signatures));
-        if (queries == NULL || component_indices == NULL || vertex_offsets == NULL
-                || batch_offsets == NULL || matrix_offsets == NULL
-                || matrix_hashes == NULL || publication_signatures == NULL
-                || published_publication_signatures == NULL) goto no_memory;
+        size_t query_offset, component_offset, vertex_offset, batch_offset;
+        size_t matrix_offset, hash_offset, signature_offset, published_offset;
+        if (!cache_append_topology_storage(&topology_storage_bytes, input_count,
+                sizeof(*queries), _Alignof(GeOriginalModelScene), &query_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(size_t), _Alignof(size_t), &component_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(size_t), _Alignof(size_t), &vertex_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(size_t), _Alignof(size_t), &batch_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(size_t), _Alignof(size_t), &matrix_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(uint64_t), _Alignof(uint64_t), &hash_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(uint64_t), _Alignof(uint64_t), &signature_offset)
+                || !cache_append_topology_storage(&topology_storage_bytes, input_count,
+                    sizeof(uint64_t), _Alignof(uint64_t), &published_offset))
+            goto no_memory;
+        topology_storage = calloc(1U, topology_storage_bytes);
+        if (topology_storage == NULL) goto no_memory;
+        queries = (GeOriginalModelScene *)(topology_storage + query_offset);
+        component_indices = (size_t *)(topology_storage + component_offset);
+        vertex_offsets = (size_t *)(topology_storage + vertex_offset);
+        batch_offsets = (size_t *)(topology_storage + batch_offset);
+        matrix_offsets = (size_t *)(topology_storage + matrix_offset);
+        matrix_hashes = (uint64_t *)(topology_storage + hash_offset);
+        publication_signatures = (uint64_t *)(topology_storage + signature_offset);
+        published_publication_signatures = (uint64_t *)(topology_storage + published_offset);
     }
     for (input_index = 0U; input_index < input_count; ++input_index) {
         GeOriginalModelScene *query = &queries[input_index];
@@ -1062,14 +1092,9 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
      * own these immutable payloads, so no vertex/material/map concatenation
      * is needed when one authored relation changes. */
     cache->topology_transform_map_vertices_reused += vertex_count;
-    free(cache->queries);
-    free(cache->input_component_indices);
-    free(cache->input_vertex_offsets);
-    free(cache->input_batch_offsets);
-    free(cache->input_quantized_matrix_offsets);
-    free(cache->input_quantized_matrix_hashes);
-    free(cache->input_publication_signatures);
-    free(cache->published_input_publication_signatures);
+    free(cache->topology_storage);
+    cache->topology_storage = topology_storage;
+    cache->topology_storage_bytes = topology_storage_bytes;
     cache->queries = queries;
     cache->input_component_indices = component_indices;
     cache->input_vertex_offsets = vertex_offsets;
@@ -1091,18 +1116,10 @@ static GeOriginalModelSceneStatus cache_rebuild_templates(
     return GE_ORIGINAL_MODEL_SCENE_OK;
 
 no_memory:
-    free(published_publication_signatures);
-    free(publication_signatures);
-    free(matrix_hashes); free(matrix_offsets);
-    free(batch_offsets); free(vertex_offsets); free(component_indices);
-    free(queries);
+    free(topology_storage);
     return GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
 invalid_layout:
-    free(published_publication_signatures);
-    free(publication_signatures);
-    free(matrix_hashes); free(matrix_offsets);
-    free(batch_offsets); free(vertex_offsets); free(component_indices);
-    free(queries);
+    free(topology_storage);
     return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
 }
 

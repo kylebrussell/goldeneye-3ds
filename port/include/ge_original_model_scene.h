@@ -76,6 +76,10 @@ typedef struct GeOriginalModelScenePublicationRange {
  * caller-owned and are reapplied on every build.  A changed list/blob layout
  * invalidates the retained templates and falls back to one canonical decode. */
 typedef struct GeOriginalModelSceneCache {
+    /* One owned allocation backs the topology's typed metadata slices.
+     * Slice pointers below are borrowed; ownership moves with the variant. */
+    void *topology_storage;
+    size_t topology_storage_bytes;
     GeOriginalModelScene *queries;
     /* Stable indices, not pointers: adding components can relocate their
      * descriptor array. Immutable payloads are owned once by that cache. */

@@ -905,6 +905,36 @@ static void exercise_dirty_publication_ranges(const char *path)
     puts("dirty ranges: sparse/coalesced/unchanged/topology/failure verified");
 }
 
+static void check_topology_storage(const GeOriginalModelSceneCache *cache)
+{
+    const void *slices[] = {cache->queries, cache->input_component_indices,
+        cache->input_vertex_offsets, cache->input_batch_offsets,
+        cache->input_quantized_matrix_offsets, cache->input_quantized_matrix_hashes,
+        cache->input_publication_signatures, cache->published_input_publication_signatures};
+    const size_t sizes[] = {sizeof(*cache->queries), sizeof(size_t), sizeof(size_t),
+        sizeof(size_t), sizeof(size_t), sizeof(uint64_t), sizeof(uint64_t), sizeof(uint64_t)};
+    const size_t alignments[] = {_Alignof(GeOriginalModelScene), _Alignof(size_t),
+        _Alignof(size_t), _Alignof(size_t), _Alignof(size_t), _Alignof(uint64_t),
+        _Alignof(uint64_t), _Alignof(uint64_t)};
+    const uintptr_t base = (uintptr_t)cache->topology_storage;
+    size_t end = 0U;
+    if (cache->input_count == 0U) {
+        assert(base == 0U && cache->topology_storage_bytes == 0U);
+        for (size_t i = 0U; i < 8U; ++i) assert(slices[i] == NULL);
+        return;
+    }
+    assert(base != 0U);
+    for (size_t i = 0U; i < 8U; ++i) {
+        const uintptr_t pointer = (uintptr_t)slices[i];
+        assert(pointer % alignments[i] == 0U && pointer >= base);
+        const size_t offset = (size_t)(pointer - base);
+        assert(offset >= end && offset <= cache->topology_storage_bytes);
+        assert(cache->input_count <= (cache->topology_storage_bytes - offset) / sizes[i]);
+        end = offset + cache->input_count * sizes[i];
+    }
+    assert(end == cache->topology_storage_bytes);
+}
+
 static void exercise_shared_component_lifetime(const char *path)
 {
     enum { COMPONENTS = 40, FRAMES = 120 };
@@ -929,6 +959,7 @@ static void exercise_shared_component_lifetime(const char *path)
     assert(!ge_original_model_scene_cache_template_view(&cache, 0U, &view));
     assert(ge_original_model_scene_cache_build(&cache, inputs, 1U, NULL, &scene)
         == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    check_topology_storage(&cache);
     assert(ge_original_model_scene_cache_template_view(&cache, 0U, &original));
     const size_t nv = scene.required_vertex_count;
     const size_t nb = scene.required_batch_count;
@@ -963,6 +994,7 @@ static void exercise_shared_component_lifetime(const char *path)
         }
         assert(ge_original_model_scene_cache_build(&cache, ordered, count,
             &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        check_topology_storage(&cache);
         size_t vertex_cursor = 0U, batch_cursor = 0U;
         for (size_t i = 0U; i < count; ++i) {
             assert(ge_original_model_scene_cache_build(&reference, &ordered[i], 1U,
@@ -988,7 +1020,23 @@ static void exercise_shared_component_lifetime(const char *path)
     }
     assert(cache.topology_variant_evictions > 0U);
     assert(cache.topology_component_count == COMPONENTS);
+    /* A failed new component must free only its uncommitted metadata block;
+     * retained variants/components remain available for the next build. */
+    GeOriginalModelSceneInput broken = inputs[0];
+    broken.primary_offset = (uint32_t)broken.blob_size;
+    assert(ge_original_model_scene_cache_build(&cache, &broken, 1U, &storage, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT);
+    assert(!cache.publication_ready && cache.publication_range_count == 0U);
+    assert(ge_original_model_scene_cache_build(&cache, inputs, 1U, &storage, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_OK);
+    check_topology_storage(&cache);
+    assert(ge_original_model_scene_cache_build(&reference, inputs, 1U, &expected, &single)
+        == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(memcmp(storage.vertices, expected.vertices, single.vertex_count * sizeof(*expected.vertices)) == 0);
+    assert(memcmp(storage.batches, expected.batches, single.batch_count * sizeof(*expected.batches)) == 0);
     ge_original_model_scene_cache_close(&reference);
+    ge_original_model_scene_cache_close(&cache);
+    check_topology_storage(&cache);
     ge_original_model_scene_cache_close(&cache);
     assert(!ge_original_model_scene_cache_template_view(&cache, 0U, &view));
     free(expected.vertices); free(expected.batches);
@@ -1047,6 +1095,7 @@ static void exercise_exact_size_publication(const char *path)
         storage.batch_capacity = scene.required_batch_count;
         assert(ge_original_model_scene_cache_build_exact(&cache, inputs, count, &storage,
             &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        check_topology_storage(&cache);
         assert(ge_original_model_scene_cache_build(&reference, inputs, count, &expected,
             &direct) == GE_ORIGINAL_MODEL_SCENE_OK);
         assert(scene.vertex_count == direct.vertex_count && scene.batch_count == direct.batch_count);

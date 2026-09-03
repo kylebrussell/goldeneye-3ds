@@ -24,6 +24,18 @@ def main() -> None:
     published = body.index("objects->guard_scene = scene.required_vertex_count", replacement)
     assert "objects->guard_scene.status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;" in body[published:]
     model = (REPO / "port/src/ge_original_model_scene.c").read_text()
+    collector = model.split("static int collect_model_draw(", 1)[1].split("\n}\n", 1)[0]
+    publication = collector.index("if (context->write_output != 0U)")
+    assert "ge_pica_material_translate(" not in collector[:publication]
+    assert "ge_pica_material_translate(" in collector[publication:]
+    # Sizing may omit material translation only while every non-NULL render
+    # state translates successfully; unsupported features retain fallbacks.
+    translator = (REPO / "port/src/ge_pica_material.c").read_text().split(
+        "GePicaMaterialStatus ge_pica_material_translate(", 1)[1].split("\n}\n", 1)[0]
+    assert "if (state == NULL || material == NULL)" in translator
+    assert translator.count("return ") == 2
+    assert translator.count("return GE_PICA_MATERIAL_INVALID_ARGUMENT;") == 1
+    assert translator.count("return GE_PICA_MATERIAL_OK;") == 1
     sizing = model.index("|| (exact_size && (cache->required_vertex_count")
     assert sizing < model.index("cache_prepare_publication_matrices(\n", sizing)
     assert "ge_dam_dynamic_scene_update_overlay_segment(" not in body

@@ -455,3 +455,73 @@ The probe configuration was removed from the emulator's active location to
 restore normal menu startup. Private copies of the input routes and reports
 are retained in `build/visual-probe/`; saves and hardware DSP configuration
 were not changed. No concurrent Azahar process was started.
+
+## Follow-up: localized articulated-prop topology publication
+
+The live all-stage renderer now replaces only an articulated prop's model
+parts when the canonical model changes node identities, part counts, or output
+sizes. It uses the existing original model-instance enumeration, resident
+matrix publication and shared model-component cache. Original object, AI,
+animation, movement and weapon ticks are unchanged. The prior complete-scene
+installer remains an explicit failure fallback; it is no longer the normal
+response to a prop topology change.
+
+The portable `ge_scene_part_replace` transaction validates the ordinary-part
+prefix and trailing door/guard spans before updating geometry, metadata and
+offsets. It retains room/neighbor/door/guard geometry without rereading assets,
+then the runtime uploads the shifted overlay suffix. It still allocates/copies
+the CPU scene when sizes change; this is not a zero-copy allocator. Empty door
+sets now retain their insertion point, just as empty guard sets do. A completely
+empty overlay also clears old door/guard segment bookkeeping.
+
+Focused ASan/UBSan coverage passed repeated insert/grow/shrink/remove cycles,
+same-size node switches, aliased source data/metadata, empty prefixes/tails,
+capacity failure and invalid-layout rollback, with exact room/peer/door/guard
+vertex and batch preservation. Evidence is in
+`build/host-tests/prop-segment-replace-20260902.log`. Both complete host runs
+passed (`prop-segment-full-20260902.log`, `prop-segment-final-20260902.log`),
+including the source guard for empty door/guard insertion points. The final
+ARM/3DSX build passed in `arm-prop-segment-final-20260902.log`.
+
+The initial live report `dam-prop-segment-348fd814-no-transition.result` did
+not hit a topology change and is not evidence for the new path. The final
+build's repeat, `dam-prop-segment-94d4e71c-combat.result`, did:
+
+- `articulated_publication=722,0,1,0`: one change, zero failures.
+- `articulated_replacement=1,2671922,321,6`: command 321, six parts,
+  2,671,922 ticks / 268,111,856 Hz = approximately **9.97 ms**.
+- `stage_scene_install=1,1,...` and `overlay_refresh=1,0,0,0,...`:
+  only the initial full installation, no subsequent full rebuild or failed
+  door/guard/monitor refresh. All 52 guard topology replacements succeeded.
+
+Earlier runs took 41 ms in the articulated full-rebuild frame and subsequently
+up to 64 ms in guard publication. Neither spike recurred in this run. The new
+path demonstrably removed the full-rebuild event, but different encounter/RNG
+timing means the overall frame-tail distributions are not a controlled FPS
+comparison. The final combat run presented 9,156 frames / 4,771 simulation
+ticks, fired 29 PP7 shots with two guard hits, streamed 3,583 NDSP blocks, and
+recorded zero guard-matrix/sight faults. It reached 12/160 route targets before
+Bond died; it does **not** demonstrate end-to-end Dam completion. Post-warmup:
+9,036 samples, 818 over 16 ms, 62 over 25 ms, six over 33 ms, one over 50 ms,
+54 ms peak. The remaining largest cold first-person publication was 31 ms.
+
+The same final binary also completed the 750-tick aim/look/fire sequence
+(`dam-prop-segment-94d4e71c-aim.result`): 762 presented frames, 512 visible
+canonical sight frames, zero sight failures. With no concurrent compilation,
+616/642 post-warmup frames still exceeded 16 ms, nearly identical to the prior
+aim repeat. Average measured work remains about 17 ms per presented frame;
+aggregate simulation is 6,112 ms and render/GPU submission 5,837 ms across 762
+frames (overlay work is included in simulation). **Sustained 60 FPS is not
+established.** The next performance targets are active-aim simulation/guard
+publication, render submission, and the cold first-person firing-layout path.
+Do not redo existing material batching/delta/prepared caches, native float
+conversion, room retention, or shared model-template retention.
+
+Final executable SHA-256:
+`94d4e71cf4651584b6523d64c8690ddabf993b30311c087b1ca4b2a7b1063085`.
+Unchanged assets SHA-256:
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Build, hardware-stage and Azahar executable copies match; both staged asset
+copies match. Probe routes/results remain private under `build/visual-probe`.
+The active emulator probe configuration was moved there after verification,
+restoring normal menu startup without changing saves or DSP configuration.

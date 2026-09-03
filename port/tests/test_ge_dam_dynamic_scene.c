@@ -1,4 +1,5 @@
 #include "ge_dam_dynamic_scene.h"
+#include "ge_scene_part_replace.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -132,6 +133,126 @@ static void exercise_whole_overlay_replacement(
     free(room_copy);
     puts("whole overlay: 13 no-I/O publications, exact room prefix, "
          "alias-safe commit, stale/overflow/capacity rollback verified");
+}
+
+static void exercise_prop_segment_replacement(GeDamDynamicScene *cache)
+{
+    GeDamRoomWorldVertex original[12] = {0}, replacement[9] = {0};
+    GeDamRoomDrawBatch batches[4] = {0}, changed_batches[3] = {0};
+    GeScenePartRange *parts = calloc(2U, sizeof(*parts));
+    GeScenePartRange changed_parts[3] = {0};
+    GeSceneOverlaySpan tails[2] = {{6U,3U,2U,1U}, {9U,3U,3U,1U}};
+    GeSceneOverlaySpan changed;
+    GeAssetPack unavailable = {0};
+    GeAssetPack *pack = cache->pack;
+    const size_t room_v = cache->scene.vertex_count - cache->overlay_vertex_count;
+    const size_t room_b = cache->scene.batch_count - cache->overlay_batch_count;
+    GeDamRoomWorldVertex *room_copy = malloc(room_v * sizeof(*room_copy));
+    GeDamRoomDrawBatch *room_batches = malloc(room_b * sizeof(*room_batches));
+    size_t part_count = 2U, i, cycle;
+    assert(parts != NULL && room_copy != NULL && room_batches != NULL);
+    memcpy(room_copy, cache->vertices, room_v * sizeof(*room_copy));
+    memcpy(room_batches, cache->batches, room_b * sizeof(*room_batches));
+    parts[0] = (GeScenePartRange){10U,0U,&original[0],0U,3U,0U,1U};
+    parts[1] = (GeScenePartRange){30U,0U,&original[3],3U,3U,1U,1U};
+    for (i = 0U; i < 12U; ++i) original[i].world[0] = (float)i;
+    for (i = 0U; i < 9U; ++i) replacement[i].world[0] = (float)i + 100.0f;
+    for (i = 0U; i < 4U; ++i) {
+        batches[i].room_id = 135U;
+        batches[i].first_vertex = i * 3U;
+        batches[i].vertex_count = 3U;
+        batches[i].triangle_count = 1U;
+    }
+    for (i = 0U; i < 3U; ++i) {
+        changed_batches[i] = batches[i];
+        changed_parts[i] = (GeScenePartRange){20U,i,&replacement[i * 3U],
+            i * 3U,3U,i,1U};
+    }
+    assert(ge_dam_dynamic_scene_set_overlay(cache, original, 12U, batches, 4U)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    cache->pack = &unavailable;
+    /* Insert an absent entry, grow/shrink it, delete every part, then restore.
+     * Other props, both trailing segments and room data retain exact bytes. */
+    for (cycle = 0U; cycle < 16U; ++cycle) {
+        const size_t count = (cycle + 2U) % 4U;
+        assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+            20U, changed_parts, count, replacement, count * 3U,
+            changed_batches, count, &changed) == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(part_count == 2U + count);
+        assert(cache->overlay_vertex_count == 12U + count * 3U);
+        assert(changed.vertex_offset == 3U && changed.vertex_count == 9U + count * 3U);
+        assert(changed.batch_offset == 1U && changed.batch_count == 3U + count);
+        assert(parts[0].entry_index == 10U && parts[0].vertex_offset == 0U);
+        assert(parts[1U + count].entry_index == 30U
+            && parts[1U + count].vertex_offset == 3U + count * 3U);
+        assert(tails[0].vertex_offset == 6U + count * 3U
+            && tails[1].vertex_offset == 9U + count * 3U);
+        assert(tails[0].batch_offset == 2U + count && tails[1].batch_offset == 3U + count);
+        assert(memcmp(cache->overlay_vertices, original, 3U * sizeof(*original)) == 0);
+        assert(memcmp(cache->overlay_vertices + 3U, replacement,
+            count * 3U * sizeof(*replacement)) == 0);
+        assert(memcmp(cache->overlay_vertices + 3U + count * 3U,
+            original + 3U, 9U * sizeof(*original)) == 0);
+        assert(memcmp(cache->vertices, room_copy, room_v * sizeof(*room_copy)) == 0);
+        assert(memcmp(cache->batches, room_batches, room_b * sizeof(*room_batches)) == 0);
+        for (i = 0U; i < cache->overlay_batch_count; ++i) {
+            assert(cache->overlay_batches[i].first_vertex == i * 3U);
+            assert(cache->batches[room_b + i].first_vertex == room_v + i * 3U);
+        }
+    }
+    {
+        GeScenePartRange *before_parts = parts;
+        const GeSceneOverlaySpan before_tails[2] = {tails[0], tails[1]};
+        GeDamRoomWorldVertex *before_vertices = cache->vertices;
+        const uint64_t generation = cache->generation;
+        const size_t capacity = cache->limits.vertex_capacity;
+        changed_parts[0].part_index = 1U;
+        assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+            20U, changed_parts, 3U, replacement, 9U, changed_batches, 3U, &changed)
+            == GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT);
+        changed_parts[0].part_index = 0U;
+        cache->limits.vertex_capacity = room_v + 12U;
+        assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+            20U, changed_parts, 3U, replacement, 9U, changed_batches, 3U, &changed)
+            == GE_DAM_DYNAMIC_SCENE_VERTEX_CAPACITY);
+        cache->limits.vertex_capacity = capacity;
+        assert(parts == before_parts && cache->vertices == before_vertices
+            && cache->generation == generation);
+        assert(memcmp(tails, before_tails, sizeof(tails)) == 0);
+    }
+    /* Alias both the old metadata and old scene data on a same-size switch. */
+    assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+        10U, parts, 1U, cache->overlay_vertices, 3U,
+        cache->overlay_batches, 1U, &changed) == GE_DAM_DYNAMIC_SCENE_OK);
+    /* A node switch with identical counts still replaces its identity/data. */
+    changed_parts[0].node = &original[11];
+    assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+        20U, changed_parts, 1U, replacement, 3U, changed_batches, 1U, &changed)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    assert(parts[1].node == &original[11]);
+    /* Empty ordinary prefixes and empty door/guard tails retain a usable
+     * insertion point. This is the same lifecycle as a newly visible model. */
+    for (i = 10U; i <= 30U; i += 10U)
+        assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+            i, NULL, 0U, NULL, 0U, NULL, 0U, &changed) == GE_DAM_DYNAMIC_SCENE_OK);
+    assert(part_count == 0U && parts == NULL && tails[0].vertex_offset == 0U);
+    assert(ge_dam_dynamic_scene_set_overlay(cache, NULL, 0U, NULL, 0U)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    memset(tails, 0, sizeof(tails));
+    assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+        20U, changed_parts, 3U, replacement, 9U, changed_batches, 3U, &changed)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    assert(tails[0].vertex_offset == 9U && tails[1].vertex_offset == 9U
+        && tails[0].batch_offset == 3U && tails[1].batch_offset == 3U);
+    assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
+        20U, NULL, 0U, NULL, 0U, NULL, 0U, &changed) == GE_DAM_DYNAMIC_SCENE_OK);
+    assert(tails[0].vertex_offset == 0U && tails[1].vertex_offset == 0U
+        && cache->overlay_vertex_count == 0U && part_count == 0U);
+    cache->pack = pack;
+    free(parts);
+    free(room_copy);
+    free(room_batches);
+    puts("prop segment replacement: 16 insert/grow/shrink/clear cycles; exact room/peer/door/guard preservation and atomic failure");
 }
 
 int main(int argc, char **argv)
@@ -563,6 +684,7 @@ int main(int argc, char **argv)
     }
 
     ge_dam_dynamic_scene_close(&bounded);
+    exercise_prop_segment_replacement(&cache);
     ge_dam_dynamic_scene_close(&cache);
     ge_asset_pack_close(&pack);
     free(background.bytes);

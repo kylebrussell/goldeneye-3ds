@@ -36,6 +36,15 @@ def main() -> None:
         "guard_candidate.vertex_offset = guard_vertex_offset;") < capture
     assert boundary < install.index(
         "guard_candidate.batch_offset = guard_batch_offset;") < capture
+    door_capture = install.index("&door_candidate, vertices, door_vertex_offset")
+    assert boundary < install.index(
+        "door_candidate.vertex_offset = door_vertex_offset;") < door_capture
+    assert boundary < install.index(
+        "door_candidate.batch_offset = door_batch_offset;") < door_capture
+    empty = install[install.index("if (input_count == 0U"):
+                    install.index("RUNTIME_STAGE_SCENE_INSTALL_ALLOCATE_INPUTS;")]
+    assert "dam_overlay_segment_close(&objects->door_overlay);" in empty
+    assert "dam_overlay_segment_close(&objects->guard_overlay);" in empty
     print("3DS guard overlay: model cache writes scene tail directly; batch-only commit retained")
 
 

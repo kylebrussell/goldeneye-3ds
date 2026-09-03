@@ -1310,6 +1310,7 @@ if [[ -f "${repo_dir}/build/u/assets/obseg/bg/bg_dam_all_p.bin" \
             -I"${repo_dir}/src/game" \
             "${repo_dir}/port/tests/test_ge_dam_dynamic_scene.c" \
             "${repo_dir}/port/src/ge_dam_dynamic_scene.c" \
+            "${repo_dir}/port/src/ge_scene_part_replace.c" \
             "${repo_dir}/port/src/ge_stage_assets.c" \
             "${repo_dir}/port/src/ge_dam_preload_queue.c" \
             "${repo_dir}/port/src/ge_asset_pack.c" \

@@ -37,6 +37,7 @@
 #include "ge_original_animation_root.h"
 #include "ge_original_guard_animation_table.h"
 #include "ge_original_gun_sight.h"
+#include "ge_scene_part_replace.h"
 #include "ge_original_player_gait.h"
 #include "ge_gbi_clip.h"
 #include "ge_gbi_pipeline.h"
@@ -1997,15 +1998,7 @@ typedef struct RuntimeStageOrdinaryEntry {
     bool pending_inside_owner;
 } RuntimeStageOrdinaryEntry;
 
-typedef struct RuntimeStageScenePartRange {
-    size_t entry_index;
-    size_t part_index;
-    const void *node;
-    size_t vertex_offset;
-    size_t vertex_count;
-    size_t batch_offset;
-    size_t batch_count;
-} RuntimeStageScenePartRange;
+typedef GeScenePartRange RuntimeStageScenePartRange;
 
 struct RuntimeStageArticulatedPublication {
     GeOriginalModelSceneCache cache;
@@ -2114,6 +2107,10 @@ typedef struct RuntimeStageOrdinaryObjects {
     uint64_t articulated_scene_unchanged_count;
     uint64_t articulated_scene_topology_change_count;
     uint64_t articulated_scene_failure_count;
+    uint64_t articulated_replace_successes;
+    uint64_t articulated_replace_peak_ticks;
+    size_t articulated_replace_command;
+    size_t articulated_replace_parts;
     size_t supply_count;
     size_t supply_slot_model_load_count;
     size_t owned_ordinary_embedded_count;
@@ -3046,6 +3043,11 @@ static bool write_input_probe_result(
         (unsigned long long)objects->articulated_scene_unchanged_count,
         (unsigned long long)objects->articulated_scene_topology_change_count,
         (unsigned long long)objects->articulated_scene_failure_count);
+    fprintf(stream, "articulated_replacement=%llu,%llu,%lu,%lu\n",
+        (unsigned long long)objects->articulated_replace_successes,
+        (unsigned long long)objects->articulated_replace_peak_ticks,
+        (unsigned long)objects->articulated_replace_command,
+        (unsigned long)objects->articulated_replace_parts);
     fprintf(stream, "guard_scene_cache=%llu,%llu,%llu,%llu,%llu\n",
         (unsigned long long)objects->guard_scene_cache.build_attempts,
         (unsigned long long)objects->guard_scene_cache.cached_builds,
@@ -7190,6 +7192,10 @@ static bool install_stage_ordinary_object_scenes(
         free(objects->ordinary_scene_parts);
         objects->ordinary_scene_parts = NULL;
         objects->ordinary_scene_part_count = 0U;
+        dam_overlay_segment_close(&objects->door_overlay);
+        dam_overlay_segment_close(&objects->guard_overlay);
+        memset(&objects->guard_scene, 0, sizeof(objects->guard_scene));
+        objects->guard_scene.status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
         ge_3ds_scene_textures_close(&candidate_textures);
         free(candidate_slots);
         ++objects->scene_install_successes;
@@ -7450,6 +7456,10 @@ static bool install_stage_ordinary_object_scenes(
     }
     guard_vertex_offset = vertex_count;
     guard_batch_offset = batch_count;
+    /* Empty doors still separate the ordinary prefix from the guard tail.
+     * Topology replacement must rebase this insertion point too. */
+    door_candidate.vertex_offset = door_vertex_offset;
+    door_candidate.batch_offset = door_batch_offset;
     /* Even an empty guard set owns the tail insertion point. A later visible
      * guard must be appended after ordinary props/doors; refresh assumes that
      * order when publishing the new segment offsets. */
@@ -8049,6 +8059,111 @@ static bool stage_articulated_reserve(
     return true;
 }
 
+static bool replace_stage_articulated_topology(
+    RuntimeStageOrdinaryObjects *objects, size_t entry_index,
+    size_t part_count, Vertex *gpu_destination)
+{
+    const uint64_t started = svcGetSystemTick();
+    RuntimeStageOrdinaryEntry *entry = &objects->entries[entry_index];
+    RuntimeStageArticulatedPublication *publication;
+    RuntimeDamPreview *preview = objects->preview;
+    GeScenePartRange *parts = NULL;
+    GeSceneOverlaySpan changed;
+    GeSceneOverlaySpan tails[2] = {
+        {objects->door_overlay.vertex_offset, objects->door_overlay.vertex_count,
+         objects->door_overlay.batch_offset, objects->door_overlay.batch_count},
+        {objects->guard_overlay.vertex_offset, objects->guard_overlay.vertex_count,
+         objects->guard_overlay.batch_offset, objects->guard_overlay.batch_count}
+    };
+    GeOriginalModelScene query, built;
+    GeDamRoomSceneStorage storage;
+    size_t i;
+    if (entry->articulated == NULL)
+        entry->articulated = calloc(1U, sizeof(*entry->articulated));
+    publication = entry->articulated;
+    if (publication == NULL || part_count > SIZE_MAX / sizeof(*parts)
+            || !stage_articulated_reserve(publication, part_count, 0U, 0U))
+        return false;
+    if (part_count != 0U) {
+        parts = calloc(part_count, sizeof(*parts));
+        if (parts == NULL) return false;
+    }
+    for (i = 0U; i < part_count; ++i) {
+        GeOriginalPitemModelScenePart part;
+        if (!stage_ordinary_scene_part(objects, entry, i, &part)
+                || ge_original_stage_model_publication_resident_input(
+                    objects->models, entry->definition, i, entry->room,
+                    preview->original_camera_view_to_world,
+                    &publication->inputs[i]) != GE_ORIGINAL_STAGE_MODEL_PUBLICATION_OK)
+            goto fail;
+        parts[i].entry_index = entry_index;
+        parts[i].part_index = i;
+        parts[i].node = part.node;
+    }
+    if (ge_original_model_scene_cache_build(&publication->cache,
+            publication->inputs, part_count, NULL, &query)
+            != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
+            || !stage_articulated_reserve(publication, part_count,
+                query.required_vertex_count, query.required_batch_count)) goto fail;
+    storage = (GeDamRoomSceneStorage){publication->vertices, publication->vertex_capacity,
+        publication->batches, publication->batch_capacity};
+    if (ge_original_model_scene_cache_build(&publication->cache,
+            publication->inputs, part_count, &storage, &built)
+            != GE_ORIGINAL_MODEL_SCENE_OK) goto fail;
+    for (i = 0U; i < part_count; ++i) {
+        parts[i].vertex_offset = publication->cache.input_vertex_offsets[i];
+        parts[i].vertex_count = publication->cache.queries[i].required_vertex_count;
+        parts[i].batch_offset = publication->cache.input_batch_offsets[i];
+        parts[i].batch_count = publication->cache.queries[i].required_batch_count;
+    }
+    if (!ensure_stage_guard_overlay_textures(objects, publication->batches,
+            built.batch_count)) goto fail;
+    objects->overlay_status = ge_scene_part_replace(&preview->dynamic_scene,
+        &objects->ordinary_scene_parts, &objects->ordinary_scene_part_count,
+        tails, 2U, entry_index, parts, part_count,
+        publication->vertices, built.vertex_count,
+        publication->batches, built.batch_count, &changed);
+    if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK) goto fail;
+    objects->door_overlay.vertex_offset = tails[0].vertex_offset;
+    objects->door_overlay.batch_offset = tails[0].batch_offset;
+    objects->guard_overlay.vertex_offset = tails[1].vertex_offset;
+    objects->guard_overlay.batch_offset = tails[1].batch_offset;
+    preview->source_vertices = preview->dynamic_scene.vertices;
+    preview->batches = preview->dynamic_scene.batches;
+    preview->source_vertex_count = preview->dynamic_scene.scene.vertex_count;
+    preview->vertex_count = preview->source_vertex_count;
+    preview->batch_count = preview->dynamic_scene.scene.batch_count;
+    preview->triangles = preview->dynamic_scene.scene.triangle_count;
+    preview->draws = preview->batch_count;
+    objects->scene_vertices = preview->dynamic_scene.overlay_vertex_count;
+    objects->scene_batches = preview->dynamic_scene.overlay_batch_count;
+    objects->scene_triangles = preview->triangles;
+    /* Rebase the GPU suffix as well as CPU metadata. Room geometry and all
+     * earlier props remain resident; only shifted overlay data needs upload. */
+    if (!upload_dam_gpu_world_scene_range(preview, gpu_destination,
+            preview->source_vertex_count - preview->dynamic_scene.overlay_vertex_count
+                + changed.vertex_offset, changed.vertex_count,
+            preview->batch_count - preview->dynamic_scene.overlay_batch_count
+                + changed.batch_offset, changed.batch_count, true)) goto fail;
+    publication->force_copy = false;
+    ++publication->updates;
+    ++objects->articulated_scene_update_count;
+    ++objects->articulated_replace_successes;
+    {
+        const uint64_t elapsed = svcGetSystemTick() - started;
+        if (elapsed > objects->articulated_replace_peak_ticks) {
+            objects->articulated_replace_peak_ticks = elapsed;
+            objects->articulated_replace_command = entry->command_index;
+            objects->articulated_replace_parts = part_count;
+        }
+    }
+    free(parts);
+    return true;
+fail:
+    free(parts);
+    return false;
+}
+
 static bool refresh_stage_articulated_objects(
     RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination,
     bool *updated)
@@ -8109,7 +8224,10 @@ static bool refresh_stage_articulated_objects(
             ++objects->articulated_scene_topology_change_count;
             if (entry->articulated != NULL)
                 ++entry->articulated->topology_changes;
-            return false;
+            if (!replace_stage_articulated_topology(
+                    objects, entry_index, part_count, gpu_destination)) return false;
+            if (updated != NULL) *updated = true;
+            continue;
         }
         if (part_count == 0U) continue;
         if (first_range == SIZE_MAX) return false;
@@ -8152,7 +8270,7 @@ static bool refresh_stage_articulated_objects(
                     || range->node != part.node) {
                 ++objects->articulated_scene_topology_change_count;
                 ++publication->topology_changes;
-                return false;
+                break;
             }
             input_status = ge_original_stage_model_publication_input(
                 objects->models, entry->definition, part_index, room,
@@ -8165,6 +8283,13 @@ static bool refresh_stage_articulated_objects(
                 return false;
             cursor_vertex += range->vertex_count;
             cursor_batch += range->batch_count;
+        }
+        if (part_index != part_count
+                && input_status != GE_ORIGINAL_STAGE_MODEL_PUBLICATION_NOT_VISIBLE) {
+            if (!replace_stage_articulated_topology(
+                    objects, entry_index, part_count, gpu_destination)) return false;
+            if (updated != NULL) *updated = true;
+            continue;
         }
         if (input_status
                 == GE_ORIGINAL_STAGE_MODEL_PUBLICATION_NOT_VISIBLE)
@@ -8180,7 +8305,14 @@ static bool refresh_stage_articulated_objects(
                 &publication->cache, publication->inputs, part_count,
                 &storage, &built) != GE_ORIGINAL_MODEL_SCENE_OK
                 || built.vertex_count != vertex_count
-                || built.batch_count != batch_count) return false;
+                || built.batch_count != batch_count) {
+            ++objects->articulated_scene_topology_change_count;
+            ++publication->topology_changes;
+            if (!replace_stage_articulated_topology(
+                    objects, entry_index, part_count, gpu_destination)) return false;
+            if (updated != NULL) *updated = true;
+            continue;
+        }
         if (!publication->force_copy
                 && publication->cache.unchanged_builds != unchanged_before) {
             ++publication->unchanged;

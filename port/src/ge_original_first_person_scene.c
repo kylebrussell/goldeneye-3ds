@@ -544,8 +544,8 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
 
         cache->input_vertex_offsets[input_index] = vertex_cursor;
         cache->input_batch_offsets[input_index] = batch_cursor;
-        if (ge_original_model_scene_build_matrix_template(
-                &cache->inputs[input_index], &storage,
+        if (ge_original_model_scene_build_matrix_template_preflighted(
+                &cache->inputs[input_index], query, &storage,
                 matrix_indices + vertex_cursor,
                 query->required_vertex_count, &built)
                 != GE_ORIGINAL_MODEL_SCENE_OK

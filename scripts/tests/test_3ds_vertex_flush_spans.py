@@ -28,8 +28,8 @@ renderer_draw = function_body(source, "renderer_draw")
 # The initial upload still publishes every initialized vertex once.
 assert "TOTAL_VERTEX_COUNT * sizeof(Vertex)" in renderer_init
 
-# The only vertices rewritten by renderer_draw are the 12 crosshair vertices.
-assert "CROSSHAIR_VERTEX_COUNT == 12U" in source
+# The canonical textured sight writes only its six-vertex rectangle.
+assert "CROSSHAIR_VERTEX_COUNT == 6U" in source
 assert re.search(
     r"GSPGPU_FlushDataCache\(\s*vertex_buffer,\s*"
     r"renderer_vertex_flush_bytes\(\s*CROSSHAIR_VERTEX_COUNT,\s*"
@@ -59,4 +59,4 @@ assert "assert(vertex_count <= vertex_capacity);" in helper
 assert "assert(vertex_capacity <= TOTAL_VERTEX_COUNT);" in helper
 assert "TOTAL_VERTEX_COUNT <= SIZE_MAX / sizeof(Vertex)" in source
 
-print("3DS cache flush spans: full init, 12-vertex crosshair, exact Dam projection")
+print("3DS cache flush spans: full init, 6-vertex sight, exact Dam projection")

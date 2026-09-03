@@ -366,3 +366,92 @@ inspection: the live HUD still draws the legacy synthetic crosshair from
 `build_crosshair_from_gbi` unconditionally outside watch/credits. Replace that
 with the canonical sight-rendering path/visibility state, not a recolored
 placeholder. No crosshair change was made in this checkpoint.
+
+## Follow-up: original sight and cold model-template publication
+
+The legacy always-visible, firing-recolored crosshair has now been removed.
+The live renderer executes the original `gunDrawSight`,
+`display_image_at_position`, `draw_textured_rectangle`, and
+`texSetRenderMode` bodies, with only native display-list pointer corrections.
+It uses the authored `s_crosshairimage`/`CROSSHAIR1` image, player aim position,
+gunsight suppression bits, multiplayer-menu check, widescreen sizing, clipping,
+flipped texture coordinates, and environment alpha 110. The platform adapter
+captures `texSelect`'s image binding instead of emulating N64 texture allocation.
+The isolated capture inherits gameplay's bilinear filter. Source guards check
+the retained bodies against the decomp; there is no replacement aiming logic.
+
+The PICA translator previously lacked texture-times-environment RGB/alpha,
+which the original `G_CC_FADEA` sight commands require. It now maps those
+channels independently to texture-times-constant, preserving mixed
+environment/primitive channels. Unrepresentable chained two-cycle modulation
+remains explicitly flagged as a fallback; this is not full RDP equivalence.
+The existing material enum values and asset format are unchanged.
+
+First-person and shared model-component cold decodes now reuse their already
+completed capacity query when recording matrix-index templates. Previously
+each did count, count again, then write. They now do count then write with
+the same command validation, storage bounds, and final count checks. Focused
+ASan/UBSan tests compare all vertex/material/matrix-index output and reject
+undersized matrix-index buffers, stale command totals, and invalid queries.
+The PP7/window/gate test writer measured approximately 115/17/59 us against
+184/30/115 us for the old two-pass writer in this host run. These are isolated
+host decode measurements, not a promised gameplay FPS increase.
+
+Both complete host runs passed, including the existing original stage,
+guard/action/death, weapon/modem, sound, menu/watch/exit, and renderer tests:
+`build/host-tests/canonical-sight-20260902.log` and
+`canonical-sight-final-20260902.log`. Focused sight coverage also tests exact
+GPU combine state/opacity, both aspect ratios, suppression, clipping, and
+invalid floating-point state. Final ARM/3DSX build passes in
+`arm-canonical-sight-final-20260902.log`. The linked ELF retains
+`ge_original_gun_draw_sight_exact`, the rectangle body, sight snapshot,
+preflighted matrix-template writer, and unchanged `MoveBond`.
+
+The first combat report, `dam-canonical-sight-e2a0f1f6-combat.result`, recorded
+9,618 presented / 5,221 healthy actor ticks, 37 PP7 shots / three guard hits,
+zero guard-matrix faults, and 3,917 NDSP blocks. The canonical sight correctly
+stayed suppressed throughout this hip-fire route. It reached 12/160 targets
+and Bond died: **end-to-end Dam is still not demonstrated**. Of 9,498
+post-warmup samples, 865 exceeded 16 ms, ten exceeded 33 ms, and two exceeded
+50 ms, with a 68 ms peak. The cold weapon-layout frame spent 31 ms in
+first-person publication (previous checkpoint: 39 ms); guard publication
+still reached 56 ms, and the articulated full rebuild still cost 41 ms.
+Encounter/RNG differences prevent treating these runs as a controlled FPS
+comparison.
+
+The final executable's dedicated aim/release/look/fire probe completed all
+750 simulation ticks and five PP7 shots. Reports
+`dam-canonical-sight-1cb7526a-aim.result` and `...-aim-repeat.result` each record
+512 visible sight frames, zero sight failures and zero matrix faults. The
+original red textured sight was directly inspected in Azahar. The repeat had
+no concurrent builds, yet 616/642 post-warmup frames exceeded 16 ms; the UI
+showed about 56 FPS during aiming. Thus the combat average does not establish
+60 FPS during active aiming. Preserve this distinction in future reporting.
+
+Final code SHA-256:
+`1cb7526a465b2f7cffdf2121ceefc225fbd7675bc1d0438376008ceb7777e458`.
+Assets remain:
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Build, hardware staging, and Azahar copies match. Neither the binaries nor
+ROM-derived assets are committed.
+
+Next priorities remain the shared guard/first-person publication and active
+aiming frame budget, per-articulated-prop topology replacement instead of the
+whole overlay rebuild, and player-driven Dam objective/exit verification.
+Do not recreate the material delta cache, resident-room retention, canonical
+movement/AI, or crosshair: these are already live. All-level completion,
+N64-reference audiovisual fidelity, and New 3DS XL performance remain unproven.
+
+Final sustained-run confirmation (`dam-canonical-sight-1cb7526a-combat.result`):
+8,965 presented / 3,964 healthy actor ticks, 20 PP7 shots / two guard hits,
+zero matrix/sight failures, 3,000 NDSP blocks, and 39 first-person topology
+reuses after two decodes. This route also failed at Bond's death (11/160
+targets). Its 8,845 post-warmup samples include 708 over 16 ms, seven over
+33 ms, three over 50 ms, and a 75 ms peak. The worst guard-publication frame
+spent 64 ms in overlays; the articulated rebuild remained 41 ms and cold
+first-person publication remained 31 ms. The world audit additionally passes
+with seven combiner diagnostic buckets (`canonical-sight-world-audit-20260902.log`).
+The probe configuration was removed from the emulator's active location to
+restore normal menu startup. Private copies of the input routes and reports
+are retained in `build/visual-probe/`; saves and hardware DSP configuration
+were not changed. No concurrent Azahar process was started.

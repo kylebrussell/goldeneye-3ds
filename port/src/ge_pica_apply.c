@@ -56,6 +56,15 @@ static void ge_pica_apply_color(const GePicaMaterial *material,
         state->constant_color.blue = material->primitive_color.blue;
         state->texture_required = UINT8_C(1);
         break;
+    case GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT:
+        channel->source0 = GE_PICA_APPLY_SOURCE_TEXTURE0;
+        channel->source1 = GE_PICA_APPLY_SOURCE_CONSTANT;
+        channel->combine = GE_PICA_APPLY_MODULATE;
+        state->constant_color.red = material->environment_color.red;
+        state->constant_color.green = material->environment_color.green;
+        state->constant_color.blue = material->environment_color.blue;
+        state->texture_required = UINT8_C(1);
+        break;
     default:
         state->apply_fallback_flags |= GE_PICA_APPLY_FALLBACK_INVALID_ENUM;
         break;
@@ -100,6 +109,13 @@ static void ge_pica_apply_alpha(const GePicaMaterial *material,
         channel->source1 = GE_PICA_APPLY_SOURCE_CONSTANT;
         channel->combine = GE_PICA_APPLY_MODULATE;
         state->constant_color.alpha = material->primitive_color.alpha;
+        state->texture_required = UINT8_C(1);
+        break;
+    case GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT:
+        channel->source0 = GE_PICA_APPLY_SOURCE_TEXTURE0;
+        channel->source1 = GE_PICA_APPLY_SOURCE_CONSTANT;
+        channel->combine = GE_PICA_APPLY_MODULATE;
+        state->constant_color.alpha = material->environment_color.alpha;
         state->texture_required = UINT8_C(1);
         break;
     default:

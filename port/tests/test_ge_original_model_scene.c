@@ -223,6 +223,66 @@ static void exercise_preflighted(
            (double)preflighted_ticks * 1000000.0 / (16.0 * CLOCKS_PER_SEC));
 }
 
+static void exercise_preflighted_matrix_template(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelScene *query,
+    const GeDamRoomSceneStorage *reference,
+    const GeDamRoomSceneStorage *storage)
+{
+    GeOriginalModelScene scene;
+    GeOriginalModelScene stale = *query;
+    const size_t count = query->required_vertex_count;
+    uint16_t *expected = calloc(count, sizeof(*expected));
+    uint16_t *actual = calloc(count, sizeof(*actual));
+    clock_t start;
+    clock_t regular_ticks;
+    clock_t preflighted_ticks;
+    size_t iteration;
+    assert(count != 0U && expected != NULL && actual != NULL);
+    start = clock();
+    for (iteration = 0U; iteration < 16U; ++iteration)
+        assert(ge_original_model_scene_build_matrix_template(
+            input, reference, expected, count, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    regular_ticks = clock() - start;
+    start = clock();
+    for (iteration = 0U; iteration < 16U; ++iteration)
+        assert(ge_original_model_scene_build_matrix_template_preflighted(
+            input, query, storage, actual, count, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    preflighted_ticks = clock() - start;
+    assert(memcmp(expected, actual, count * sizeof(*actual)) == 0);
+    assert(memcmp(storage->vertices, reference->vertices,
+        count * sizeof(*storage->vertices)) == 0);
+    assert(memcmp(storage->batches, reference->batches,
+        query->required_batch_count * sizeof(*storage->batches)) == 0);
+    assert(ge_original_model_scene_build_matrix_template_preflighted(
+        input, query, storage, actual, count - 1U, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    assert(ge_original_model_scene_build_matrix_template_preflighted(
+        input, NULL, storage, actual, count, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    assert(ge_original_model_scene_build_matrix_template_preflighted(
+        input, query, storage, NULL, count, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+    stale.commands_visited++;
+    assert(ge_original_model_scene_build_matrix_template_preflighted(
+        input, &stale, storage, actual, count, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT);
+    assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+    scene = *query;
+    assert(ge_original_model_scene_build_matrix_template_preflighted(
+        input, &scene, storage, actual, count, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    printf("preflighted matrix template: %zu vertices, regular=%.3f us, "
+           "preflighted=%.3f us; exact vertices/materials/matrix indices and bounds\n",
+        count, (double)regular_ticks * 1000000.0 / (16.0 * CLOCKS_PER_SEC),
+        (double)preflighted_ticks * 1000000.0 / (16.0 * CLOCKS_PER_SEC));
+    free(actual);
+    free(expected);
+    /* Restore transformed output for the existing cache equivalence checks. */
+    assert(ge_original_model_scene_build(input, reference, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_OK);
+}
+
 static void exercise(const char *path, size_t blob_size,
                      uint32_t primary, uint32_t secondary,
                      uint32_t segment4_offset)
@@ -284,6 +344,7 @@ static void exercise(const char *path, size_t blob_size,
             cached_batches, query.required_batch_count
         };
         exercise_preflighted(&input, &query, &storage, &cached_storage);
+        exercise_preflighted_matrix_template(&input, &query, &storage, &cached_storage);
         assert(ge_original_model_scene_cache_build(
             &cache, &input, 1U, &cached_storage, &cached)
             == GE_ORIGINAL_MODEL_SCENE_OK);

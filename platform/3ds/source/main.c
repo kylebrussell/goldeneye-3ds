@@ -36,6 +36,7 @@
 #include "ge_audio_output.h"
 #include "ge_original_animation_root.h"
 #include "ge_original_guard_animation_table.h"
+#include "ge_original_gun_sight.h"
 #include "ge_original_player_gait.h"
 #include "ge_gbi_clip.h"
 #include "ge_gbi_pipeline.h"
@@ -205,20 +206,7 @@ _Static_assert(sizeof(Vertex) == sizeof(Ge3dsOriginalHudVertex),
 _Static_assert(sizeof(Vertex) == sizeof(Ge3dsOriginalAutogunBeamVertex),
                "autogun platform vertices must match the shared PICA layout");
 
-#define CROSSHAIR_VERTEX(x_value, y_value) \
-    { (x_value), (y_value), 0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f }
-
-static const Vertex fallback_crosshair_vertices[] = {
-    CROSSHAIR_VERTEX(198.0f, 104.0f), CROSSHAIR_VERTEX(202.0f, 104.0f),
-    CROSSHAIR_VERTEX(202.0f, 136.0f), CROSSHAIR_VERTEX(198.0f, 104.0f),
-    CROSSHAIR_VERTEX(202.0f, 136.0f), CROSSHAIR_VERTEX(198.0f, 136.0f),
-    CROSSHAIR_VERTEX(184.0f, 118.0f), CROSSHAIR_VERTEX(216.0f, 118.0f),
-    CROSSHAIR_VERTEX(216.0f, 122.0f), CROSSHAIR_VERTEX(184.0f, 118.0f),
-    CROSSHAIR_VERTEX(216.0f, 122.0f), CROSSHAIR_VERTEX(184.0f, 122.0f),
-};
-
-#define CROSSHAIR_VERTEX_COUNT \
-    (sizeof(fallback_crosshair_vertices) / sizeof(fallback_crosshair_vertices[0]))
+#define CROSSHAIR_VERTEX_COUNT 6U
 #define ICON_VERTEX_COUNT 6u
 #define DAM_ENVIRONMENT_VERTEX_COUNT 6u
 #define DAM_ENVIRONMENT_VERTEX_OFFSET \
@@ -319,8 +307,8 @@ _Static_assert(FIRST_PERSON_SOURCE_VERTEX_CAPACITY
 #define SAVE_SLOT_PATH \
     "sdmc:/3ds/goldeneye-3ds/goldeneye.sav"
 
-_Static_assert(CROSSHAIR_VERTEX_COUNT == 12U,
-               "the live crosshair updates exactly 12 vertices");
+_Static_assert(CROSSHAIR_VERTEX_COUNT == 6U,
+               "the canonical sight rectangle publishes six vertices");
 _Static_assert(TOTAL_VERTEX_COUNT <= SIZE_MAX / sizeof(Vertex),
                "the shared vertex-buffer byte count must fit size_t");
 
@@ -1219,7 +1207,11 @@ static Ge3dsSceneTextureSlot first_person_texture_slots[
     FIRST_PERSON_TEXTURE_CAPACITY];
 static Ge3dsSceneTextures first_person_scene_textures;
 static uint16_t guard_muzzle_flash_images[GUARD_MUZZLE_FLASH_CAPACITY];
-static Vertex crosshair_vertices[CROSSHAIR_VERTEX_COUNT];
+static C3D_Tex gun_sight_texture;
+static Tex3DS_SubTexture gun_sight_subtexture;
+static bool gun_sight_texture_loaded;
+static uint64_t gun_sight_frames, gun_sight_visible_frames, gun_sight_failures;
+static uint32_t gun_sight_suppression;
 static const Vertex dam_environment_vertices[DAM_ENVIRONMENT_VERTEX_COUNT] = {
     {40.0f, 0.0f, 0.5f, 0.0f, 0.0f,
      16.0f / 255.0f, 48.0f / 255.0f, 96.0f / 255.0f, 1.0f},
@@ -3345,6 +3337,12 @@ static bool write_input_probe_result(
     fprintf(stream, "frame_average_ms=%llu\n",
         (unsigned long long)(runtime->displayed_frames != 0U
             ? runtime->displayed_total_ms / runtime->displayed_frames : 0U));
+    fprintf(stream, "gun_sight=%u,%llu,%llu,%llu,%u\n",
+        gun_sight_texture_loaded ? 1U : 0U,
+        (unsigned long long)gun_sight_frames,
+        (unsigned long long)gun_sight_visible_frames,
+        (unsigned long long)gun_sight_failures,
+        (unsigned)gun_sight_suppression);
     fprintf(stream, "frame_peak_ms=%llu\n",
         (unsigned long long)runtime->displayed_peak_ms);
     fprintf(stream, "frame_tail_ms=%llu,%lu,%lu,%lu,%lu,%lu\n",
@@ -9284,90 +9282,46 @@ typedef struct RuntimeBlotterPreview {
     Vertex vertices[BLOTTER_VERTEX_COUNT];
 } RuntimeBlotterPreview;
 
-typedef struct CrosshairPipelineBuild {
-    Vertex *vertices;
-    size_t vertex_count;
-} CrosshairPipelineBuild;
-
-static int build_crosshair_action(const GeGbiPipelineEvent *event,
-                                  void *user_data)
+static size_t build_original_sight_vertices(Vertex *vertices,
+    GePicaTextureRectangleDraw *draw)
 {
-    CrosshairPipelineBuild *build = user_data;
-    uint8_t triangle_index;
-
-    if (event->action.kind != GE_GBI_STATE_ACTION_DRAW_TRIANGLES) {
-        return 1;
+    GeOriginalGunSightSnapshot snapshot;
+    uint8_t visible;
+    float tl_u, tl_v, tr_u, tr_v, bl_u, bl_v, br_u, br_v;
+    size_t index;
+    ++gun_sight_frames;
+    if (!ge_original_gun_sight_snapshot(&snapshot)
+            || !ge_original_gun_sight_build_draw(&snapshot, draw, &visible)) {
+        ++gun_sight_failures;
+        return 0U;
     }
-    for (triangle_index = 0U;
-            triangle_index < event->action.data.draw.count;
-            triangle_index++) {
-        const GeGbiTriangle *triangle =
-            &event->action.data.draw.triangles[triangle_index];
-        uint8_t vertex_index;
-
-        for (vertex_index = 0U; vertex_index < 3U; vertex_index++) {
-            const GeGbiVertex *source =
-                &event->vertex_cache[triangle->vertex[vertex_index]];
-
-            if (build->vertex_count >= CROSSHAIR_VERTEX_COUNT) {
-                return 0;
-            }
-            build->vertices[build->vertex_count++] = (Vertex){
-                200.0f + (float)source->x,
-                120.0f + (float)source->y,
-                0.5f,
-                0.0f,
-                0.0f,
-                (float)source->red / 255.0f,
-                (float)source->green / 255.0f,
-                (float)source->blue / 255.0f,
-                (float)source->alpha / 255.0f,
-            };
-        }
+    gun_sight_suppression = snapshot.suppression_reasons;
+    if (!visible) return 0U;
+    if (!gun_sight_texture_loaded) {
+        ++gun_sight_failures;
+        return 0U;
     }
-    return 1;
-}
-
-static bool build_crosshair_from_gbi(Vertex *vertices)
-{
-    static const uint8_t commands[] = {
-        /* Clear geometry mode; load eight vertices; draw four Rare TRI4 triangles. */
-        0xb6, 0x00, 0x00, 0x00, 0x00, 0x02, 0x06, 0x04,
-        0x04, 0x70, 0x00, 0x80, 0x02, 0x00, 0x00, 0x00,
-        0xb1, 0x00, 0x76, 0x32, 0x64, 0x54, 0x20, 0x10,
-        0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    };
-    static const uint8_t n64_vertices[] = {
-        0xff, 0xfe, 0xff, 0xf0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0x00, 0x02, 0xff, 0xf0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0x00, 0x02, 0x00, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0xff, 0xfe, 0x00, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0xff, 0xf0, 0xff, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0x00, 0x10, 0xff, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0x00, 0x10, 0x00, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-        0xff, 0xf0, 0x00, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0xd1, 0xab, 0x2e, 0xff,
-    };
-    GeGbiMemoryMap memory;
-    GeGbiTraversalConfig config = {4U, 32U};
-    GeGbiPipelineResult result;
-    CrosshairPipelineBuild build = {vertices, 0U};
-
-    ge_gbi_memory_map_init(&memory);
-    if (ge_gbi_memory_map_set_segment(&memory, 1U, commands,
-                                      sizeof(commands)) != GE_GBI_RESOLVE_OK
-            || ge_gbi_memory_map_set_segment(&memory, 2U, n64_vertices,
-                                             sizeof(n64_vertices))
-                != GE_GBI_RESOLVE_OK) {
-        return false;
+    Tex3DS_SubTextureTopLeft(&gun_sight_subtexture, &tl_u, &tl_v);
+    Tex3DS_SubTextureTopRight(&gun_sight_subtexture, &tr_u, &tr_v);
+    Tex3DS_SubTextureBottomLeft(&gun_sight_subtexture, &bl_u, &bl_v);
+    Tex3DS_SubTextureBottomRight(&gun_sight_subtexture, &br_u, &br_v);
+    for (index = 0U; index < CROSSHAIR_VERTEX_COUNT; ++index) {
+        const GePicaScreenVertex *source = &draw->vertices[index];
+        const float u = source->texture_u;
+        const float v = source->texture_v;
+        const float top_u = tl_u + (tr_u - tl_u) * u;
+        const float top_v = tl_v + (tr_v - tl_v) * u;
+        const float bottom_u = bl_u + (br_u - bl_u) * u;
+        const float bottom_v = bl_v + (br_v - bl_v) * u;
+        vertices[index] = (Vertex){
+            source->x, source->y, source->z,
+            top_u + (bottom_u - top_u) * v,
+            top_v + (bottom_v - top_v) * v,
+            source->red, source->green, source->blue, source->alpha,
+        };
     }
-    result = ge_gbi_pipeline_execute(
-        &memory, (GeGbiAddress){UINT32_C(0x01000000), 0U, 1U},
-        GE_GBI_BYTE_ORDER_BIG_ENDIAN, &config,
-        build_crosshair_action, &build);
-    return result.status == GE_GBI_PIPELINE_OK
-        && result.draw_calls == 1U
-        && result.triangles == 4U
-        && build.vertex_count == CROSSHAIR_VERTEX_COUNT;
+    ++gun_sight_visible_frames;
+    return CROSSHAIR_VERTEX_COUNT;
 }
 
 static void set_copy_icon_vertices(Vertex *vertices, const Tex3DS_SubTexture *subtexture)
@@ -9442,21 +9396,6 @@ static void load_copy_icon(GeTextureCache *texture_cache,
     const GeTextureCacheEntry *entry;
     Tex3DS_Texture imported;
     const Tex3DS_SubTexture *subtexture;
-    float white_u;
-    float white_v;
-    float top_left_u;
-    float top_left_v;
-    float top_right_u;
-    float top_right_v;
-    float bottom_left_u;
-    float bottom_left_v;
-    float bottom_right_u;
-    float bottom_right_v;
-    float top_u;
-    float top_v;
-    float bottom_u;
-    float bottom_v;
-    size_t i;
 
     if (texture_cache == NULL
             || ge_texture_cache_acquire(texture_cache, "COPYICON.bin", 0U,
@@ -9475,20 +9414,6 @@ static void load_copy_icon(GeTextureCache *texture_cache,
     }
     subtexture = Tex3DS_GetSubTexture(imported, 0);
     set_copy_icon_vertices(vertices + CROSSHAIR_VERTEX_COUNT, subtexture);
-    Tex3DS_SubTextureTopLeft(subtexture, &top_left_u, &top_left_v);
-    Tex3DS_SubTextureTopRight(subtexture, &top_right_u, &top_right_v);
-    Tex3DS_SubTextureBottomLeft(subtexture, &bottom_left_u, &bottom_left_v);
-    Tex3DS_SubTextureBottomRight(subtexture, &bottom_right_u, &bottom_right_v);
-    top_u = top_left_u + (top_right_u - top_left_u) * 0.75f;
-    top_v = top_left_v + (top_right_v - top_left_v) * 0.75f;
-    bottom_u = bottom_left_u + (bottom_right_u - bottom_left_u) * 0.75f;
-    bottom_v = bottom_left_v + (bottom_right_v - bottom_left_v) * 0.75f;
-    white_u = top_u + (bottom_u - top_u) * 0.50f;
-    white_v = top_v + (bottom_v - top_v) * 0.50f;
-    for (i = 0; i < CROSSHAIR_VERTEX_COUNT; i++) {
-        vertices[i].u = white_u;
-        vertices[i].v = white_v;
-    }
     Tex3DS_TextureFree(imported);
     (void)ge_texture_cache_release_entry(texture_cache, entry);
     C3D_TexSetFilter(&copy_icon_texture, GPU_NEAREST, GPU_NEAREST);
@@ -15158,11 +15083,7 @@ static bool renderer_init(GeAssetPack *asset_pack,
         DVLB_Free(shader_dvlb);
         return false;
     }
-    if (!build_crosshair_from_gbi(crosshair_vertices)) {
-        memcpy(crosshair_vertices, fallback_crosshair_vertices,
-               sizeof(crosshair_vertices));
-    }
-    memcpy(vertex_buffer, crosshair_vertices, sizeof(crosshair_vertices));
+    memset(vertex_buffer, 0, CROSSHAIR_VERTEX_COUNT * sizeof(Vertex));
     memset((Vertex *)vertex_buffer + CROSSHAIR_VERTEX_COUNT, 0, ICON_VERTEX_COUNT * sizeof(Vertex));
     memcpy((Vertex *)vertex_buffer + DAM_ENVIRONMENT_VERTEX_OFFSET,
            dam_environment_vertices, sizeof(dam_environment_vertices));
@@ -15256,6 +15177,14 @@ static bool renderer_init(GeAssetPack *asset_pack,
         original_gameplay_hud_font_texture_loaded = true;
     }
     load_original_ammo_icon_textures(texture_cache);
+    gun_sight_texture_loaded = import_cached_texture(texture_cache,
+        ge_original_gun_sight_texture_source(),
+        &gun_sight_texture, &gun_sight_subtexture);
+    if (gun_sight_texture_loaded) {
+        C3D_TexSetFilter(&gun_sight_texture, GPU_LINEAR, GPU_LINEAR);
+        C3D_TexSetWrap(&gun_sight_texture, GPU_REPEAT, GPU_REPEAT);
+    }
+    gun_sight_frames = gun_sight_visible_frames = gun_sight_failures = 0U;
     load_original_frontend_sprite_textures(texture_cache);
     if (blotter_preview != NULL) {
         *blotter_preview = load_blotter_preview(asset_pack, texture_cache);
@@ -15291,18 +15220,15 @@ static bool renderer_init(GeAssetPack *asset_pack,
     return true;
 }
 
-static void renderer_draw(const GePortState *port,
-                          const RuntimeGbiMesh *rareware_mesh,
+static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                           const RuntimeBlotterPreview *blotter_preview,
                           const RuntimeDamPreview *dam_preview,
                           const RuntimeStageOrdinaryObjects *stage_objects,
                           const RuntimeFirstPersonScene *first_person,
                           const GeOriginalDamMissionExitSnapshot *fade_snapshot)
 {
-    const bool firing = (port->input.held & GE_PORT_ACTION_FIRE) != 0;
-    const float red = firing ? 1.0f : 0.82f;
-    const float green = firing ? 0.12f : 0.67f;
-    const float blue = firing ? 0.08f : 0.18f;
+    GePicaTextureRectangleDraw gun_sight_draw = {0};
+    size_t gun_sight_vertex_count = 0U;
     Vertex *vertices = vertex_buffer;
     C3D_TexEnv *texture_environment = C3D_GetTexEnv(0);
     GeDamSkyScene sky_scene;
@@ -15559,20 +15485,12 @@ static void renderer_draw(const GePortState *port,
             }
         }
     }
-    for (i = 0; i < CROSSHAIR_VERTEX_COUNT; i++) {
-        vertices[i] = crosshair_vertices[i];
-        if (dam_preview != NULL && dam_preview->loaded) {
-            vertices[i].x += dam_preview->spawn_screen_x - 200.0f;
-            vertices[i].y += dam_preview->spawn_screen_y - 120.0f;
-        }
-        vertices[i].r = red;
-        vertices[i].g = green;
-        vertices[i].b = blue;
-    }
-    GSPGPU_FlushDataCache(
-        vertex_buffer,
-        renderer_vertex_flush_bytes(CROSSHAIR_VERTEX_COUNT,
-                                    CROSSHAIR_VERTEX_COUNT));
+    gun_sight_vertex_count = build_original_sight_vertices(vertices, &gun_sight_draw);
+    if (gun_sight_vertex_count != 0U)
+        GSPGPU_FlushDataCache(
+            vertex_buffer,
+            renderer_vertex_flush_bytes(CROSSHAIR_VERTEX_COUNT,
+                                        CROSSHAIR_VERTEX_COUNT));
     if (ge_3ds_fade_overlay_from_snapshot(
             fade_snapshot, &fade_overlay) && fade_overlay.visible) {
         static const float positions[FADE_OVERLAY_VERTEX_COUNT][2] = {
@@ -15992,8 +15910,17 @@ static void renderer_draw(const GePortState *port,
     C3D_TexEnvInit(texture_environment);
     C3D_TexEnvSrc(texture_environment, C3D_Both, GPU_PRIMARY_COLOR, 0, 0);
     C3D_TexEnvFunc(texture_environment, C3D_Both, GPU_REPLACE);
-    if (!watch_open && !credits_active)
-        C3D_DrawArrays(GPU_TRIANGLES, 0, CROSSHAIR_VERTEX_COUNT);
+    if (!watch_open && !credits_active && gun_sight_vertex_count != 0U) {
+        const Ge3dsMaterialBinding binding = {
+            &gun_sight_texture, GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE
+        };
+        Ge3dsMaterialResult material;
+        if (ge_3ds_material_apply(&gun_sight_draw.material, &binding, &material)
+                == GE_3DS_MATERIAL_OK && material.state.draw_enabled)
+            C3D_DrawArrays(GPU_TRIANGLES, 0, gun_sight_vertex_count);
+        else
+            ++gun_sight_failures;
+    }
     if (right_ammo_icon_vertex_count != 0U) {
         C3D_AlphaTest(false, GPU_ALWAYS, 0U);
         C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD,
@@ -16069,6 +15996,10 @@ static void renderer_exit(void)
     if (original_hud_font_texture_loaded) {
         C3D_TexDelete(&original_hud_font_texture);
         original_hud_font_texture_loaded = false;
+    }
+    if (gun_sight_texture_loaded) {
+        C3D_TexDelete(&gun_sight_texture);
+        gun_sight_texture_loaded = false;
     }
     if (original_gameplay_hud_font_texture_loaded) {
         C3D_TexDelete(&original_gameplay_hud_font_texture);
@@ -18390,7 +18321,7 @@ start_stage_runtime:
             C3D_RenderTargetClear(top_target, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
             C3D_FrameDrawOn(top_target);
             fine_start = svcGetSystemTick();
-            renderer_draw(&port, &rareware_mesh, &blotter_preview,
+            renderer_draw(&rareware_mesh, &blotter_preview,
                           &dam_preview, &stage_ordinary_objects,
                           &first_person_scene, &fade_snapshot);
             fine_profile.renderer_draw_ticks +=

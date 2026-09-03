@@ -286,6 +286,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_gun_secondary_dependencies.c \
             ge_original_dam_mission_object_state_slice.c \
             ge_original_dam_mission_hud_slice.c \
+            ge_original_gun_sight_slice.c \
             ge_original_dam_monitor_animation_slice.c \
             $(addsuffix .c,$(SOLO_LANGUAGE_NAMES)) LgunE.c LmiscE.c \
             LoptionsE.c LpropobjE.c LtitleE.c \
@@ -854,6 +855,9 @@ ge_original_dam_mission_object_state_slice.o: CFLAGS += \
 ge_original_dam_mission_hud_slice.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA \
     -Wno-unused-parameter -Wno-error
+ge_original_gun_sight_slice.o: CFLAGS += \
+    -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA \
+    -DPLAYERFLAG=int -Wno-unused-parameter -Wno-error
 deb_loadallmodels.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA \
     -DGE_PORT_DAM_STAGE_AI_ALLOC_SLICE -DPLAYERFLAG=int \
@@ -1252,6 +1256,15 @@ ge_original_dam_mission_hud_slice.c: \
         $(TOPDIR)/../../scripts/extract_dam_mission_hud_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_dam_mission_hud_slice.py \
 		$(TOPDIR)/../.. $@
+ge_original_gun_sight_slice.c: \
+        $(TOPDIR)/../../src/game/gunfire.c \
+        $(TOPDIR)/../../src/game/bondwalk2.c \
+        $(TOPDIR)/../../src/game/othermodemicrocode.c \
+        $(TOPDIR)/../../assets/oddtextures.c \
+        $(TOPDIR)/../../assets/images.def \
+        $(TOPDIR)/../../scripts/extract_gun_sight_slice.py \
+        $(TOPDIR)/../../scripts/extract_dam_mission_hud_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_gun_sight_slice.py $(TOPDIR)/../.. $@
 ge_original_dam_monitor_animation_slice.c: \
         $(TOPDIR)/../../src/game/propobj.c \
         $(TOPDIR)/../../assets/oddtextures.c \

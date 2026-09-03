@@ -140,6 +140,8 @@ static int ge_pica_translate_color_combine(const GePicaCombineCycle *cycle,
         *mode = GE_PICA_COMBINE_TEXTURE0_MODULATE_SHADE;
     } else if (ge_pica_color_modulate(cycle, texture_source, 3U)) {
         *mode = GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE;
+    } else if (ge_pica_color_modulate(cycle, texture_source, 5U)) {
+        *mode = GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT;
     } else {
         return 0;
     }
@@ -166,6 +168,8 @@ static int ge_pica_translate_alpha_combine(const GePicaCombineCycle *cycle,
         *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE;
     } else if (ge_pica_alpha_modulate(cycle, texture_source, 3U)) {
         *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE;
+    } else if (ge_pica_alpha_modulate(cycle, texture_source, 5U)) {
+        *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT;
     } else {
         return 0;
     }
@@ -176,14 +180,16 @@ static int ge_pica_color_mode_uses_texture(GePicaCombineMode mode)
 {
     return mode == GE_PICA_COMBINE_TEXTURE0
         || mode == GE_PICA_COMBINE_TEXTURE0_MODULATE_SHADE
-        || mode == GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE;
+        || mode == GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE
+        || mode == GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT;
 }
 
 static int ge_pica_alpha_mode_uses_texture(GePicaAlphaMode mode)
 {
     return mode == GE_PICA_ALPHA_TEXTURE0
         || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE
-        || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE;
+        || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE
+        || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT;
 }
 
 static int ge_pica_translate_two_cycle_color(
@@ -194,7 +200,7 @@ static int ge_pica_translate_two_cycle_color(
 {
     GePicaCombineMode first_mode = texture_enabled != 0U
         ? GE_PICA_COMBINE_TEXTURE0 : GE_PICA_COMBINE_SHADE;
-    const int first_exact = ge_pica_translate_color_combine(
+    int first_exact = ge_pica_translate_color_combine(
         first, UINT8_C(0), &first_mode);
 
     /* Cycle two's COMBINED input is cycle one's complete result. Preserve a
@@ -204,6 +210,14 @@ static int ge_pica_translate_two_cycle_color(
     if (ge_pica_color_direct(second, UINT8_C(0))) {
         *mode = first_mode;
         return first_exact;
+    }
+    /* A second modulation cannot silently discard the environment factor
+     * introduced by the new one-cycle texture/environment mapping. */
+    if (first_mode == GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT)
+        first_exact = 0;
+    if (ge_pica_color_modulate(second, UINT8_C(0), UINT8_C(5))) {
+        *mode = GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT;
+        return first_exact && first_mode == GE_PICA_COMBINE_TEXTURE0;
     }
     if (ge_pica_color_modulate(second, UINT8_C(0), UINT8_C(4))) {
         *mode = ge_pica_color_mode_uses_texture(first_mode)
@@ -231,12 +245,18 @@ static int ge_pica_translate_two_cycle_alpha(
 {
     GePicaAlphaMode first_mode = texture_enabled != 0U
         ? GE_PICA_ALPHA_TEXTURE0 : GE_PICA_ALPHA_SHADE;
-    const int first_exact = ge_pica_translate_alpha_combine(
+    int first_exact = ge_pica_translate_alpha_combine(
         first, UINT8_C(0), &first_mode);
 
     if (ge_pica_alpha_direct(second, UINT8_C(0))) {
         *mode = first_mode;
         return first_exact;
+    }
+    if (first_mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT)
+        first_exact = 0;
+    if (ge_pica_alpha_modulate(second, UINT8_C(0), UINT8_C(5))) {
+        *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT;
+        return first_exact && first_mode == GE_PICA_ALPHA_TEXTURE0;
     }
     if (ge_pica_alpha_modulate(second, UINT8_C(0), UINT8_C(4))) {
         *mode = ge_pica_alpha_mode_uses_texture(first_mode)

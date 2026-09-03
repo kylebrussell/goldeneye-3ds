@@ -256,6 +256,44 @@ static void test_two_cycle_approximation(void)
            == 0U);
 }
 
+static void test_texture_environment_combine(void)
+{
+    GeGbiRenderState state;
+    GePicaMaterial material;
+    const CombineCycle texture = direct(CC_TEXEL0, AC_TEXEL0);
+    const CombineCycle pass = direct(CC_COMBINED, AC_COMBINED);
+    const CombineCycle environment = modulate(CC_TEXEL0, CC_ENVIRONMENT,
+        AC_TEXEL0, AC_ENVIRONMENT);
+    const CombineCycle combined_environment = modulate(CC_COMBINED,
+        CC_ENVIRONMENT, AC_COMBINED, AC_ENVIRONMENT);
+    ge_gbi_state_init(&state);
+    state.texture.enabled = 1U;
+    state.rare_texture_valid = 1U;
+    state.active_texture_binding = GE_GBI_TEXTURE_BINDING_RARE_ID;
+    set_combine(&state, environment, pass);
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(material.color_combine == GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT);
+    assert(material.alpha_combine == GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT);
+    assert(!(material.fallback_flags & GE_PICA_FALLBACK_COMBINER));
+    state.other_mode_high = UINT32_C(1) << 20;
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(material.color_combine == GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT);
+    assert(!(material.fallback_flags & GE_PICA_FALLBACK_COMBINER));
+    set_combine(&state, texture, combined_environment);
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(!(material.fallback_flags & GE_PICA_FALLBACK_COMBINER));
+    /* A second modulation needs another GPU stage; report the approximation
+     * instead of labelling texture * environment * shade as exact. */
+    set_combine(&state, environment,
+        modulate(CC_COMBINED, CC_SHADE, AC_COMBINED, AC_SHADE));
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(material.fallback_flags & GE_PICA_FALLBACK_COMBINER);
+    set_combine(&state, modulate(CC_TEXEL0, CC_SHADE, AC_TEXEL0, AC_SHADE),
+        combined_environment);
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(material.fallback_flags & GE_PICA_FALLBACK_COMBINER);
+}
+
 static void test_explicit_fallback_signals(void)
 {
     GeGbiRenderState state;
@@ -431,6 +469,7 @@ int main(void)
     test_constants_and_colors();
     test_standard_image_binding();
     test_two_cycle_approximation();
+    test_texture_environment_combine();
     test_explicit_fallback_signals();
     test_texture_rectangle_translation();
     test_flipped_and_copy_texture_rectangles();

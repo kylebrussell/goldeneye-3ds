@@ -194,6 +194,15 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template(
     uint16_t *matrix_indices, size_t matrix_index_capacity,
     GeOriginalModelScene *scene);
 
+/* Matrix-index publication with the same validated query-reuse contract as
+ * build_preflighted. Avoid a second count traversal on cold model layouts. */
+GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template_preflighted(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelScene *query,
+    const GeDamRoomSceneStorage *storage,
+    uint16_t *matrix_indices, size_t matrix_index_capacity,
+    GeOriginalModelScene *scene);
+
 GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
     GeOriginalModelSceneCache *cache,
     const GeOriginalModelSceneInput *inputs, size_t input_count,

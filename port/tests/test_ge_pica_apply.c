@@ -109,6 +109,28 @@ static void test_cull_both_skips_draw(void)
         == GE_PICA_APPLY_FALLBACK_CULL_BOTH);
 }
 
+static void test_independent_texture_environment_components(void)
+{
+    GePicaMaterial material = ge_test_material();
+    GePicaApplyState state;
+
+    material.environment_color = (GePicaColor){19U, 67U, 139U, 110U};
+    material.primitive_color = (GePicaColor){241U, 193U, 167U, 33U};
+    material.color_combine = GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT;
+    material.alpha_combine = GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE;
+    assert(ge_pica_apply_compile(&material, &state) == GE_PICA_APPLY_OK);
+    assert(state.constant_color.red == 19U && state.constant_color.green == 67U
+        && state.constant_color.blue == 139U && state.constant_color.alpha == 33U);
+    material.color_combine = GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE;
+    material.alpha_combine = GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT;
+    assert(ge_pica_apply_compile(&material, &state) == GE_PICA_APPLY_OK);
+    assert(state.constant_color.red == 241U && state.constant_color.green == 193U
+        && state.constant_color.blue == 167U && state.constant_color.alpha == 110U);
+    assert(state.apply_fallback_flags == 0U && state.texture_required);
+    assert(state.color.combine == GE_PICA_APPLY_MODULATE
+        && state.alpha.combine == GE_PICA_APPLY_MODULATE);
+}
+
 static void test_unapplied_depth_mode_and_fog_are_reported(void)
 {
     GePicaMaterial material = ge_test_material();
@@ -149,6 +171,7 @@ int main(void)
     test_invalid_arguments();
     test_textured_modulate_and_draw_state();
     test_independent_constant_components();
+    test_independent_texture_environment_components();
     test_cull_both_skips_draw();
     test_unapplied_depth_mode_and_fog_are_reported();
     test_invalid_enums_are_bounded();

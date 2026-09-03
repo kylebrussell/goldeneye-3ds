@@ -501,6 +501,24 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template(
         input, storage, matrix_indices, matrix_index_capacity, NULL, scene);
 }
 
+GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template_preflighted(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelScene *query,
+    const GeDamRoomSceneStorage *storage,
+    uint16_t *matrix_indices, size_t matrix_index_capacity,
+    GeOriginalModelScene *scene)
+{
+    if (query == NULL || (matrix_indices == NULL && matrix_index_capacity != 0U)) {
+        if (scene != NULL) {
+            memset(scene, 0, sizeof(*scene));
+            scene->status = GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
+        }
+        return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
+    }
+    return ge_original_model_scene_build_internal(
+        input, storage, matrix_indices, matrix_index_capacity, query, scene);
+}
+
 static uint64_t cache_hash_u64(uint64_t hash, uint64_t value)
 {
     size_t byte;
@@ -718,8 +736,8 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
         vertices, query.required_vertex_count,
         batches, query.required_batch_count,
     };
-    status = ge_original_model_scene_build_matrix_template(
-        input, &storage, matrix_indices, query.required_vertex_count, &built);
+    status = ge_original_model_scene_build_matrix_template_preflighted(
+        input, &query, &storage, matrix_indices, query.required_vertex_count, &built);
     if (status != GE_ORIGINAL_MODEL_SCENE_OK
             || built.vertex_count != query.required_vertex_count
             || built.batch_count != query.required_batch_count

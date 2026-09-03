@@ -78,8 +78,8 @@ static void audit_floor_winding(const GeDamRoomWorldVertex *vertices,
     size_t cull_batches[4] = {0U};
     size_t horizontal_positive[4] = {0U};
     size_t horizontal_negative[4] = {0U};
-    size_t horizontal_by_combine[6] = {0U};
-    size_t horizontal_black_by_combine[6] = {0U};
+    size_t horizontal_by_combine[GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT + 1] = {0U};
+    size_t horizontal_black_by_combine[GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT + 1] = {0U};
     size_t horizontal_textured = 0U;
     size_t audited_triangles = 0U;
     size_t batch_index;
@@ -156,15 +156,16 @@ static void audit_floor_winding(const GeDamRoomWorldVertex *vertices,
            horizontal_negative[GE_PICA_CULL_FRONT],
            horizontal_negative[GE_PICA_CULL_BACK],
            horizontal_negative[GE_PICA_CULL_BOTH], horizontal_textured);
-    printf("Horizontal combine shade/prim/env/tex/tex*shade/tex*prim: "
-           "%zu/%zu/%zu/%zu/%zu/%zu; all-black: "
-           "%zu/%zu/%zu/%zu/%zu/%zu\n",
+    printf("Horizontal combine shade/prim/env/tex/tex*shade/tex*prim/tex*env: "
+           "%zu/%zu/%zu/%zu/%zu/%zu/%zu; all-black: "
+           "%zu/%zu/%zu/%zu/%zu/%zu/%zu\n",
            horizontal_by_combine[GE_PICA_COMBINE_SHADE],
            horizontal_by_combine[GE_PICA_COMBINE_PRIMITIVE],
            horizontal_by_combine[GE_PICA_COMBINE_ENVIRONMENT],
            horizontal_by_combine[GE_PICA_COMBINE_TEXTURE0],
            horizontal_by_combine[GE_PICA_COMBINE_TEXTURE0_MODULATE_SHADE],
            horizontal_by_combine[GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE],
+           horizontal_by_combine[GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT],
            horizontal_black_by_combine[GE_PICA_COMBINE_SHADE],
            horizontal_black_by_combine[GE_PICA_COMBINE_PRIMITIVE],
            horizontal_black_by_combine[GE_PICA_COMBINE_ENVIRONMENT],
@@ -172,7 +173,9 @@ static void audit_floor_winding(const GeDamRoomWorldVertex *vertices,
            horizontal_black_by_combine[
                GE_PICA_COMBINE_TEXTURE0_MODULATE_SHADE],
            horizontal_black_by_combine[
-               GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE]);
+               GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE],
+           horizontal_black_by_combine[
+               GE_PICA_COMBINE_TEXTURE0_MODULATE_ENVIRONMENT]);
 }
 
 static void audit_background_depth_inheritance(

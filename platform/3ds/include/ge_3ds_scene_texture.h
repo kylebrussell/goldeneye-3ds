@@ -30,12 +30,22 @@ typedef struct Ge3dsSceneTextureSlot {
     uint8_t owned;
 } Ge3dsSceneTextureSlot;
 
+/* The live scene holds at most 192 images. Keep the index below 50% load;
+ * larger caller-owned sets retain the original exact linear lookup. */
+#define GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY 512U
+#define GE_3DS_SCENE_TEXTURE_INDEX_MAX_ENTRIES 256U
+
 typedef struct Ge3dsSceneTextures {
     Ge3dsSceneTextureSlot *slots;
     size_t capacity;
     size_t texture_count;
     size_t loaded_count;
     size_t missing_count;
+    /* Internal image-ID index: slot offset + 1, zero means empty. Offsets
+     * survive the existing candidate -> permanent slot-storage handoff.
+     * Includes missing images, so failed imports remain deduplicated. */
+    uint16_t image_index[GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY];
+    size_t indexed_count;
 } Ge3dsSceneTextures;
 
 typedef struct Ge3dsSceneTextureReconcileStats {

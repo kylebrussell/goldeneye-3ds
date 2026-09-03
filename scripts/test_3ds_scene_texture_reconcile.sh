@@ -18,3 +18,16 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
     "${test_dir}/test_ge_3ds_scene_texture_reconcile"
+
+if [ "${GE_SCENE_TEXTURE_LOOKUP_BENCH:-0}" = 1 ]; then
+    cc -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+        -DGE_SCENE_TEXTURE_LOOKUP_BENCH \
+        -I"${repo_dir}/platform/3ds/tests/include" \
+        -I"${repo_dir}/platform/3ds/include" \
+        -I"${repo_dir}/port/include" \
+        "${repo_dir}/platform/3ds/tests/test_ge_3ds_scene_texture_reconcile.c" \
+        "${repo_dir}/platform/3ds/source/ge_3ds_scene_texture.c" \
+        "${repo_dir}/port/src/ge_texture_uv.c" \
+        -o "${test_dir}/test_ge_3ds_scene_texture_lookup_bench"
+    "${test_dir}/test_ge_3ds_scene_texture_lookup_bench"
+fi

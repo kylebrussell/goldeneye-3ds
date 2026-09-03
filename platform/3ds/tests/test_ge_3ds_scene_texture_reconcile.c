@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 struct TestTex3DS_Texture {
     Tex3DS_SubTexture subtexture;
@@ -15,7 +16,7 @@ static GeTextureCacheEntry cache_entry;
 static uint16_t acquired_image_id;
 static size_t import_count;
 static size_t delete_count;
-static uint32_t deleted_handles[32];
+static uint32_t deleted_handles[1024];
 
 int ge_texture_cache_acquire_image_id(
     GeTextureCache *cache, uint16_t image_id, uint32_t requested_lod,
@@ -159,7 +160,8 @@ static void test_abort_keeps_current_and_releases_only_import(void)
     GeTextureCache cache = {0};
     Ge3dsSceneTextureSlot current_slots[3];
     Ge3dsSceneTextureSlot candidate_slots[4];
-    Ge3dsSceneTextures current = {current_slots, 3U, 3U, 3U, 0U};
+    Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 3U,
+        .texture_count = 3U, .loaded_count = 3U};
     Ge3dsSceneTextures candidate;
     Ge3dsSceneTextureReconcileStats stats;
     GeDamRoomDrawBatch batches[] = {
@@ -203,7 +205,8 @@ static void test_commit_moves_retained_and_releases_removed_once(void)
     GeTextureCache cache = {0};
     Ge3dsSceneTextureSlot current_slots[3];
     Ge3dsSceneTextureSlot candidate_slots[4];
-    Ge3dsSceneTextures current = {current_slots, 3U, 3U, 3U, 0U};
+    Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 3U,
+        .texture_count = 3U, .loaded_count = 3U};
     Ge3dsSceneTextures candidate;
     Ge3dsSceneTextureReconcileStats stats;
     GeDamRoomDrawBatch batches[] = {
@@ -240,7 +243,8 @@ static void test_partial_missing_is_safe_to_commit(void)
     GeTextureCache cache = {0};
     Ge3dsSceneTextureSlot current_slots[1];
     Ge3dsSceneTextureSlot candidate_slots[2];
-    Ge3dsSceneTextures current = {current_slots, 1U, 1U, 1U, 0U};
+    Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 1U,
+        .texture_count = 1U, .loaded_count = 1U};
     Ge3dsSceneTextures candidate;
     Ge3dsSceneTextureReconcileStats stats;
     GeDamRoomDrawBatch batches[] = {
@@ -270,7 +274,8 @@ static void test_capacity_preflight_has_no_side_effects(void)
     GeTextureCache cache = {0};
     Ge3dsSceneTextureSlot current_slots[1];
     Ge3dsSceneTextureSlot candidate_slots[1];
-    Ge3dsSceneTextures current = {current_slots, 1U, 1U, 1U, 0U};
+    Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 1U,
+        .texture_count = 1U, .loaded_count = 1U};
     Ge3dsSceneTextures candidate;
     Ge3dsSceneTextureReconcileStats stats;
     GeDamRoomDrawBatch batches[] = {
@@ -297,7 +302,8 @@ static void test_empty_candidate_releases_all_on_commit(void)
     GeTextureCache cache = {0};
     Ge3dsSceneTextureSlot current_slots[2];
     Ge3dsSceneTextureSlot candidate_slots[1];
-    Ge3dsSceneTextures current = {current_slots, 2U, 2U, 2U, 0U};
+    Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 2U,
+        .texture_count = 2U, .loaded_count = 2U};
     Ge3dsSceneTextures candidate;
     Ge3dsSceneTextureReconcileStats stats;
 
@@ -320,8 +326,10 @@ static void test_stale_borrow_commit_is_side_effect_free(void)
 {
     Ge3dsSceneTextureSlot current_slots[1];
     Ge3dsSceneTextureSlot candidate_slots[1];
-    Ge3dsSceneTextures current = {current_slots, 1U, 1U, 1U, 0U};
-    Ge3dsSceneTextures candidate = {candidate_slots, 1U, 1U, 1U, 0U};
+    Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 1U,
+        .texture_count = 1U, .loaded_count = 1U};
+    Ge3dsSceneTextures candidate = {.slots = candidate_slots, .capacity = 1U,
+        .texture_count = 1U, .loaded_count = 1U};
 
     reset_counters();
     resident_slot(&current_slots[0], 6U, 606U);
@@ -347,7 +355,8 @@ static void test_authored_hidden_dependencies(void)
     for (int commit = 0; commit < 2; ++commit) {
         GeTextureCache cache = {0};
         Ge3dsSceneTextureSlot current_slots[2], candidate_slots[4];
-        Ge3dsSceneTextures current = {current_slots, 2U, 2U, 2U, 0U};
+        Ge3dsSceneTextures current = {.slots = current_slots, .capacity = 2U,
+            .texture_count = 2U, .loaded_count = 2U};
         Ge3dsSceneTextures candidate;
         Ge3dsSceneTextureReconcileStats stats;
         GeDamRoomDrawBatch batch = authored_batch(2U);
@@ -396,6 +405,171 @@ static void test_authored_hidden_dependencies(void)
     }
 }
 
+static void check_all_image_ids(const Ge3dsSceneTextures *scene)
+{
+    Ge3dsSceneTextures unindexed = *scene;
+    unindexed.indexed_count = SIZE_MAX;
+    for (uint32_t image = 0U; image <= UINT16_MAX; ++image)
+        assert(ge_3ds_scene_textures_find(scene, (uint16_t)image)
+            == ge_3ds_scene_textures_find(&unindexed, (uint16_t)image));
+}
+
+static void test_index_load_append_move_and_large_fallback(void)
+{
+    GeTextureCache cache = {0};
+    GeDamRoomDrawBatch batches[193];
+    Ge3dsSceneTextureSlot slots[300], moved_slots[300];
+    Ge3dsSceneTextures scene, moved;
+    reset_counters();
+    for (size_t i = 0; i < 191U; ++i) batches[i] = authored_batch((uint16_t)i);
+    batches[191] = authored_batch(UINT16_MAX);
+    batches[192] = authored_batch(9U); /* Failed import must deduplicate. */
+    assert(ge_3ds_scene_textures_load(&cache, batches, 193U, slots, 300U, &scene)
+        == GE_3DS_SCENE_TEXTURE_PARTIAL);
+    assert(scene.texture_count == 192U && scene.indexed_count == 192U);
+    assert(scene.loaded_count == 191U && scene.missing_count == 1U);
+    assert(ge_3ds_scene_textures_find(&scene, 0U) == &slots[0]);
+    assert(ge_3ds_scene_textures_find(&scene, UINT16_MAX) == &slots[191]);
+    check_all_image_ids(&scene);
+
+#ifdef GE_SCENE_TEXTURE_LOOKUP_BENCH
+    /* Compare the actual indexed and fallback paths with identical inputs.
+     * Timing is host-only evidence, not a 3DS or emulator FPS claim. */
+    Ge3dsSceneTextures unindexed = scene;
+    const size_t iterations = 4000000U;
+    volatile uintptr_t checksum = 0U;
+    unindexed.indexed_count = SIZE_MAX;
+    clock_t begin = clock();
+    for (size_t i = 0; i < iterations; ++i)
+        checksum ^= (uintptr_t)ge_3ds_scene_textures_find(&unindexed,
+            (uint16_t)(i % 256U));
+    clock_t middle = clock();
+    for (size_t i = 0; i < iterations; ++i)
+        checksum ^= (uintptr_t)ge_3ds_scene_textures_find(&scene,
+            (uint16_t)(i % 256U));
+    clock_t end = clock();
+    printf("192-texture lookup, %zu queries: linear %.2f ms, indexed %.2f ms (%lu)\n",
+        iterations, 1000.0 * (middle - begin) / CLOCKS_PER_SEC,
+        1000.0 * (end - middle) / CLOCKS_PER_SEC, (unsigned long)checksum);
+#endif
+
+    /* Permanent storage relocation must use offsets, never stale pointers. */
+    memcpy(moved_slots, slots, sizeof(slots));
+    moved = scene;
+    moved.slots = moved_slots;
+    scene.slots = NULL;
+    assert(ge_3ds_scene_textures_find(&moved, UINT16_MAX) == &moved_slots[191]);
+    assert(ge_3ds_scene_textures_find(&scene, UINT16_MAX) == NULL);
+    assert(ge_3ds_scene_textures_ensure_image(&cache, &moved, 9U)
+        == GE_3DS_SCENE_TEXTURE_PARTIAL);
+    assert(moved.texture_count == 192U && import_count == 191U);
+    for (uint16_t image = 191U; image < 256U; ++image) {
+        assert(ge_3ds_scene_textures_ensure_image(&cache, &moved, image)
+            == GE_3DS_SCENE_TEXTURE_OK);
+        if (moved.texture_count <= GE_3DS_SCENE_TEXTURE_INDEX_MAX_ENTRIES)
+            assert(moved.indexed_count == moved.texture_count);
+        if (moved.texture_count == GE_3DS_SCENE_TEXTURE_INDEX_MAX_ENTRIES)
+            check_all_image_ids(&moved);
+    }
+    assert(moved.texture_count == 257U && moved.indexed_count == 0U);
+    check_all_image_ids(&moved);
+    ge_3ds_scene_textures_close(&moved);
+    assert(delete_count == 256U);
+    assert(moved.indexed_count == 0U && moved.slots == NULL);
+    assert(ge_3ds_scene_textures_find(&moved, 0U) == NULL);
+}
+
+static void test_index_collisions_reconcile_and_unindexed_append(void)
+{
+    GeTextureCache cache = {0};
+    GeDamRoomDrawBatch batches[64], replacement[33];
+    Ge3dsSceneTextureSlot slots[64], candidate_slots[64];
+    Ge3dsSceneTextures scene, candidate;
+    Ge3dsSceneTextureReconcileStats stats;
+    size_t count = 0U;
+    reset_counters();
+    /* A long probe chain starts at the last bucket and wraps to bucket 0. */
+    for (uint32_t id = 0U; id <= UINT16_MAX && count < 64U; ++id) {
+        uint32_t hash = id * UINT32_C(2654435761);
+        if ((hash >> 23U) == GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY - 1U)
+            batches[count++] = authored_batch((uint16_t)id);
+    }
+    assert(count == 64U);
+    assert(ge_3ds_scene_textures_load(&cache, batches, count, slots, count, &scene)
+        == GE_3DS_SCENE_TEXTURE_OK);
+    assert(scene.indexed_count == count);
+    check_all_image_ids(&scene);
+    for (size_t i = 0U; i < 32U; ++i) replacement[i] = batches[i * 2U];
+    replacement[32] = authored_batch(9U);
+    assert(ge_3ds_scene_textures_reconcile_prepare(&cache, replacement, 33U,
+        &scene, candidate_slots, 64U, &candidate, &stats)
+        == GE_3DS_SCENE_TEXTURE_PARTIAL);
+    assert(stats.retained_count == 32U && stats.imported_count == 0U);
+    assert(candidate.indexed_count == candidate.texture_count);
+    check_all_image_ids(&candidate);
+    assert(ge_3ds_scene_textures_reconcile_include_image(&cache, &scene,
+        &candidate, batches[1].texture.texture_id, &stats) == GE_3DS_SCENE_TEXTURE_OK);
+    assert(candidate.texture_count == 34U && candidate.indexed_count == 34U);
+    assert(ge_3ds_scene_textures_reconcile_commit(&scene, &candidate, &stats)
+        == GE_3DS_SCENE_TEXTURE_PARTIAL);
+    check_all_image_ids(&candidate);
+    assert(delete_count == 31U);
+
+    /* Existing externally constructed sets still work; their next append
+     * creates a complete index rather than indexing only the appended ID. */
+    memset(candidate.image_index, 0, sizeof(candidate.image_index));
+    candidate.indexed_count = 0U;
+    assert(ge_3ds_scene_textures_ensure_image(&cache, &candidate, 0U)
+        == GE_3DS_SCENE_TEXTURE_OK);
+    assert(candidate.indexed_count == 35U);
+    check_all_image_ids(&candidate);
+    ge_3ds_scene_textures_close(&candidate);
+    assert(delete_count == 65U);
+}
+
+static void test_large_preflight_first_use_order_and_rollback(void)
+{
+    GeTextureCache cache = {0};
+    Ge3dsSceneTextures current = {0}, candidate;
+    Ge3dsSceneTextureSlot slots[192];
+    GeDamRoomDrawBatch batches[4096];
+    Ge3dsSceneTextureReconcileStats stats;
+    uint16_t expected_ids[192];
+    size_t expected_count = 0U;
+    reset_counters();
+    for (size_t i = 0U; i < 4096U; ++i) {
+        const uint16_t image = (uint16_t)((i * 73U) % 192U);
+        batches[i] = authored_batch(image);
+        if (i % 7U == 0U) {
+            batches[i].texture_valid = 0U;
+            continue;
+        }
+        size_t prior = 0;
+        while (prior < expected_count && expected_ids[prior] != image) ++prior;
+        if (prior == expected_count) expected_ids[expected_count++] = image;
+    }
+    assert(expected_count == 192U);
+    assert(ge_3ds_scene_textures_reconcile_prepare(&cache, batches, 4096U,
+        &current, slots, 191U, &candidate, &stats)
+        == GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED);
+    assert(stats.required_count == 192U && import_count == 0U && delete_count == 0U);
+    Ge3dsSceneTextures empty = {0};
+    assert(memcmp(&candidate, &empty, sizeof(empty)) == 0);
+    for (size_t i = 0U; i < 191U; ++i) {
+        Ge3dsSceneTextureSlot empty_slot = {0};
+        assert(memcmp(&slots[i], &empty_slot, sizeof(empty_slot)) == 0);
+    }
+    assert(ge_3ds_scene_textures_reconcile_prepare(&cache, batches, 4096U,
+        &current, slots, 192U, &candidate, &stats) == GE_3DS_SCENE_TEXTURE_PARTIAL);
+    assert(stats.required_count == 192U && stats.imported_count == 191U
+        && stats.missing_count == 1U && candidate.indexed_count == 192U);
+    for (size_t i = 0U; i < expected_count; ++i)
+        assert(candidate.slots[i].image_id == expected_ids[i]);
+    check_all_image_ids(&candidate);
+    ge_3ds_scene_textures_close(&candidate);
+    assert(delete_count == 191U);
+}
+
 int main(void)
 {
     test_abort_keeps_current_and_releases_only_import();
@@ -405,6 +579,9 @@ int main(void)
     test_empty_candidate_releases_all_on_commit();
     test_stale_borrow_commit_is_side_effect_free();
     test_authored_hidden_dependencies();
-    puts("ge_3ds_scene_texture reconciliation: 8 cases passed");
+    test_index_load_append_move_and_large_fallback();
+    test_index_collisions_reconcile_and_unindexed_append();
+    test_large_preflight_first_use_order_and_rollback();
+    puts("ge_3ds_scene_texture reconciliation/index: 11 cases passed");
     return 0;
 }

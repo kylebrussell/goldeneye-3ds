@@ -2,18 +2,40 @@
 
 #include <string.h>
 
-static Ge3dsSceneTextureSlot *ge_3ds_scene_texture_find_mutable(
-    Ge3dsSceneTextures *scene,
-    uint16_t image_id)
-{
-    size_t index;
+_Static_assert(GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY == (1U << 9U),
+    "image-ID hash uses the high nine bits");
+_Static_assert(GE_3DS_SCENE_TEXTURE_INDEX_MAX_ENTRIES
+        <= GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY / 2U,
+    "image-ID index must retain an empty bucket");
 
-    for (index = 0U; index < scene->texture_count; ++index) {
-        if (scene->slots[index].image_id == image_id) {
-            return &scene->slots[index];
-        }
+static size_t ge_3ds_scene_texture_bucket(uint16_t image_id)
+{
+    const uint32_t hash = (uint32_t)image_id * UINT32_C(2654435761);
+    return hash >> 23U;
+}
+
+/* All four append paths publish IDs before indexing. An externally supplied
+ * unindexed set is rebuilt on its first append; normal appends touch one
+ * probe chain only. No texture handles or residency decisions change. */
+static void ge_3ds_scene_texture_index_append(Ge3dsSceneTextures *scene)
+{
+    size_t first, index;
+    if (scene->texture_count > GE_3DS_SCENE_TEXTURE_INDEX_MAX_ENTRIES) {
+        scene->indexed_count = 0U;
+        return;
     }
-    return NULL;
+    first = scene->texture_count - 1U;
+    if (scene->indexed_count != first) {
+        memset(scene->image_index, 0, sizeof(scene->image_index));
+        first = 0U;
+    }
+    for (index = first; index < scene->texture_count; ++index) {
+        size_t bucket = ge_3ds_scene_texture_bucket(scene->slots[index].image_id);
+        while (scene->image_index[bucket] != 0U)
+            bucket = (bucket + 1U) & (GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY - 1U);
+        scene->image_index[bucket] = (uint16_t)(index + 1U);
+    }
+    scene->indexed_count = scene->texture_count;
 }
 
 static const Ge3dsSceneTextureSlot *ge_3ds_scene_texture_find_any(
@@ -23,11 +45,30 @@ static const Ge3dsSceneTextureSlot *ge_3ds_scene_texture_find_any(
     size_t index;
 
     if (scene == NULL || scene->slots == NULL) return NULL;
+    if (scene->indexed_count == scene->texture_count
+            && scene->texture_count <= GE_3DS_SCENE_TEXTURE_INDEX_MAX_ENTRIES) {
+        size_t bucket = ge_3ds_scene_texture_bucket(image_id);
+        for (index = 0U; index < GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY; ++index) {
+            const size_t offset = scene->image_index[bucket];
+            if (offset == 0U) return NULL;
+            if (scene->slots[offset - 1U].image_id == image_id)
+                return &scene->slots[offset - 1U];
+            bucket = (bucket + 1U) & (GE_3DS_SCENE_TEXTURE_INDEX_CAPACITY - 1U);
+        }
+        return NULL;
+    }
     for (index = 0U; index < scene->texture_count; ++index) {
         if (scene->slots[index].image_id == image_id)
             return &scene->slots[index];
     }
     return NULL;
+}
+
+static Ge3dsSceneTextureSlot *ge_3ds_scene_texture_find_mutable(
+    Ge3dsSceneTextures *scene, uint16_t image_id)
+{
+    /* The underlying slot storage belongs to the mutable scene. */
+    return (Ge3dsSceneTextureSlot *)ge_3ds_scene_texture_find_any(scene, image_id);
 }
 
 static int ge_3ds_scene_texture_batch_image_id(
@@ -114,6 +155,7 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_load(
         }
         slot = &scene->slots[scene->texture_count++];
         slot->image_id = batch->texture.texture_id;
+        ge_3ds_scene_texture_index_append(scene);
         if (ge_3ds_scene_texture_import(cache, slot)) {
             scene->loaded_count++;
         } else {
@@ -141,6 +183,7 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_ensure_image(
     slot = &scene->slots[scene->texture_count++];
     memset(slot, 0, sizeof(*slot));
     slot->image_id = image_id;
+    ge_3ds_scene_texture_index_append(scene);
     if (ge_3ds_scene_texture_import(cache, slot)) {
         scene->loaded_count++;
         return GE_3DS_SCENE_TEXTURE_OK;
@@ -170,46 +213,39 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_prepare(
     memset(candidate, 0, sizeof(*candidate));
     memset(candidate_slots, 0,
            candidate_capacity * sizeof(*candidate_slots));
+    candidate->slots = candidate_slots;
+    candidate->capacity = candidate_capacity;
     if (stats != NULL) memset(stats, 0, sizeof(*stats));
 
     /* Preflight the unique authored image count. This makes the capacity
-     * failure side-effect free, including zero calls into Tex3DS. */
+     * failure side-effect free, including zero calls into Tex3DS. Retain the
+     * deduplicated IDs/index in first-use order for the import pass, rather
+     * than scanning every authored batch a second time. */
     for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
         uint16_t image_id;
-        size_t prior;
         if (!ge_3ds_scene_texture_batch_image_id(
                 &batches[batch_index], &image_id))
             continue;
-        for (prior = 0U; prior < required_count; ++prior)
-            if (candidate_slots[prior].image_id == image_id) break;
-        if (prior != required_count) continue;
+        if (ge_3ds_scene_texture_find_mutable(candidate, image_id) != NULL)
+            continue;
         ++required_count;
         if (required_count > candidate_capacity) {
             if (stats != NULL) stats->required_count = required_count;
             memset(candidate_slots, 0,
                    candidate_capacity * sizeof(*candidate_slots));
+            memset(candidate, 0, sizeof(*candidate));
             return GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED;
         }
         candidate_slots[required_count - 1U].image_id = image_id;
+        candidate->texture_count = required_count;
+        ge_3ds_scene_texture_index_append(candidate);
     }
 
-    memset(candidate_slots, 0,
-           candidate_capacity * sizeof(*candidate_slots));
-    candidate->slots = candidate_slots;
-    candidate->capacity = candidate_capacity;
     if (stats != NULL) stats->required_count = required_count;
-    for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
+    for (batch_index = 0U; batch_index < required_count; ++batch_index) {
         const Ge3dsSceneTextureSlot *resident;
-        Ge3dsSceneTextureSlot *slot;
-        uint16_t image_id;
-        if (!ge_3ds_scene_texture_batch_image_id(
-                &batches[batch_index], &image_id)
-                || ge_3ds_scene_texture_find_mutable(candidate, image_id)
-                    != NULL)
-            continue;
-        slot = &candidate->slots[candidate->texture_count++];
-        slot->image_id = image_id;
-        resident = ge_3ds_scene_texture_find_any(current, image_id);
+        Ge3dsSceneTextureSlot *slot = &candidate->slots[batch_index];
+        resident = ge_3ds_scene_texture_find_any(current, slot->image_id);
         if (resident != NULL && resident->loaded != 0U
                 && resident->owned != 0U) {
             *slot = *resident;
@@ -248,6 +284,7 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_include_image(
     slot = &candidate->slots[candidate->texture_count++];
     memset(slot, 0, sizeof(*slot));
     slot->image_id = image_id;
+    ge_3ds_scene_texture_index_append(candidate);
     if (stats != NULL) ++stats->required_count;
     resident = ge_3ds_scene_texture_find_any(current, image_id);
     if (resident != NULL && resident->loaded != 0U && resident->owned != 0U) {
@@ -323,18 +360,9 @@ const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     const Ge3dsSceneTextures *scene,
     uint16_t image_id)
 {
-    size_t index;
-
-    if (scene == NULL || scene->slots == NULL) {
-        return NULL;
-    }
-    for (index = 0U; index < scene->texture_count; ++index) {
-        if (scene->slots[index].image_id == image_id) {
-            return scene->slots[index].loaded != 0U ? &scene->slots[index]
-                                                   : NULL;
-        }
-    }
-    return NULL;
+    const Ge3dsSceneTextureSlot *slot =
+        ge_3ds_scene_texture_find_any(scene, image_id);
+    return slot != NULL && slot->loaded != 0U ? slot : NULL;
 }
 
 GeTextureUvStatus ge_3ds_scene_texture_map_uv(

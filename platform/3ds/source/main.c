@@ -9252,28 +9252,6 @@ static void initialize_current_player_gait(RuntimeBondAnimations *animations)
             animations->gait, animations->idle, animations->walking) != 0;
 }
 
-static bool dam_batches_compatible(const GeDamRoomDrawBatch *left,
-                                   const GeDamRoomDrawBatch *right)
-{
-    return left->first_vertex + left->vertex_count == right->first_vertex
-        && left->coordinate_space == right->coordinate_space
-        && left->texture_valid == right->texture_valid
-        && left->texture.texture_id == right->texture.texture_id
-        && memcmp(&left->material, &right->material,
-                  sizeof(left->material)) == 0;
-}
-
-static bool dam_batch_materials_compatible(
-    const GeDamRoomDrawBatch *left, const GeDamRoomDrawBatch *right)
-{
-    return left != NULL && right != NULL
-        && left->coordinate_space == right->coordinate_space
-        && left->texture_valid == right->texture_valid
-        && left->texture.texture_id == right->texture.texture_id
-        && memcmp(&left->material, &right->material,
-                  sizeof(left->material)) == 0;
-}
-
 typedef struct RuntimeRendererMaterialCache {
     GePicaMaterial material;
     Ge3dsMaterialResult result;
@@ -9333,6 +9311,26 @@ static void renderer_material_key(const GePicaMaterial *material,
     key->alpha_threshold = material->alpha_threshold;
     key->fallback = binding->missing_texture_fallback;
     key->texture_present = binding->texture0 != NULL;
+}
+
+static bool dam_batch_materials_compatible(
+    const GeDamRoomDrawBatch *left, const GeDamRoomDrawBatch *right)
+{
+    return left != NULL && right != NULL
+        && left->coordinate_space == right->coordinate_space
+        && left->texture_valid == right->texture_valid
+        && left->texture.texture_id == right->texture.texture_id
+        && memcmp(&left->material, &right->material,
+                  sizeof(left->material)) == 0;
+}
+
+static bool dam_batches_compatible(const GeDamRoomDrawBatch *left,
+                                   const GeDamRoomDrawBatch *right)
+{
+    return left != NULL && right != NULL
+        && left->first_vertex <= SIZE_MAX - left->vertex_count
+        && left->first_vertex + left->vertex_count == right->first_vertex
+        && dam_batch_materials_compatible(left, right);
 }
 
 typedef struct RuntimeRendererPreparedMaterialEntry {
@@ -16023,19 +16021,19 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     && dam_preview->visibility_ready
                     && !dam_visibility_contains_room(
                         dam_preview, next_batch->room_id));
-                const bool next_frustum_visible = !gpu_world_render
-                    || renderer_world_batch_may_draw(
-                        dam_preview, next_source,
-                        world_batch_visibility_cache,
-                        visibility_cache_count);
-
-                if (!next_room_visible || next_first != scanned_vertex_end) {
+                if (!next_room_visible || next_first != scanned_vertex_end
+                        || batch->coordinate_space
+                            != next_batch->coordinate_space) {
                     break;
                 }
-                if (!next_frustum_visible) {
+                if (gpu_world_render && !renderer_world_batch_may_draw(
+                        dam_preview, next_source,
+                        world_batch_visibility_cache,
+                        visibility_cache_count)) {
                     /* This exact authored range has a unanimous homogeneous
                      * clip outcode. It can sit inside a later merged range
-                     * because it cannot produce a fragment under any state. */
+                     * only under the SAME projection: it cannot produce a
+                     * fragment under any material state in this draw. */
                     scanned_vertex_end += next_batch->vertex_count;
                     next++;
                     continue;

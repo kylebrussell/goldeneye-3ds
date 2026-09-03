@@ -807,3 +807,74 @@ input edges, audio and stability, then sample another authored stage. Compare
 total work per simulation interval as well as frame work: eliminating idle
 presentations changes the denominator, so old frame averages are not a fair
 standalone pacing comparison. Keep the verified deployment until this passes.
+
+## Follow-up: texture residency lookup and preparation
+
+The next host-side pass first audited broader adjacent material coalescing
+against every packaged background room: 1,214 rooms, 59,005 authored batches,
+and 10,814 existing adjacent groups across all 21 stage descriptors. Comparing
+only the exact preparation dependencies did not reduce that group count.
+That proposed relaxation was discarded; full decoded-material equality is
+still required. Private audit output: `batch-room-audit-20260902.log`.
+
+The renderer now stops a merged range at coordinate-space boundaries before
+testing the next batch's frustum visibility. An invisible range is only safe
+to bridge under the same projection that proved it invisible. This also
+avoids needless clip tests for invisible rooms and noncontiguous ranges.
+Batch adjacency additionally rejects size overflow. Host checks cover exact
+material/binding results and texture, projection, validity and range breaks.
+This has not yet received a new emulator visual check.
+
+Scene textures now carry a 512-bucket image-ID index (1 KiB plus a count),
+holding slot offsets rather than pointers. It covers the live 192-image
+budget, retains missing-image entries for exact deduplication, and survives
+the candidate-to-permanent-storage ownership handoff. Hash collisions compare
+the full authored image ID. Unindexed external sets and sets above 256 images
+retain the original linear lookup; no authored texture or residency policy
+was changed. Both drawing and model/texture publication use the shared API.
+
+Reconciliation preflight builds the unique image list/index once in original
+first-use order. The subsequent borrow/import pass visits that list, rather
+than scanning all authored batches again. Capacity rejection still occurs
+before any import and clears the entire candidate; existing ownership,
+missing-import, abort and commit behavior is retained.
+
+Focused ASan/UBSan coverage now includes all 65,536 image IDs against the
+linear reference, collision chains wrapping the bucket boundary, missing
+images, both supported ID extremes, the 256/257-entry boundary, append to an
+external unindexed set, relocated slot storage, reconciliation/ownership,
+and 4,096-batch first-use-order/capacity rollback. Eleven cases passed in
+`texture-index-final-20260902.log`.
+
+Host-only `-O2` microbenchmarks, **not emulator or hardware FPS evidence**:
+
+| Workload | Linear/previous implementation | Indexed implementation |
+| --- | ---: | ---: |
+| 4 million lookups, 192 resident images | 148.46 ms | 5.39 ms |
+| 1,000 reconciliations, 4,096 batches / 192 retained images | 321.95 ms | 7.93 ms |
+
+The reconciliation comparison compiles the actual pre-change implementation
+from `485938db` and the current implementation against identical inputs and
+texture-import test services. It checks first-use order, retained/imported
+counts and ownership on each iteration. Evidence and the small benchmark
+driver remain private under `build/host-tests/texture-preflight-*`.
+
+The complete host suite passed again after the final integration
+(`texture-index-final-full-20260902.log`). Focused renderer-cache, frame-pacing
+and dynamic-guard-texture checks also passed. ARM/3DSX passed in
+`arm-texture-index-final-20260902.log`; the linked ELF retains `MoveBond`,
+`bondviewProcessInput`, `ge_original_gun_live_tick` and
+`ge_original_stage_active_props_tick_exact`.
+
+Candidate executable SHA-256:
+`421c99d173dee85571f4e056ffb0f29c0e16517d5876238d16bf13e6410d16c6`.
+It is saved separately at
+`build/3ds-candidates/texture-index-421c99d1/goldeneye-3ds.3dsx`, using the
+unchanged `938536d4...` asset pack. It includes the previous candidate's
+still-unvalidated idle-presentation gate. The verified staged/Azahar binary
+remains `0797edaa...`; normal startup, saves and DSP configuration are intact.
+macOS remained locked throughout this pass, so no new emulator performance
+or sustained-playability claim is made. Next unlocked runs remain Facility
+movement, Dam aim/combat, and another authored stage; measure frame work per
+simulation interval as well as presentation count, texture/scene hitches,
+input, HUD, audio and clipping across room/actor projection boundaries.

@@ -172,3 +172,86 @@ preceding pending optimizations. Repeat Facility movement and Dam aim/combat,
 check exact prop/guard suffix publication and allocation-path counters, then
 use renderer phase timing to select the next measured bottleneck. Reliable
 60 FPS and high-fidelity gameplay remain unverified in this candidate.
+
+## Follow-up: independent scene-buffer growth
+
+After `de7e316d`, a topology change that exceeded any one capacity still
+allocated all three buffers. The fallback now retains each buffer that fits:
+vertices, published batches, and overlay-local batches. A batch-only growth
+does not copy the resident room vertices, and vertex-only growth can keep both
+batch views. A retained published batch view also avoids rewriting its
+unchanged prop prefix. Authored geometry, material bytes, ordering, room
+residency, and original gameplay bodies are unchanged.
+
+Every range/triangle check and every needed allocation completes before any
+retained buffer is modified. Overlapping inputs keep the prior all-buffer
+transactional fallback (and the existing alias-safe, no-growth tail path).
+Allocation failure frees only newly owned buffers. Optional 25% overlay
+headroom still falls back to exact-size allocation under memory pressure;
+there is no larger guessed guard reserve or change to scene limits.
+
+The new `overlay_buffer_growth` report contains successful topology
+replacements of vertex/published-batch/local-batch buffers, followed by the
+number of resident room vertices copied by those replacements. Like
+`overlay_publication_paths`, this includes startup operations and is not a
+gameplay-tick counter. Room residency transactions are not included. Use it
+to distinguish unavoidable vertex growth from batch-only growth in the next
+live trace; old reports cannot resolve that split.
+
+Validation:
+
+- `scripts/test_scene_overlay_growth.sh` runs without ROM assets and is now
+  part of the full suite. Its 416 ASan/UBSan cases cover all eight capacity
+  combinations, tail/middle changes, vertex/batch source aliases, each
+  allocation-failure boundary, exact-size retry, asymmetric vertex/batch
+  growth and shrinkage, and invalid/overflow input. Failure checks compare
+  the complete scene metadata and allocated storage, not just logical counts.
+  Allocator fault injection exists only in the test translation unit.
+- The authored Dam scene transaction test passes, including previous middle,
+  tail, part-table, visibility/residency, and rollback coverage.
+- A private all-stage ASan/UBSan stress test performs 5,376 cold renderer
+  publications against the initial authored room sets of all 21 descriptors.
+  Room/overlay bytes, local/global offsets, counts, and triangles match. Each
+  stage's 128 batch-only changes replace zero vertex buffers (formerly 128);
+  its 128 vertex-only changes replace neither batch buffer (formerly 128 of
+  each). These are synthetic renderer transactions, **not** gameplay traces.
+- Full host suite and ARM/3DSX pass. The linked ELF retains `MoveBond`,
+  `bondviewProcessInput`, `ge_original_gun_live_tick`, and
+  `ge_original_stage_active_props_tick_exact`.
+
+Host-only `-O2` sample, totals for 128 cold batch-growth transactions:
+
+| Authored room prefix | `de7e316d` | Independent growth |
+| --- | ---: | ---: |
+| Dam | 3.562 ms | 1.007 ms |
+| Facility | 2.484 ms | 0.777 ms |
+| Control | 2.926 ms | 0.951 ms |
+| Egyptian | 4.991 ms | 1.148 ms |
+
+These exclude preparing each cold scene and are not emulator frame times.
+Host load causes noticeable run-to-run variation, and vertex-growth timings
+did **not** improve consistently. Actual vertex-capacity growth still copies
+the full room prefix; this optimization does not eliminate that remaining
+hitch. No live performance gain or reliable 60 FPS is asserted.
+
+Evidence under `build/host-tests/`: `independent-growth-faults-20260903.log`,
+`independent-growth-authored-20260903.log`,
+`independent-growth-final-20260903.log`,
+`arm-independent-growth-final-20260903.log`, and
+`independent-growth-final-{baseline,optimized,sanitizer}-20260903.log`.
+The private comparison driver is `independent_growth_bench.c`.
+
+Latest candidate executable SHA-256:
+`54edff694e27a3e7c26ad13be86a7d650ad9bee6be7eda4fcfbc82d6b708f42c`.
+Saved at `build/3ds-candidates/independent-growth-54edff69/goldeneye-3ds.3dsx`.
+Assets are unchanged at `938536d4...`. macOS remains locked. Hardware staging
+and Azahar's virtual SD retain the verified `0797edaa...` executable; no
+temporary stage/input config, save, DSP setting, or emulator instance changed.
+
+Next unlocked step: test this latest candidate (including all preceding
+pending optimizations) on Facility movement and Dam aim/combat, then another
+stage. Check allocation counters alongside the renderer phase breakdown,
+original input/AI, moving geometry, HUD/menus, and audio. Only then choose the
+next dominant bottleneck or promote the candidate. The remaining true vertex
+growth, renderer submission cost, all-level performance, Dam completion, and
+New 3DS XL fidelity/performance still need live validation.

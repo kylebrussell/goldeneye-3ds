@@ -3482,6 +3482,11 @@ static bool write_input_probe_result(
                 (unsigned long long)scene->overlay_inplace_replacements,
                 (unsigned long long)scene->overlay_allocating_replacements,
                 (unsigned long long)scene->overlay_shifted_vertices);
+            fprintf(stream, "overlay_buffer_growth=%llu,%llu,%llu,%llu\n",
+                (unsigned long long)scene->overlay_buffer_replacements[0],
+                (unsigned long long)scene->overlay_buffer_replacements[1],
+                (unsigned long long)scene->overlay_buffer_replacements[2],
+                (unsigned long long)scene->overlay_room_vertices_copied);
         }
         fprintf(stream,
             "guard_profile_ticks=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",

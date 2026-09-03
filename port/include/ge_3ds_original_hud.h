@@ -51,6 +51,8 @@ typedef struct Ge3dsOriginalHudVertex {
 } Ge3dsOriginalHudVertex;
 
 typedef struct Ge3dsOriginalHudDrawList {
+    /* Builders initialize every published vertex, but do not clear unused
+     * capacity. Only box/glyph/tab ranges described below may be consumed. */
     Ge3dsOriginalHudVertex vertices[GE_3DS_ORIGINAL_HUD_VERTEX_CAPACITY];
     /* Frontend-only subset superseded by the exact PwalletbondZ model pass.
      * Other HUD builders leave this zero. */
@@ -180,6 +182,7 @@ uint8_t ge_3ds_original_hud_atlas_alpha(
 float ge_3ds_original_hud_screen_y(float canonical_y);
 
 typedef struct Ge3dsOriginalGameplayHudDrawList {
+    /* Unused capacity is unspecified; only the published counts are valid. */
     Ge3dsOriginalHudVertex solid_vertices
         [GE_3DS_ORIGINAL_GAMEPLAY_HUD_SOLID_VERTEX_CAPACITY];
     Ge3dsOriginalHudVertex font_vertices
@@ -189,6 +192,10 @@ typedef struct Ge3dsOriginalGameplayHudDrawList {
     size_t gauge_segment_count;
     size_t ammo_glyph_count;
 } Ge3dsOriginalGameplayHudDrawList;
+
+/* Resets publication metadata without touching unused vertex capacity. */
+void ge_3ds_original_gameplay_hud_draw_list_reset(
+    Ge3dsOriginalGameplayHudDrawList *draw_list);
 
 int ge_3ds_original_gameplay_hud_build_draw_list(
     const Ge3dsOriginalHudAtlas *bank_gothic,

@@ -13,3 +13,12 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic -Wconversion \
     -lm -o "${test_dir}/test_ge_draw_batch_visibility"
 
 "${test_dir}/test_ge_draw_batch_visibility"
+
+if [[ "${GE_DRAW_BATCH_VISIBILITY_BENCH:-0}" == 1 ]]; then
+    cc -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+        -DGE_DRAW_BATCH_VISIBILITY_BENCH -I "${repo_dir}/port/include" \
+        "${repo_dir}/port/src/ge_draw_batch_visibility.c" \
+        "${repo_dir}/port/tests/test_ge_draw_batch_visibility.c" \
+        -lm -o "${test_dir}/bench_ge_draw_batch_visibility"
+    "${test_dir}/bench_ge_draw_batch_visibility"
+fi

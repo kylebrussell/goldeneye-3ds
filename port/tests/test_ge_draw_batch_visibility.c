@@ -6,6 +6,35 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+/* The pre-optimization renderer composed these three public operations. */
+static GeDrawBatchVisibility reference_visibility(
+    const GeDamRoomWorldVertex *vertices, size_t count,
+    const GeDamRoomDrawBatch *batch, const GeDrawBatchWorldBounds *bounds,
+    const float matrix[4][4])
+{
+    if (ge_draw_batch_world_first_vertex_visible(vertices, count, batch, matrix))
+        return GE_DRAW_BATCH_FIRST_VERTEX_VISIBLE;
+    const GeDrawBatchBoundsVisibility bounded =
+        ge_draw_batch_world_bounds_classify(bounds, matrix);
+    if (bounded == GE_DRAW_BATCH_BOUNDS_INSIDE) return GE_DRAW_BATCH_BOUNDS_VISIBLE;
+    if (bounded == GE_DRAW_BATCH_BOUNDS_OUTSIDE) return GE_DRAW_BATCH_BOUNDS_CULLED;
+    return ge_draw_batch_world_may_intersect_clip_frustum(vertices, count, batch, matrix)
+        ? GE_DRAW_BATCH_VERTICES_VISIBLE : GE_DRAW_BATCH_VERTICES_CULLED;
+}
+
+static void check_prepared(const GeDamRoomWorldVertex *vertices, size_t count,
+    const GeDamRoomDrawBatch *batch, const GeDrawBatchWorldBounds *bounds,
+    const float matrix[4][4])
+{
+    GeDrawBatchClipContext context;
+    ge_draw_batch_clip_context_init(&context, matrix);
+    assert(ge_draw_batch_world_visibility_prepared(vertices, count, batch, bounds,
+        &context) == reference_visibility(vertices, count, batch, bounds, matrix));
+    assert(ge_draw_batch_world_visibility_prepared(vertices, count, batch, NULL,
+        &context) == reference_visibility(vertices, count, batch, NULL, matrix));
+}
 
 static void set_clip(GeDamRoomWorldVertex *vertex,
                      float x,float y,float z,float w)
@@ -186,6 +215,7 @@ static void test_bounds_match_exact_vertex_decisions(void)
         classified = ge_draw_batch_world_bounds_classify(&bounds, matrix);
         exact = ge_draw_batch_world_may_intersect_clip_frustum(
             vertices, 24U, &batch, matrix);
+        check_prepared(vertices, 24U, &batch, &bounds, matrix);
         /* The early point test may accept, but can never reject on its own.
          * Composition with the existing bounds/scalar path is byte-for-byte
          * the same visibility decision, including points behind the eye. */
@@ -259,6 +289,124 @@ static void test_bounds_tangency_and_invalidation(void)
     assert(ge_draw_batch_world_first_vertex_visible(vertices, 3U, &batch, NULL));
 }
 
+static void test_prepared_invalid_inputs_and_snapshot_lifetime(void)
+{
+    GeDamRoomWorldVertex vertices[3] = {0};
+    GeDamRoomDrawBatch batch = {.vertex_count = 3U};
+    GeDrawBatchWorldBounds bounds;
+    GeDrawBatchClipContext context;
+    float matrix[4][4];
+    identity(matrix);
+    for (size_t i = 0U; i < 3U; ++i) vertices[i].world[0] = 2.0f;
+    assert(ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds));
+    ge_draw_batch_clip_context_init(&context, matrix);
+    assert(context.finite);
+    assert(ge_draw_batch_world_visibility_prepared(vertices, 3U, &batch, &bounds,
+        &context) == GE_DRAW_BATCH_BOUNDS_CULLED);
+    matrix[3][0] = -2.0f;
+    assert(ge_draw_batch_world_visibility_prepared(vertices, 3U, &batch, &bounds,
+        &context) == GE_DRAW_BATCH_BOUNDS_CULLED); /* Snapshot, not pointer. */
+    ge_draw_batch_clip_context_init(&context, matrix);
+    assert(ge_draw_batch_world_visibility_prepared(vertices, 3U, &batch, &bounds,
+        &context) == GE_DRAW_BATCH_FIRST_VERTEX_VISIBLE);
+    for (size_t row = 0U; row < 4U; ++row) {
+        for (size_t column = 0U; column < 4U; ++column) {
+            identity(matrix);
+            matrix[row][column] = NAN;
+            check_prepared(vertices, 3U, &batch, &bounds, matrix);
+            matrix[row][column] = -INFINITY;
+            check_prepared(vertices, 3U, &batch, &bounds, matrix);
+        }
+    }
+    identity(matrix);
+    bounds.valid = 0;
+    for (size_t i = 0U; i < 3U; ++i) {
+        vertices[i].world[1] = INFINITY;
+        check_prepared(vertices, 3U, &batch, &bounds, matrix);
+        vertices[i].world[1] = NAN;
+        check_prepared(vertices, 3U, &batch, &bounds, matrix);
+        vertices[i].world[1] = 0.0f;
+    }
+    vertices[0].world[0] = FLT_MAX;
+    matrix[0][0] = FLT_MAX;
+    check_prepared(vertices, 3U, &batch, &bounds, matrix);
+    check_prepared(NULL, 3U, &batch, &bounds, matrix);
+    check_prepared(vertices, 3U, NULL, &bounds, matrix);
+    check_prepared(vertices, 3U, &batch, &bounds, NULL);
+    batch.first_vertex = SIZE_MAX;
+    check_prepared(vertices, 3U, &batch, &bounds, matrix);
+    batch.first_vertex = 1U;
+    batch.vertex_count = SIZE_MAX;
+    check_prepared(vertices, 3U, &batch, &bounds, matrix);
+    batch.vertex_count = 0U;
+    check_prepared(vertices, 3U, &batch, &bounds, matrix);
+    ge_draw_batch_clip_context_init(&context, NULL);
+    assert(!context.finite);
+    ge_draw_batch_clip_context_init(NULL, matrix);
+    assert(ge_draw_batch_world_visibility_prepared(vertices, 3U, &batch, &bounds,
+        NULL) == GE_DRAW_BATCH_FIRST_VERTEX_VISIBLE);
+}
+
+static void test_prepared_clip_boundary_bits(void)
+{
+    static const float coordinates[] = {
+        -FLT_MAX, -2.0f, -1.0f, -FLT_MIN, -0.0f, 0.0f, FLT_MIN, 1.0f, 2.0f, FLT_MAX,
+    };
+    GeDamRoomWorldVertex vertices[3] = {0};
+    GeDamRoomDrawBatch batch = {.vertex_count = 3U};
+    GeDrawBatchWorldBounds bounds;
+    float matrix[4][4];
+    for (size_t i = 0U; i < sizeof(coordinates) / sizeof(coordinates[0]); ++i) {
+        for (size_t j = 0U; j < sizeof(coordinates) / sizeof(coordinates[0]); ++j) {
+            identity(matrix);
+            matrix[3][3] = coordinates[j];
+            for (size_t axis = 0U; axis < 3U; ++axis) {
+                vertices[0].world[axis] = coordinates[i];
+                vertices[1].world[axis] = nextafterf(coordinates[i], INFINITY);
+                vertices[2].world[axis] = nextafterf(coordinates[i], -INFINITY);
+                (void)ge_draw_batch_world_bounds_build(vertices, 3U, &batch, &bounds);
+                check_prepared(vertices, 3U, &batch, &bounds, matrix);
+            }
+        }
+    }
+}
+
+#ifdef GE_DRAW_BATCH_VISIBILITY_BENCH
+static void benchmark_prepared_visibility(void)
+{
+    GeDamRoomWorldVertex vertices[24] = {0};
+    GeDamRoomDrawBatch batch = {.vertex_count = 24U};
+    GeDrawBatchWorldBounds bounds;
+    GeDrawBatchClipContext context;
+    float matrix[4][4];
+    const size_t iterations = 1000000U;
+    volatile size_t checksum = 0U;
+    for (size_t mode = 0U; mode < 3U; ++mode) {
+        identity(matrix);
+        for (size_t i = 0U; i < 24U; ++i) {
+            vertices[i].world[0] = mode == 0U ? 0.5f : 2.0f;
+            vertices[i].world[1] = 0.0f;
+        }
+        /* Third case has an outside first vertex and needs the full walk. */
+        if (mode == 2U) vertices[23].world[0] = 0.0f;
+        assert(ge_draw_batch_world_bounds_build(vertices, 24U, &batch, &bounds));
+        if (mode == 2U) bounds.valid = 0;
+        ge_draw_batch_clip_context_init(&context, matrix);
+        clock_t begin = clock();
+        for (size_t i = 0U; i < iterations; ++i)
+            checksum += (size_t)reference_visibility(vertices, 24U, &batch, &bounds, matrix);
+        clock_t middle = clock();
+        for (size_t i = 0U; i < iterations; ++i)
+            checksum += (size_t)ge_draw_batch_world_visibility_prepared(
+                vertices, 24U, &batch, &bounds, &context);
+        clock_t end = clock();
+        printf("visibility mode %zu: original %.2f ms, prepared %.2f ms (%zu)\n",
+            mode, 1000.0 * (double)(middle - begin) / CLOCKS_PER_SEC,
+            1000.0 * (double)(end - middle) / CLOCKS_PER_SEC, (size_t)checksum);
+    }
+}
+#endif
+
 int main(void)
 {
     test_invalid_ranges_fail_open();
@@ -269,6 +417,11 @@ int main(void)
     test_world_matrix_invalid_data_fails_open();
     test_bounds_match_exact_vertex_decisions();
     test_bounds_tangency_and_invalidation();
+    test_prepared_invalid_inputs_and_snapshot_lifetime();
+    test_prepared_clip_boundary_bits();
+#ifdef GE_DRAW_BATCH_VISIBILITY_BENCH
+    benchmark_prepared_visibility();
+#endif
     puts("draw-batch homogeneous visibility tests passed");
     return 0;
 }

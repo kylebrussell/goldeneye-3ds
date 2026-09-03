@@ -60,6 +60,34 @@ int ge_draw_batch_world_bounds_build(
 GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify(
     const GeDrawBatchWorldBounds *bounds, const float world_to_clip[4][4]);
 
+/* Immutable per-render-pass matrix snapshot. Initialize once per coordinate
+ * space after camera publication; do not reuse it across camera changes. */
+typedef struct GeDrawBatchClipContext {
+    float world_to_clip[4][4];
+    int finite;
+} GeDrawBatchClipContext;
+
+typedef enum GeDrawBatchVisibility {
+    GE_DRAW_BATCH_FIRST_VERTEX_VISIBLE = 0,
+    GE_DRAW_BATCH_BOUNDS_VISIBLE,
+    GE_DRAW_BATCH_BOUNDS_CULLED,
+    GE_DRAW_BATCH_VERTICES_VISIBLE,
+    GE_DRAW_BATCH_VERTICES_CULLED
+} GeDrawBatchVisibility;
+
+void ge_draw_batch_clip_context_init(
+    GeDrawBatchClipContext *context, const float world_to_clip[4][4]);
+
+/* Exact composition of first-vertex acceptance, optional bounds, and scalar
+ * outcode intersection. Reuses matrix validation and the first outcode; no
+ * plane extraction/reassociation, approximate rejection, or altered order.
+ * Bounds must describe this vertex range (NULL is supported). Invalid input
+ * fails open. The reason preserves the renderer's profiling counters. */
+GeDrawBatchVisibility ge_draw_batch_world_visibility_prepared(
+    const GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batch, const GeDrawBatchWorldBounds *bounds,
+    const GeDrawBatchClipContext *context);
+
 #ifdef __cplusplus
 }
 #endif

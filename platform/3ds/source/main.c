@@ -538,6 +538,10 @@ typedef struct RuntimeFineProfile {
     uint64_t world_gpu_flush_vertices;
     uint64_t frame_begin_ticks;
     uint64_t renderer_draw_ticks;
+    /* CPU preparation; sky/world draws; effects/hands; final HUD draws. */
+    uint64_t renderer_phase_ticks[4];
+    uint64_t renderer_peak_phase_ticks[4];
+    uint64_t renderer_peak_ticks;
     uint64_t frame_end_ticks;
     uint64_t rendered_frames;
     uint64_t world_draw_calls;
@@ -3540,6 +3544,17 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.world_frustum_bounds_outside);
         fprintf(stream, "draw_profile_first_vertex=%llu\n",
             (unsigned long long)fine_profile.world_frustum_first_vertex_visible);
+        fprintf(stream, "renderer_phase_ticks=%llu,%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.renderer_phase_ticks[0],
+            (unsigned long long)fine_profile.renderer_phase_ticks[1],
+            (unsigned long long)fine_profile.renderer_phase_ticks[2],
+            (unsigned long long)fine_profile.renderer_phase_ticks[3]);
+        fprintf(stream, "renderer_peak_phase_ticks=%llu,%llu,%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.renderer_peak_ticks,
+            (unsigned long long)fine_profile.renderer_peak_phase_ticks[0],
+            (unsigned long long)fine_profile.renderer_peak_phase_ticks[1],
+            (unsigned long long)fine_profile.renderer_peak_phase_ticks[2],
+            (unsigned long long)fine_profile.renderer_peak_phase_ticks[3]);
     }
     return fclose(stream) == 0;
 }
@@ -9499,14 +9514,16 @@ static Ge3dsMaterialStatus renderer_apply_material_cached(
 
 static bool renderer_world_batch_may_draw(
     const RuntimeDamPreview *preview, size_t source_index,
-    uint8_t *visibility_cache, size_t visibility_cache_count)
+    uint8_t *visibility_cache, size_t visibility_cache_count,
+    const GeDrawBatchClipContext clip_contexts[3])
 {
     const GeDamRoomDrawBatch *batch;
-    const float (*object_to_clip)[4];
+    size_t coordinate_space = GE_DAM_ROOM_COORDINATE_AUTHORED;
+    GeDrawBatchVisibility visibility;
     bool visible;
 
     if (preview == NULL || preview->source_vertices == NULL
-            || preview->batches == NULL
+            || preview->batches == NULL || source_index >= preview->batch_count
             || preview->batch_count < preview->dynamic_scene.overlay_batch_count)
         return true;
     if (visibility_cache != NULL
@@ -9514,34 +9531,25 @@ static bool renderer_world_batch_may_draw(
             && visibility_cache[source_index] != 0U)
         return visibility_cache[source_index] == 1U;
     batch = &preview->batches[source_index];
-    object_to_clip = preview->authored_world_to_clip;
     if (batch->coordinate_space == GE_DAM_ROOM_COORDINATE_RUNTIME)
-        object_to_clip = preview->runtime_world_to_clip;
+        coordinate_space = GE_DAM_ROOM_COORDINATE_RUNTIME;
     else if (batch->coordinate_space == GE_DAM_ROOM_COORDINATE_EYE)
-        object_to_clip = preview->eye_to_clip;
+        coordinate_space = GE_DAM_ROOM_COORDINATE_EYE;
     fine_profile.world_frustum_tests++;
-    if (ge_draw_batch_world_first_vertex_visible(
-            preview->source_vertices, preview->source_vertex_count,
-            batch, object_to_clip)) {
+    visibility = ge_draw_batch_world_visibility_prepared(
+        preview->source_vertices, preview->source_vertex_count, batch,
+        preview->gpu_batch_bounds != NULL
+                && source_index < preview->gpu_batch_bounds_capacity
+            ? &preview->gpu_batch_bounds[source_index] : NULL,
+        &clip_contexts[coordinate_space]);
+    if (visibility == GE_DRAW_BATCH_FIRST_VERTEX_VISIBLE)
         ++fine_profile.world_frustum_first_vertex_visible;
-        visible = true;
-    } else {
-        const GeDrawBatchBoundsVisibility bounded =
-            preview->gpu_batch_bounds != NULL
-                    && source_index < preview->gpu_batch_bounds_capacity
-                ? ge_draw_batch_world_bounds_classify(
-                    &preview->gpu_batch_bounds[source_index], object_to_clip)
-                : GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
-        if (bounded == GE_DRAW_BATCH_BOUNDS_INSIDE)
-            fine_profile.world_frustum_bounds_inside++;
-        else if (bounded == GE_DRAW_BATCH_BOUNDS_OUTSIDE)
-            fine_profile.world_frustum_bounds_outside++;
-        visible = bounded == GE_DRAW_BATCH_BOUNDS_INSIDE
-            || (bounded == GE_DRAW_BATCH_BOUNDS_UNCERTAIN
-                && ge_draw_batch_world_may_intersect_clip_frustum(
-                    preview->source_vertices, preview->source_vertex_count,
-                    batch, object_to_clip));
-    }
+    else if (visibility == GE_DRAW_BATCH_BOUNDS_VISIBLE)
+        ++fine_profile.world_frustum_bounds_inside;
+    else if (visibility == GE_DRAW_BATCH_BOUNDS_CULLED)
+        ++fine_profile.world_frustum_bounds_outside;
+    visible = visibility != GE_DRAW_BATCH_BOUNDS_CULLED
+        && visibility != GE_DRAW_BATCH_VERTICES_CULLED;
     if (!visible) {
         fine_profile.world_frustum_culled_batches++;
         fine_profile.world_frustum_culled_vertices += batch->vertex_count;
@@ -15591,6 +15599,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                           const RuntimeFirstPersonScene *first_person,
                           const GeOriginalDamMissionExitSnapshot *fade_snapshot)
 {
+    uint64_t phase_ticks[5];
+    phase_ticks[0] = svcGetSystemTick();
     GePicaTextureRectangleDraw gun_sight_draw = {0};
     size_t gun_sight_vertex_count = 0U;
     Vertex *vertices = vertex_buffer;
@@ -15602,7 +15612,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
     GeOriginalBottomHudRenderSnapshot bottom_hud = {0};
     static Ge3dsOriginalHudDrawList bottom_hud_draw;
     GeOriginalGameplayHudRenderSnapshot gameplay_hud = {0};
-    Ge3dsOriginalGameplayHudDrawList gameplay_hud_draw = {0};
+    Ge3dsOriginalGameplayHudDrawList gameplay_hud_draw;
     GeOriginalBondMotionSnapshot bond_motion = {0};
     Ge3dsOriginalWatchObjectiveLine watch_objective_lines[
         GE_ORIGINAL_STAGE_OBJECTIVE_MAX];
@@ -15634,6 +15644,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
 
     (void)rareware_mesh;
     (void)blotter_preview;
+    ge_3ds_original_gameplay_hud_draw_list_reset(&gameplay_hud_draw);
     autogun_beam_vertex_count = update_stage_autogun_beam_vertices(
         stage_objects, dam_preview,
         vertices + AUTOGUN_BEAM_VERTEX_OFFSET);
@@ -15918,6 +15929,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
     }
 
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &projection);
+    phase_ticks[1] = svcGetSystemTick();
     /* The original 320-wide viewport is centered in the 400-wide top screen.
      * The 3DS render target is rotated, so its 40-pixel screen pillars are the
      * framebuffer's Y=40..360 scissor interval. */
@@ -15960,6 +15972,19 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     <= DAM_SCENE_PROJECTED_VERTEX_CAPACITY
             ? dam_preview->batch_count : 0U;
         int coordinate_projection = -1;
+        GeDrawBatchClipContext clip_contexts[3];
+
+        if (gpu_world_render) {
+            ge_draw_batch_clip_context_init(
+                &clip_contexts[GE_DAM_ROOM_COORDINATE_AUTHORED],
+                dam_preview->authored_world_to_clip);
+            ge_draw_batch_clip_context_init(
+                &clip_contexts[GE_DAM_ROOM_COORDINATE_RUNTIME],
+                dam_preview->runtime_world_to_clip);
+            ge_draw_batch_clip_context_init(
+                &clip_contexts[GE_DAM_ROOM_COORDINATE_EYE],
+                dam_preview->eye_to_clip);
+        }
 
         if (visibility_cache_count != 0U)
             memset(world_batch_visibility_cache, 0,
@@ -16004,7 +16029,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     && !renderer_world_batch_may_draw(
                         dam_preview, source_index,
                         world_batch_visibility_cache,
-                        visibility_cache_count)) {
+                        visibility_cache_count, clip_contexts)) {
                 i = next;
                 continue;
             }
@@ -16029,7 +16054,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                 if (gpu_world_render && !renderer_world_batch_may_draw(
                         dam_preview, next_source,
                         world_batch_visibility_cache,
-                        visibility_cache_count)) {
+                        visibility_cache_count, clip_contexts)) {
                     /* This exact authored range has a unanimous homogeneous
                      * clip outcode. It can sit inside a later merged range
                      * only under the SAME projection: it cannot produce a
@@ -16101,6 +16126,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             i = next;
         }
     }
+    phase_ticks[2] = svcGetSystemTick();
     if(guard_muzzle_flash_vertex_count!=0U&&dam_preview!=NULL
             &&dam_preview->gpu_world_ready){
         size_t flash;
@@ -16227,6 +16253,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
     }
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &projection);
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0U, 0U, 0U, 0U);
+    phase_ticks[3] = svcGetSystemTick();
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_CullFace(GPU_CULL_NONE);
     if (gameplay_hud_draw.solid_vertex_count != 0U
@@ -16332,6 +16359,15 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         C3D_TexEnvFunc(texture_environment, C3D_Both, GPU_REPLACE);
         C3D_DrawArrays(GPU_TRIANGLES, FADE_OVERLAY_VERTEX_OFFSET,
                        FADE_OVERLAY_VERTEX_COUNT);
+    }
+    phase_ticks[4] = svcGetSystemTick();
+    for (i = 0U; i < 4U; ++i)
+        fine_profile.renderer_phase_ticks[i] += phase_ticks[i + 1U] - phase_ticks[i];
+    if (fine_profile.rendered_frames >= 120U
+            && phase_ticks[4] - phase_ticks[0] > fine_profile.renderer_peak_ticks) {
+        fine_profile.renderer_peak_ticks = phase_ticks[4] - phase_ticks[0];
+        for (i = 0U; i < 4U; ++i)
+            fine_profile.renderer_peak_phase_ticks[i] = phase_ticks[i + 1U] - phase_ticks[i];
     }
 }
 

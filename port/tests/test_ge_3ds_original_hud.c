@@ -5,6 +5,94 @@
 
 #include "ge_3ds_original_hud.h"
 
+static void check_unused_bytes(const void *bytes, size_t size)
+{
+    const unsigned char *data = bytes;
+    for (size_t i = 0; i < size; ++i) assert(data[i] == 0xa5U);
+}
+
+static void compare_hud(const Ge3dsOriginalHudDrawList *actual,
+    const Ge3dsOriginalHudDrawList *zeroed)
+{
+    const size_t metadata = offsetof(Ge3dsOriginalHudDrawList, background_vertex_count);
+    const size_t count = actual->box_vertex_count + actual->glyph_vertex_count;
+    assert(count <= GE_3DS_ORIGINAL_HUD_VERTEX_CAPACITY);
+    assert(memcmp((const unsigned char *)actual + metadata,
+        (const unsigned char *)zeroed + metadata, sizeof(*actual) - metadata) == 0);
+    assert(memcmp(actual->vertices, zeroed->vertices,
+        count * sizeof(actual->vertices[0])) == 0);
+    check_unused_bytes(actual->vertices + count,
+        sizeof(actual->vertices) - count * sizeof(actual->vertices[0]));
+}
+
+static void compare_gameplay(const Ge3dsOriginalGameplayHudDrawList *actual,
+    const Ge3dsOriginalGameplayHudDrawList *zeroed)
+{
+    const size_t metadata = offsetof(Ge3dsOriginalGameplayHudDrawList, solid_vertex_count);
+    assert(actual->solid_vertex_count <= GE_3DS_ORIGINAL_GAMEPLAY_HUD_SOLID_VERTEX_CAPACITY);
+    assert(actual->font_vertex_count <= GE_3DS_ORIGINAL_GAMEPLAY_HUD_FONT_VERTEX_CAPACITY);
+    assert(memcmp((const unsigned char *)actual + metadata,
+        (const unsigned char *)zeroed + metadata, sizeof(*actual) - metadata) == 0);
+    assert(memcmp(actual->solid_vertices, zeroed->solid_vertices,
+        actual->solid_vertex_count * sizeof(actual->solid_vertices[0])) == 0);
+    assert(memcmp(actual->font_vertices, zeroed->font_vertices,
+        actual->font_vertex_count * sizeof(actual->font_vertices[0])) == 0);
+    check_unused_bytes(actual->solid_vertices + actual->solid_vertex_count,
+        sizeof(actual->solid_vertices)
+            - actual->solid_vertex_count * sizeof(actual->solid_vertices[0]));
+    check_unused_bytes(actual->font_vertices + actual->font_vertex_count,
+        sizeof(actual->font_vertices)
+            - actual->font_vertex_count * sizeof(actual->font_vertices[0]));
+}
+
+/* Run every existing authored-font/gauge/layout case on poisoned and zeroed
+ * storage. Every published byte must match and unused capacity must remain
+ * untouched. These wrappers affect this test only, not the builders. */
+#define CHECKED_BUILDER(name, type, compare, parameters, arguments) \
+    static int name##_checked parameters { \
+        static type reference; \
+        type *output = draw_list; \
+        memset(output, 0xa5, sizeof(*output)); \
+        const int actual = name arguments; \
+        memset(&reference, 0, sizeof(reference)); \
+        draw_list = &reference; \
+        const int expected = name arguments; \
+        assert(actual == expected); \
+        if (actual) compare(output, &reference); \
+        return actual; \
+    }
+CHECKED_BUILDER(ge_3ds_original_hud_build_draw_list, Ge3dsOriginalHudDrawList, compare_hud,
+    (const Ge3dsOriginalHudAtlas *atlas, const GeOriginalDamMissionHudRenderSnapshot *snapshot,
+     Ge3dsOriginalHudDrawList *draw_list), (atlas, snapshot, draw_list))
+CHECKED_BUILDER(ge_3ds_original_bottom_hud_build_draw_list, Ge3dsOriginalHudDrawList, compare_hud,
+    (const Ge3dsOriginalHudAtlas *atlas, const GeOriginalBottomHudRenderSnapshot *snapshot,
+     Ge3dsOriginalHudDrawList *draw_list), (atlas, snapshot, draw_list))
+CHECKED_BUILDER(ge_3ds_original_gameplay_hud_build_draw_list, Ge3dsOriginalGameplayHudDrawList, compare_gameplay,
+    (const Ge3dsOriginalHudAtlas *atlas, const GeOriginalGameplayHudRenderSnapshot *snapshot,
+     Ge3dsOriginalGameplayHudDrawList *draw_list), (atlas, snapshot, draw_list))
+CHECKED_BUILDER(ge_3ds_original_watch_objectives_build_draw_list, Ge3dsOriginalHudDrawList, compare_hud,
+    (const Ge3dsOriginalHudAtlas *atlas, const Ge3dsOriginalWatchObjectiveLine *lines,
+     size_t count, Ge3dsOriginalHudDrawList *draw_list), (atlas, lines, count, draw_list))
+CHECKED_BUILDER(ge_3ds_original_credits_build_draw_list, Ge3dsOriginalHudDrawList, compare_hud,
+    (const Ge3dsOriginalHudAtlas *atlas, const Ge3dsOriginalCreditsLine *lines,
+     size_t count, Ge3dsOriginalHudDrawList *draw_list), (atlas, lines, count, draw_list))
+CHECKED_BUILDER(ge_3ds_original_frontend_build_draw_list, Ge3dsOriginalHudDrawList, compare_hud,
+    (const Ge3dsOriginalHudAtlas *atlas, Ge3dsOriginalFrontendPage page,
+     const Ge3dsOriginalFrontendLine *lines, size_t count, Ge3dsOriginalHudDrawList *draw_list),
+    (atlas, page, lines, count, draw_list))
+CHECKED_BUILDER(ge_3ds_original_frontend_build_draw_list_exact, Ge3dsOriginalHudDrawList, compare_hud,
+    (const Ge3dsOriginalHudAtlas *atlas, const Ge3dsOriginalHudAtlas *bank,
+     Ge3dsOriginalFrontendPage page, const Ge3dsOriginalFrontendLine *lines,
+     size_t count, Ge3dsOriginalHudDrawList *draw_list), (atlas, bank, page, lines, count, draw_list))
+#undef CHECKED_BUILDER
+#define ge_3ds_original_hud_build_draw_list ge_3ds_original_hud_build_draw_list_checked
+#define ge_3ds_original_bottom_hud_build_draw_list ge_3ds_original_bottom_hud_build_draw_list_checked
+#define ge_3ds_original_gameplay_hud_build_draw_list ge_3ds_original_gameplay_hud_build_draw_list_checked
+#define ge_3ds_original_watch_objectives_build_draw_list ge_3ds_original_watch_objectives_build_draw_list_checked
+#define ge_3ds_original_credits_build_draw_list ge_3ds_original_credits_build_draw_list_checked
+#define ge_3ds_original_frontend_build_draw_list ge_3ds_original_frontend_build_draw_list_checked
+#define ge_3ds_original_frontend_build_draw_list_exact ge_3ds_original_frontend_build_draw_list_exact_checked
+
 int main(void)
 {
     Ge3dsOriginalHudAtlas atlas;
@@ -27,6 +115,14 @@ int main(void)
     uint8_t maximum_alpha = 0U;
     size_t digit_coverage = 0U;
     size_t digit_transparency = 0U;
+
+    memset(&gameplay_draw, 0xa5, sizeof(gameplay_draw));
+    ge_3ds_original_gameplay_hud_draw_list_reset(&gameplay_draw);
+    assert(gameplay_draw.solid_vertex_count == 0U && gameplay_draw.font_vertex_count == 0U
+        && gameplay_draw.gauge_segment_count == 0U && gameplay_draw.ammo_glyph_count == 0U);
+    check_unused_bytes(gameplay_draw.solid_vertices, sizeof(gameplay_draw.solid_vertices));
+    check_unused_bytes(gameplay_draw.font_vertices, sizeof(gameplay_draw.font_vertices));
+    ge_3ds_original_gameplay_hud_draw_list_reset(NULL);
 
     assert(!ge_3ds_original_hud_build_atlas(NULL));
     assert(ge_3ds_original_hud_build_atlas(&atlas));

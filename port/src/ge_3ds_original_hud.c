@@ -34,6 +34,21 @@ enum {
 #define GE_HUD_SOLID_V \
     (1.0f - 0.5f / (float)GE_3DS_ORIGINAL_HUD_ATLAS_HEIGHT)
 
+static void ge_hud_draw_list_reset(Ge3dsOriginalHudDrawList *draw_list)
+{
+    const size_t metadata = offsetof(Ge3dsOriginalHudDrawList, background_vertex_count);
+    if (draw_list != NULL)
+        memset((unsigned char *)draw_list + metadata, 0, sizeof(*draw_list) - metadata);
+}
+
+void ge_3ds_original_gameplay_hud_draw_list_reset(
+    Ge3dsOriginalGameplayHudDrawList *draw_list)
+{
+    const size_t metadata = offsetof(Ge3dsOriginalGameplayHudDrawList, solid_vertex_count);
+    if (draw_list != NULL)
+        memset((unsigned char *)draw_list + metadata, 0, sizeof(*draw_list) - metadata);
+}
+
 /* GoldenEye's VI/HUD coordinates are top-down, while the current tilted
  * orthographic PICA projection consumes bottom-up Y coordinates. */
 float ge_3ds_original_hud_screen_y(float canonical_y)
@@ -210,7 +225,7 @@ int ge_3ds_original_hud_build_draw_list(
     unsigned char previous = 'H';
     int line_height;
     if (draw_list == NULL) return 0;
-    memset(draw_list, 0, sizeof(*draw_list));
+    ge_hud_draw_list_reset(draw_list);
     if (atlas == NULL || atlas->ready == 0U || snapshot == NULL
             || snapshot->visible == 0U || snapshot->count == 0U
             || snapshot->messages[0][0] == '\0') return 1;
@@ -376,7 +391,7 @@ int ge_3ds_original_credits_build_draw_list(
     size_t vertex_count = 0U;
     size_t line_index;
     if (draw_list == NULL) return 0;
-    memset(draw_list, 0, sizeof(*draw_list));
+    ge_hud_draw_list_reset(draw_list);
     if (zurich == NULL || !zurich->ready || lines == NULL
             || line_count == 0U) return 1;
 
@@ -518,7 +533,7 @@ int ge_3ds_original_gameplay_hud_build_draw_list(
     Ge3dsOriginalGameplayHudDrawList *draw_list)
 {
     if (draw_list == NULL) return 0;
-    memset(draw_list, 0, sizeof(*draw_list));
+    ge_3ds_original_gameplay_hud_draw_list_reset(draw_list);
     if (bank_gothic == NULL || !bank_gothic->ready || snapshot == NULL)
         return 0;
     if (snapshot->gauges_visible
@@ -618,7 +633,7 @@ int ge_3ds_original_bottom_hud_build_draw_list(
     const char *cursor;
     size_t pass;
     if (draw_list == NULL) return 0;
-    memset(draw_list, 0, sizeof(*draw_list));
+    ge_hud_draw_list_reset(draw_list);
     if (bank_gothic == NULL || !bank_gothic->ready || snapshot == NULL
             || !snapshot->visible || snapshot->message[0] == '\0') return 1;
     width = ge_text_width(bank_gothic, snapshot->message);
@@ -697,7 +712,7 @@ int ge_3ds_original_watch_objectives_build_draw_list(
     size_t vertex_count = 0U;
     size_t index;
     if (draw_list == NULL) return 0;
-    memset(draw_list, 0, sizeof(*draw_list));
+    ge_hud_draw_list_reset(draw_list);
     if (bank_gothic == NULL || !bank_gothic->ready
             || lines == NULL || line_count == 0U) return 1;
     /* The N64 page uses the centered 320-wide VI region. Keep those authored
@@ -1080,7 +1095,7 @@ int ge_3ds_original_frontend_build_draw_list_exact(
     int authored_header_present = 0;
     const float ink = 18.0f / 255.0f;
     if (draw_list == NULL) return 0;
-    memset(draw_list, 0, sizeof(*draw_list));
+    ge_hud_draw_list_reset(draw_list);
     if (zurich == NULL || !zurich->ready || bank_gothic == NULL
             || !bank_gothic->ready || lines == NULL
             || line_count == 0U) return 1;

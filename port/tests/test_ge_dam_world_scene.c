@@ -446,7 +446,8 @@ static void audit_spawn_clip_rejection(
         GeDrawBatchWorldBounds *bounds = calloc(batch_count, sizeof(*bounds));
         size_t angle, accelerated = 0U, decisions = 0U, repeat;
         volatile size_t checksum = 0U;
-        clock_t started, scalar_ticks, bounded_ticks;
+        clock_t started, scalar_ticks, bounded_ticks, composed_ticks, prepared_ticks;
+        GeDrawBatchClipContext clip_context;
         assert(bounds != NULL);
         for (batch_index = 0U; batch_index < batch_count; ++batch_index)
             if (batches[batch_index].vertex_count >= 12U)
@@ -465,12 +466,18 @@ static void audit_spawn_clip_rejection(
             for (row = 0U; row < 3U; ++row)
                 for (column = 0U; column < 4U; ++column)
                     world_to_clip[row][column] /= level_scale;
+            ge_draw_batch_clip_context_init(&clip_context, world_to_clip);
             for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
                 const GeDrawBatchBoundsVisibility classified =
                     ge_draw_batch_world_bounds_classify(
                         &bounds[batch_index], world_to_clip);
                 const int exact = ge_draw_batch_world_may_intersect_clip_frustum(
                     vertices, vertex_count, &batches[batch_index], world_to_clip);
+                const GeDrawBatchVisibility prepared =
+                    ge_draw_batch_world_visibility_prepared(vertices, vertex_count,
+                        &batches[batch_index], &bounds[batch_index], &clip_context);
+                assert(exact == (prepared != GE_DRAW_BATCH_BOUNDS_CULLED
+                    && prepared != GE_DRAW_BATCH_VERTICES_CULLED));
                 if (classified != GE_DRAW_BATCH_BOUNDS_UNCERTAIN) {
                     ++accelerated;
                     assert(exact == (classified == GE_DRAW_BATCH_BOUNDS_INSIDE));
@@ -497,11 +504,42 @@ static void audit_spawn_clip_rejection(
                             world_to_clip)));
             }
         bounded_ticks = clock() - started;
+        started = clock();
+        for (repeat = 0U; repeat < 256U; ++repeat)
+            for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
+                if (ge_draw_batch_world_first_vertex_visible(vertices, vertex_count,
+                        &batches[batch_index], world_to_clip)) {
+                    ++checksum;
+                    continue;
+                }
+                const GeDrawBatchBoundsVisibility classified =
+                    ge_draw_batch_world_bounds_classify(&bounds[batch_index], world_to_clip);
+                checksum += (size_t)(classified == GE_DRAW_BATCH_BOUNDS_INSIDE
+                    || (classified == GE_DRAW_BATCH_BOUNDS_UNCERTAIN
+                        && ge_draw_batch_world_may_intersect_clip_frustum(vertices,
+                            vertex_count, &batches[batch_index], world_to_clip)));
+            }
+        composed_ticks = clock() - started;
+        started = clock();
+        for (repeat = 0U; repeat < 256U; ++repeat) {
+            ge_draw_batch_clip_context_init(&clip_context, world_to_clip);
+            for (batch_index = 0U; batch_index < batch_count; ++batch_index) {
+                const GeDrawBatchVisibility prepared =
+                    ge_draw_batch_world_visibility_prepared(vertices, vertex_count,
+                        &batches[batch_index], &bounds[batch_index], &clip_context);
+                checksum += (size_t)(prepared != GE_DRAW_BATCH_BOUNDS_CULLED
+                    && prepared != GE_DRAW_BATCH_VERTICES_CULLED);
+            }
+        }
+        prepared_ticks = clock() - started;
         assert(accelerated > 0U && checksum > 0U);
         printf("Dam bounds: %zu/%zu exact decisions accelerated at 64 angles; "
                "256-frame CPU test scalar %.3fs, bounded %.3fs\n", accelerated,
                decisions, (double)scalar_ticks / CLOCKS_PER_SEC,
                (double)bounded_ticks / CLOCKS_PER_SEC);
+        printf("Dam visibility composition: %.3fs -> prepared %.3fs (host only)\n",
+            (double)composed_ticks / CLOCKS_PER_SEC,
+            (double)prepared_ticks / CLOCKS_PER_SEC);
         free(bounds);
     }
 }

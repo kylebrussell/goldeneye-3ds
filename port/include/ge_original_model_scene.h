@@ -117,6 +117,8 @@ typedef struct GeOriginalModelSceneCache {
     uint64_t unchanged_input_vertices_avoided;
     uint64_t unchanged_input_batches_avoided;
     uint64_t topology_rebuilds;
+    uint64_t discarded_publications_avoided;
+    uint64_t discarded_vertices_avoided;
     uint64_t topology_variant_hits;
     uint64_t topology_variant_evictions;
     uint64_t topology_component_hits;
@@ -210,6 +212,14 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template_preflig
     const GeDamRoomSceneStorage *storage,
     uint16_t *matrix_indices, size_t matrix_index_capacity,
     GeOriginalModelScene *scene);
+
+/* Exact-size publication is for an installed scene segment: a shrink, growth
+ * or vertex/batch count mismatch reports required counts without touching the
+ * output. Normal cache_build continues to accept any sufficient capacity. */
+GeOriginalModelSceneStatus ge_original_model_scene_cache_build_exact(
+    GeOriginalModelSceneCache *cache,
+    const GeOriginalModelSceneInput *inputs, size_t input_count,
+    const GeDamRoomSceneStorage *storage, GeOriginalModelScene *scene);
 
 GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
     GeOriginalModelSceneCache *cache,

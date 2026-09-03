@@ -1326,3 +1326,130 @@ restored. Previous `952088b7` and intermediate `3579aa36` binaries remain
 available privately. Hardware staging's existing `cradle` selection remains
 unchanged. No saves or DSP settings were manually edited, and no public push
 was made.
+
+## Reject discarded guard publications before transforming them
+
+Inspection of `refresh_stage_guard_overlay_impl` found a more immediate waste
+than cross-topology range reuse: a smaller guard scene fit the old segment's
+capacity, so the cache fully transformed it into that segment. The caller then
+noticed the changed counts, allocated replacement storage and transformed the
+same scene again. Only the second result was committed for rendering.
+
+The new exact-size cache entry point reports required counts and returns the
+existing capacity status on either growth or shrink, before matrix preparation,
+vertex transformation, batch publication or dirty-range output. The live
+installed-guard-segment call uses this entry point; capacity queries and actual
+replacement builds retain the ordinary sufficient-capacity API. Thus a size
+change takes the same existing replacement transaction without first producing
+discarded output. Original model enumeration, authored relations, matrices,
+animation/input/AI ordering and the final geometry remain unchanged.
+
+`guard_discarded_publications_avoided=count,vertices` counts exact-size
+rejections where the previous path had sufficient valid storage and no reusable
+publication. It does not count ordinary insufficient-capacity queries or infer
+work saved from an already reusable publication.
+
+Focused ASan/UBSan coverage adds 120 nonempty shrink/grow/empty transitions,
+batch-only size mismatch and same-sized material changes. Rejected calls must
+leave all output bytes intact, advertise no dirty ranges and do no matrix or
+successful-publication work. Once exact replacement sizing is supplied, every
+vertex/batch byte must match the ordinary cache path. Existing model, lifetime,
+selective-publication and scalar-transform checks remain enabled. The source
+wiring check now requires the exact-size entry on the installed segment while
+retaining ordinary publication on the replacement path.
+
+The exact-size candidate `8dedb999` completed a fresh combat run with seven
+discarded publications / 4,857 vertices avoided. Compared with a fresh
+`2925d771` baseline, worst guard refresh was 7.38 / 8.63 ms and worst post-warmup
+frame work was 31 / 35 ms. Samples over 25 ms were 3 / 7; over 33 ms were 0 / 1.
+Encounters differ: candidate survived 4,941 ticks, reached 11/160 targets and
+fired 30 shots (two damaging hits), versus baseline 4,411 ticks, 13 targets and
+24 shots (four damaging hits). Both died, so the results remain failed routes,
+not mission completion; this is not a controlled whole-run FPS comparison.
+Evidence: `build/visual-probe/exact-segment-{baseline-2925,candidate-8ded}-combat.result`.
+
+The slow-frame records still show up to 6 ms of first-person work. The combined
+candidate applies contiguous immutable vertex/batch copies there on a changed
+hand layout, followed by the unchanged scalar transforms and room/index
+updates. Stable-layout matrix reuse and cross-input duplicate-transform maps
+are unchanged; copying one input cannot overwrite earlier inputs used by those
+maps. First-person tests additionally reconstruct and compare every byte of
+the complete expected vertex record, not only positions, alongside existing
+PP7/modem, canonical fire, layout-toggle, shared-matrix and differing-storage
+sanitizer coverage.
+
+Exact-size focused log: `build/host-tests/exact-segment/sanitizer.log`.
+Combined focused log: `build/host-tests/exact-segment-hand-sanitizer.log`.
+The source wiring test was updated for the new exact-size entry point; the
+first full-suite attempt caught that stale assertion, then passed after it
+was corrected. The final combined suite/build logs are
+`build/host-tests/exact-segment-hand-full.log` and
+`build/host-tests/arm-exact-segment-hand.log`.
+Combined executable SHA-256:
+`3ade1696bfee11e0156a21160609b1dafe0708c39ee22bedb5cd70213edd5648`;
+assets remain `938536d4…`.
+
+Combined `3ade1696` combat measurement: 29 discarded publications / 25,158
+vertices avoided; 4,714 simulation ticks, 14/160 targets, 22 shots and six
+damaging hits before death. Worst guard refresh was 7.36 ms, post-warmup frame
+work peaked at 30 ms (597/4,593 samples over 16 ms; four over 25 ms; none over
+33 ms). The first-person cache portion at the worst first-person frame was
+4.05 ms, versus 4.55 ms for the fresh `2925d771` baseline and 4.61 ms for
+`8dedb999`. These are components at each run's worst respective frame, not
+independent component maxima or deterministic-replay FPS gains. The encounter
+and topology counts differ, so higher sample counts over 16 ms in this run are
+not hidden behind the reduced maximum. Evidence:
+`build/visual-probe/exact-segment-hand-3ade-combat.result`.
+
+A final review caught a status-only empty-scene edge: no second geometry build
+is needed when a visible guard set shrinks to zero. After the removal
+transaction successfully commits, the platform now publishes an OK scene
+status rather than retaining the exact-size query's capacity status. Failed
+transactions still return before publishing success. The source wiring test
+pins that successful-commit ordering. This correction does not add or remove
+gameplay behavior, but it produces a separate final executable from the timed
+`3ade1696` candidate.
+
+Final executable SHA-256:
+`0a7d34305e94cd02a30a47461771db93b6a75d7e122fab4705c49144065f9127`.
+Its complete host suite and ARM/3DSX build passed; final logs are
+`build/host-tests/exact-segment-final-full.log` and
+`build/host-tests/arm-exact-segment-final.log`. The ELF retains unchanged
+`MoveBond`, `bondviewProcessInput`, `ge_original_gun_live_tick` and
+`ge_original_stage_active_props_tick_exact`, plus both new exact-size bridge
+entry points. No canonical game source bodies were edited.
+
+An isolated combat run of this **exact final binary** reproduced the preceding
+combined candidate's 4,714 movement/actor/gun ticks, 14/160 targets, 22 PP7
+shots, six damaging hits, 29 discarded publications / 25,158 vertices avoided,
+and 30 ms post-warmup maximum (597/4,593 over 16 ms, four over 25 ms, none over
+33 ms). Guard refresh peaked at 7.36 ms. It decoded 656 sounds without failures
+and queued 3,439 NDSP blocks, with no reported matrix, unknown-AI or overlay
+errors. The route ended in death, not completion. Evidence:
+`build/visual-probe/exact-segment-final-0a7d-combat.result`.
+
+Final Facility run: 750 simulation/presented frames and original movement,
+actor and gun ticks; seven shots, identical previous endpoint, 14 ms
+post-warmup maximum with zero of 630 samples over 16 ms, no matrix errors.
+Evidence: `build/visual-probe/exact-segment-final-0a7d-facility.result`.
+
+Cross-topology reuse of unchanged model ranges remains deferred. The verified
+work here removes a concrete discarded publication and optimizes first-person
+copying first. Remaining 30 ms frames combine original simulation/overlay work,
+first-person publication and roughly 7 ms of rendering; world submission and
+safe reuse within changing model layouts remain targets. Sustained 60 FPS,
+smooth player-driven streaming beyond initial residency and Dam completion
+are not demonstrated by these tests.
+
+The exact final binary also completed all 177 Dam tour views, 62 streamed
+installations and 34 evictions without camera, visibility, stream or
+guard/door/monitor/articulated publication failures. All 138 ready materializer
+records constructed. Evidence: `exact-segment-final-0a7d-tour.result` and
+`.diag` in `build/visual-probe/`. This diagnostic camera tour is not a player
+playthrough or smooth-streaming performance proof.
+
+The final code/unchanged-asset pair is hash-matched in Azahar and hardware
+staging. Temporary emulator stage/input/tour overrides were removed and normal
+boot restored. Hardware staging's prior `cradle` selection is unchanged.
+Earlier `2925d771`, `8dedb999` and `3ade1696` binaries are retained privately.
+No save/DSP settings were manually edited, and no public push was made.

@@ -3155,6 +3155,9 @@ static bool write_input_probe_result(
         (unsigned long long)objects->guard_scene_cache
             .identity_outer_vertices_published,
         (unsigned long long)objects->guard_scene_cache.topology_rebuilds);
+    fprintf(stream, "guard_discarded_publications_avoided=%llu,%llu\n",
+        (unsigned long long)objects->guard_scene_cache.discarded_publications_avoided,
+        (unsigned long long)objects->guard_scene_cache.discarded_vertices_avoided);
     fprintf(stream, "guard_scene_reuse=%llu,%llu\n",
         (unsigned long long)objects->guard_scene_cache
             .static_vertex_copies_avoided,
@@ -8098,8 +8101,11 @@ static bool refresh_stage_guard_overlay_impl(
     unchanged_before = objects->guard_scene_cache.unchanged_builds;
     {
         const uint64_t scene_start = svcGetSystemTick();
+        /* A changed segment count must take the replacement transaction.
+         * Do not first transform a smaller topology into the old buffer:
+         * that output would be discarded and transformed a second time. */
         scene_status =
-            ge_original_stage_guard_runtime_build_scene_cached(
+            ge_original_stage_guard_runtime_build_scene_cached_exact(
                 objects->guards, &objects->guard_scene_cache,
                 runtime_eye_space_identity, &storage, &scene);
         fine_profile.guard_scene_ticks +=
@@ -8259,6 +8265,10 @@ replace_topology:
         segment->batch_count = scene.required_batch_count;
         objects->guard_scene = scene.required_vertex_count != 0U
             ? replacement_scene : scene;
+        /* Empty replacement has no second geometry build. Once its removal
+         * transaction commits, publish success rather than the sizing
+         * rejection returned for the formerly nonempty segment. */
+        objects->guard_scene.status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
         objects->scene_vertices = dynamic_scene->overlay_vertex_count;
         objects->scene_batches = dynamic_scene->overlay_batch_count;
         objects->scene_triangles = dynamic_scene->scene.triangle_count;

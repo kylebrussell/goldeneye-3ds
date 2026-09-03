@@ -2280,11 +2280,10 @@ fail:
     return GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;
 }
 
-GeOriginalStageGuardRuntimeStatus
-ge_original_stage_guard_runtime_build_scene_cached(
+static GeOriginalStageGuardRuntimeStatus build_scene_cached_impl(
     GeOriginalStageGuardRuntime *runtime,GeOriginalModelSceneCache *cache,
     const float view_to_world[4][4],const GeDamRoomSceneStorage *storage,
-    GeOriginalStageGuardScene *scene)
+    GeOriginalStageGuardScene *scene,int exact_size)
 {
     GeOriginalModelSceneInput *inputs=NULL;GeOriginalModelScene built={0};
     GeOriginalStageGuardRuntimeStatus status;GeOriginalModelSceneStatus model_status;
@@ -2298,8 +2297,9 @@ ge_original_stage_guard_runtime_build_scene_cached(
     status=collect_scene_inputs(runtime,view_to_world,&inputs,&input_count,
         &resident,&published);
     if(status!=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK)goto done;
-    model_status=ge_original_model_scene_cache_build(
-        cache,inputs,input_count,storage,&built);
+    model_status=exact_size
+        ? ge_original_model_scene_cache_build_exact(cache,inputs,input_count,storage,&built)
+        : ge_original_model_scene_cache_build(cache,inputs,input_count,storage,&built);
     scene->resident_guard_count=resident;
     scene->published_guard_count=published;
     scene->culled_guard_count=resident-published;
@@ -2317,6 +2317,20 @@ ge_original_stage_guard_runtime_build_scene_cached(
 done:
     scene->status=status;runtime->last_status=status;return status;
 }
+
+GeOriginalStageGuardRuntimeStatus
+ge_original_stage_guard_runtime_build_scene_cached(
+    GeOriginalStageGuardRuntime *runtime,GeOriginalModelSceneCache *cache,
+    const float view_to_world[4][4],const GeDamRoomSceneStorage *storage,
+    GeOriginalStageGuardScene *scene)
+{return build_scene_cached_impl(runtime,cache,view_to_world,storage,scene,0);}
+
+GeOriginalStageGuardRuntimeStatus
+ge_original_stage_guard_runtime_build_scene_cached_exact(
+    GeOriginalStageGuardRuntime *runtime,GeOriginalModelSceneCache *cache,
+    const float view_to_world[4][4],const GeDamRoomSceneStorage *storage,
+    GeOriginalStageGuardScene *scene)
+{return build_scene_cached_impl(runtime,cache,view_to_world,storage,scene,1);}
 
 void ge_original_stage_guard_runtime_scene_scratch_stats(
     const GeOriginalStageGuardRuntime *runtime,

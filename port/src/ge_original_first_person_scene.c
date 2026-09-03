@@ -1042,6 +1042,14 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
 
         if (cache->profile_clock != NULL)
             phase_started = ge_first_person_profile_now(cache);
+        /* A changed hand layout republishes contiguous immutable data. Copy
+         * the input once before applying the exact original matrix results,
+         * instead of a large struct copy for every flattened vertex. Earlier
+         * inputs remain intact for cross-input duplicate-transform reuse. */
+        if (!reuse_publication_storage && query->required_vertex_count != 0U)
+            memcpy(storage->vertices + vertex_cursor,
+                cache->template_vertices + template_vertex_base,
+                query->required_vertex_count * sizeof(*storage->vertices));
         for (local_vertex = 0U;
                 local_vertex < query->required_vertex_count; ++local_vertex) {
             const size_t template_index = template_vertex_base + local_vertex;
@@ -1070,9 +1078,7 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
                 cache->unchanged_matrix_vertices_reused++;
                 continue;
             }
-            if (!reuse_publication_storage) {
-                *destination = *source;
-            } else {
+            if (reuse_publication_storage) {
                 cache->static_vertex_copies_avoided++;
             }
             if ((size_t)transform_source < template_index) {
@@ -1114,23 +1120,24 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
                 phase_started, finished);
             phase_started = finished;
         }
+        if (!reuse_publication_storage && query->required_batch_count != 0U)
+            memcpy(storage->batches + batch_cursor,
+                cache->template_batches + template_batch_base,
+                query->required_batch_count * sizeof(*storage->batches));
         for (local_batch = 0U;
                 local_batch < query->required_batch_count; ++local_batch) {
-            GeDamRoomDrawBatch batch =
-                cache->template_batches[template_batch_base + local_batch];
-            if (batch.first_vertex < template_vertex_base) {
+            const size_t first_vertex =
+                cache->template_batches[template_batch_base + local_batch].first_vertex;
+            if (first_vertex < template_vertex_base) {
                 cache->topology_ready = 0U;
                 status = GE_ORIGINAL_FIRST_PERSON_SCENE_MODEL_LAYOUT_ERROR;
                 goto done;
             }
-            batch.first_vertex = vertex_cursor
-                + batch.first_vertex - template_vertex_base;
-            batch.room_id = input->room_id;
+            storage->batches[batch_cursor + local_batch].room_id = input->room_id;
             if (!reuse_publication_storage) {
-                storage->batches[batch_cursor + local_batch] = batch;
+                storage->batches[batch_cursor + local_batch].first_vertex =
+                    vertex_cursor + first_vertex - template_vertex_base;
             } else {
-                storage->batches[batch_cursor + local_batch].room_id =
-                    batch.room_id;
                 cache->static_batch_copies_avoided++;
             }
         }

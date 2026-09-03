@@ -141,6 +141,12 @@ static void assert_first_person_cached_transform_byte_exact(
                           sizeof(eye)) == 0);
             assert(memcmp(world, published[vertex_index].world,
                           sizeof(world)) == 0);
+            /* Cold bulk publication must preserve every immutable byte, not
+             * merely source positions or the fields used by the shader. */
+            GeDamRoomWorldVertex expected = *source;
+            memcpy(expected.processed.eye, eye, sizeof(eye));
+            memcpy(expected.world, world, sizeof(world));
+            assert(memcmp(&expected, &published[vertex_index], sizeof(expected)) == 0);
         }
     }
 }

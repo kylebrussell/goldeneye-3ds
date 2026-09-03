@@ -354,6 +354,13 @@ ge_original_stage_guard_runtime_build_scene_cached(
     const float view_to_world[4][4],
     const GeDamRoomSceneStorage *storage,
     GeOriginalStageGuardScene *scene);
+/* Reject any installed-segment size change before transforming output. */
+GeOriginalStageGuardRuntimeStatus
+ge_original_stage_guard_runtime_build_scene_cached_exact(
+    GeOriginalStageGuardRuntime *runtime, GeOriginalModelSceneCache *cache,
+    const float view_to_world[4][4],
+    const GeDamRoomSceneStorage *storage,
+    GeOriginalStageGuardScene *scene);
 void ge_original_stage_guard_runtime_scene_scratch_stats(
     const GeOriginalStageGuardRuntime *runtime,
     GeOriginalStageGuardSceneScratchStats *stats);

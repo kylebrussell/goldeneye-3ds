@@ -15,10 +15,17 @@ def main() -> None:
     direct = body.index(
         "storage.vertices = dynamic_scene->overlay_vertices")
     build = body.index(
-        "ge_original_stage_guard_runtime_build_scene_cached(", direct)
+        "ge_original_stage_guard_runtime_build_scene_cached_exact(", direct)
     commit = body.index(
         "ge_dam_dynamic_scene_commit_overlay_batches(", build)
     assert direct < build < commit
+    replacement = body.index("replace_topology:", commit)
+    assert "ge_original_stage_guard_runtime_build_scene_cached(" in body[replacement:]
+    published = body.index("objects->guard_scene = scene.required_vertex_count", replacement)
+    assert "objects->guard_scene.status = GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;" in body[published:]
+    model = (REPO / "port/src/ge_original_model_scene.c").read_text()
+    sizing = model.index("|| (exact_size && (cache->required_vertex_count")
+    assert sizing < model.index("cache_prepare_publication_matrices(\n", sizing)
     assert "ge_dam_dynamic_scene_update_overlay_segment(" not in body
     pose_only = body.index("if (!range->static_data_changed)")
     pose_commit = body.index("ge_dam_dynamic_scene_commit_overlay_rooms(", pose_only)
@@ -50,7 +57,7 @@ def main() -> None:
                     install.index("RUNTIME_STAGE_SCENE_INSTALL_ALLOCATE_INPUTS;")]
     assert "dam_overlay_segment_close(&objects->door_overlay);" in empty
     assert "dam_overlay_segment_close(&objects->guard_overlay);" in empty
-    print("3DS guard overlay: model cache writes scene tail directly; batch-only commit retained")
+    print("3DS guard overlay: exact-size scene-tail publication; shrink/growth replace once, batch-only commit retained")
 
 
 if __name__ == "__main__":

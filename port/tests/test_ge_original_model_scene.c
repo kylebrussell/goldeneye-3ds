@@ -998,6 +998,85 @@ static void exercise_shared_component_lifetime(const char *path)
          "empty/reordered/repeated inputs; 120 publications byte-exact");
 }
 
+static void exercise_exact_size_publication(const char *path)
+{
+    uint8_t *blob = load_blob(path, GE_ORIGINAL_MODEL62_BLOB_SIZE);
+    GeOriginalModelSceneInput inputs[2] = {{0}};
+    GeOriginalModelSceneCache cache = {0}, reference = {0};
+    GeOriginalModelScene scene, direct;
+    assert(blob);
+    inputs[0].blob = blob;
+    inputs[0].blob_size = GE_ORIGINAL_MODEL62_BLOB_SIZE;
+    inputs[0].primary_offset = UINT32_C(0x5c8);
+    inputs[0].secondary_offset = UINT32_C(0x6b8);
+    inputs[0].segment4_offset = GE_ORIGINAL_MODEL_SCENE_NO_LIST;
+    inputs[0].world_zbuffer_enabled = 1U;
+    set_transform(&inputs[0]);
+    inputs[1] = inputs[0];
+    inputs[1].position[1] += 10.0f;
+    assert(ge_original_model_scene_cache_build(&cache, inputs, 2U, NULL, &scene)
+        == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    const size_t nv = scene.required_vertex_count, nb = scene.required_batch_count;
+    GeDamRoomSceneStorage storage = {calloc(nv, sizeof(*storage.vertices)), nv,
+        calloc(nb, sizeof(*storage.batches)), nb};
+    GeDamRoomSceneStorage snapshot = {malloc(nv * sizeof(*snapshot.vertices)), nv,
+        malloc(nb * sizeof(*snapshot.batches)), nb};
+    GeDamRoomSceneStorage expected = {calloc(nv, sizeof(*expected.vertices)), nv,
+        calloc(nb, sizeof(*expected.batches)), nb};
+    assert(storage.vertices && storage.batches && snapshot.vertices && snapshot.batches
+        && expected.vertices && expected.batches);
+    assert(ge_original_model_scene_cache_build_exact(&cache, inputs, 2U, &storage,
+        &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    for (size_t frame = 0U; frame < 120U; ++frame) {
+        const size_t count = frame % 4U == 3U ? 0U : frame % 2U + 1U;
+        memcpy(snapshot.vertices, storage.vertices, nv * sizeof(*storage.vertices));
+        memcpy(snapshot.batches, storage.batches, nb * sizeof(*storage.batches));
+        const uint64_t builds = cache.cached_builds, matrices = cache.matrix_elements_quantized;
+        const GeOriginalModelSceneStatus status = ge_original_model_scene_cache_build_exact(
+            &cache, inputs, count, &storage, &scene);
+        if (storage.vertex_capacity != scene.required_vertex_count
+                || storage.batch_capacity != scene.required_batch_count) {
+            assert(status == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+            assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+            assert(cache.cached_builds == builds && cache.matrix_elements_quantized == matrices);
+            assert(cache.publication_range_count == 0U);
+            assert(memcmp(snapshot.vertices, storage.vertices, nv * sizeof(*storage.vertices)) == 0);
+            assert(memcmp(snapshot.batches, storage.batches, nb * sizeof(*storage.batches)) == 0);
+        } else assert(status == GE_ORIGINAL_MODEL_SCENE_OK);
+        storage.vertex_capacity = scene.required_vertex_count;
+        storage.batch_capacity = scene.required_batch_count;
+        assert(ge_original_model_scene_cache_build_exact(&cache, inputs, count, &storage,
+            &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(ge_original_model_scene_cache_build(&reference, inputs, count, &expected,
+            &direct) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(scene.vertex_count == direct.vertex_count && scene.batch_count == direct.batch_count);
+        assert(memcmp(storage.vertices, expected.vertices, scene.vertex_count * sizeof(*storage.vertices)) == 0);
+        assert(memcmp(storage.batches, expected.batches, scene.batch_count * sizeof(*storage.batches)) == 0);
+    }
+    /* A batch-only mismatch must also be rejected, even with enough bytes. */
+    storage.vertex_capacity = nv;
+    storage.batch_capacity = nb + 1U;
+    const uint64_t builds = cache.cached_builds;
+    assert(ge_original_model_scene_cache_build_exact(&cache, inputs, 2U, &storage,
+        &scene) == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    assert(cache.cached_builds == builds && cache.publication_range_count == 0U);
+    storage.batch_capacity = nb;
+    inputs[0].world_zbuffer_enabled = 0U;
+    assert(ge_original_model_scene_cache_build_exact(&cache, inputs, 2U, &storage,
+        &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(ge_original_model_scene_cache_build(&reference, inputs, 2U, &expected,
+        &direct) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(memcmp(storage.batches, expected.batches, nb * sizeof(*storage.batches)) == 0);
+    assert(cache.discarded_publications_avoided > 0U && cache.discarded_vertices_avoided > 0U);
+    ge_original_model_scene_cache_close(&cache);
+    ge_original_model_scene_cache_close(&reference);
+    free(storage.vertices); free(storage.batches);
+    free(snapshot.vertices); free(snapshot.batches);
+    free(expected.vertices); free(expected.batches); free(blob);
+    puts("exact-size publication: 120 shrink/grow/empty transitions, batch-only mismatch, "
+        "same-size material update; rejected output untouched, final bytes exact");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 4);
@@ -1014,5 +1093,6 @@ int main(int argc, char **argv)
     exercise_unchanged_input_publication_reuse(argv[1]);
     exercise_dirty_publication_ranges(argv[1]);
     exercise_shared_component_lifetime(argv[1]);
+    exercise_exact_size_publication(argv[1]);
     return 0;
 }

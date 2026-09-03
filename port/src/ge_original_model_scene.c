@@ -1326,10 +1326,11 @@ static void cache_transform_vertex(
     }
 }
 
-GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
+static GeOriginalModelSceneStatus cache_build_impl(
     GeOriginalModelSceneCache *cache,
     const GeOriginalModelSceneInput *inputs, size_t input_count,
-    const GeDamRoomSceneStorage *storage, GeOriginalModelScene *scene)
+    const GeDamRoomSceneStorage *storage, GeOriginalModelScene *scene,
+    int exact_size)
 {
     uint64_t signature;
     uint64_t publication_signature;
@@ -1374,12 +1375,23 @@ GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
     scene->triangle_count = cache->triangle_count;
     scene->commands_visited = cache->commands_visited;
     if (storage == NULL
+            || (exact_size && (cache->required_vertex_count != storage->vertex_capacity
+                || cache->required_batch_count != storage->batch_capacity))
             || cache->required_vertex_count > storage->vertex_capacity
             || cache->required_batch_count > storage->batch_capacity
             || (cache->required_vertex_count != 0U
                 && storage->vertices == NULL)
             || (cache->required_batch_count != 0U
                 && storage->batches == NULL)) {
+        if (exact_size && storage != NULL
+                && cache->publication_ready == 0U
+                && cache->required_vertex_count <= storage->vertex_capacity
+                && cache->required_batch_count <= storage->batch_capacity
+                && (cache->required_vertex_count == 0U || storage->vertices != NULL)
+                && (cache->required_batch_count == 0U || storage->batches != NULL)) {
+            ++cache->discarded_publications_avoided;
+            cache->discarded_vertices_avoided += cache->required_vertex_count;
+        }
         status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
         goto done;
     }
@@ -1607,6 +1619,22 @@ done:
                       cache_profile_now(cache));
     scene->status = status;
     return status;
+}
+
+GeOriginalModelSceneStatus ge_original_model_scene_cache_build(
+    GeOriginalModelSceneCache *cache,
+    const GeOriginalModelSceneInput *inputs, size_t input_count,
+    const GeDamRoomSceneStorage *storage, GeOriginalModelScene *scene)
+{
+    return cache_build_impl(cache, inputs, input_count, storage, scene, 0);
+}
+
+GeOriginalModelSceneStatus ge_original_model_scene_cache_build_exact(
+    GeOriginalModelSceneCache *cache,
+    const GeOriginalModelSceneInput *inputs, size_t input_count,
+    const GeDamRoomSceneStorage *storage, GeOriginalModelScene *scene)
+{
+    return cache_build_impl(cache, inputs, input_count, storage, scene, 1);
 }
 
 int ge_original_model_scene_visit_textures(

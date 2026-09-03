@@ -118,6 +118,13 @@ static void assert_first_person_cached_transform_byte_exact(
                 &cache->template_vertices[vertex_index];
             const uint16_t matrix_index =
                 cache->template_matrix_indices[vertex_index];
+            const size_t run_end = cache->template_matrix_run_ends[vertex_index];
+            assert(run_end > local_vertex
+                && run_end <= cache->queries[input_index].required_vertex_count);
+            for (size_t member = local_vertex; member < run_end; ++member)
+                assert(cache->template_matrix_indices[vertex_base + member] == matrix_index);
+            if (run_end < cache->queries[input_index].required_vertex_count)
+                assert(cache->template_matrix_indices[vertex_base + run_end] != matrix_index);
             const float object[4] = {
                 (float)source->source.x, (float)source->source.y,
                 (float)source->source.z, 1.0f
@@ -895,6 +902,9 @@ int main(int argc, char **argv)
                     - unchanged_matrix_vertices_before
                 == (exact_hand_scene.vertex_count - changed_matrix_vertices)
                     * iterations);
+            assert(exact_hand_scene_cache.unchanged_matrix_runs_reused > 0U);
+            assert(exact_hand_scene_cache.unchanged_matrix_runs_reused
+                < exact_hand_scene_cache.unchanged_matrix_vertices_reused);
             assert_first_person_cached_transform_byte_exact(
                 &exact_hand_scene_cache, exact_hand_vertices);
             printf("first-person incremental matrix benchmark: matrix %zu "

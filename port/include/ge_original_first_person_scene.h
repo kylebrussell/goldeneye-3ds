@@ -60,6 +60,9 @@ typedef struct GeOriginalFirstPersonSceneCache {
     GeDamRoomDrawBatch *template_batches;
     uint16_t *template_matrix_indices;
     uint32_t *template_transform_sources;
+    /* Exclusive end of each consecutive matrix run, input-local. Retains
+     * authored vertex order and permits one unchanged-bone test per run. */
+    uint32_t *template_matrix_run_ends;
     float (*quantized_matrices)[4][4];
     uint8_t *quantized_matrix_changed;
     size_t *input_quantized_matrix_offsets;
@@ -93,6 +96,7 @@ typedef struct GeOriginalFirstPersonSceneCache {
     uint64_t duplicate_vertex_transforms_avoided;
     uint64_t cross_input_duplicate_transforms_avoided;
     uint64_t unchanged_matrix_vertices_reused;
+    uint64_t unchanged_matrix_runs_reused;
     GeOriginalFirstPersonSceneProfileClock profile_clock;
     void *profile_clock_context;
     uint64_t profile_build_ticks;

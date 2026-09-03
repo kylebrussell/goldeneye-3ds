@@ -156,6 +156,12 @@ typedef struct GeOriginalModelSceneCache {
     GeOriginalModelScenePublicationRange *publication_ranges;
     size_t publication_range_count;
     size_t publication_range_capacity;
+    /* Scratch snapshot of the last output's component identities/ranges;
+     * never moved with immutable topology variants. */
+    void *publication_layout_scratch;
+    size_t publication_layout_scratch_capacity;
+    uint64_t cross_topology_inputs_reused;
+    uint64_t cross_topology_static_vertices_reused;
     uint8_t topology_ready;
     uint8_t publication_ready;
 } GeOriginalModelSceneCache;

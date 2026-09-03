@@ -1690,3 +1690,131 @@ the storage-only candidate and `df804a82` rollback are also retained privately.
 Emulator stage/input/tour overrides were removed and normal boot restored in
 one Azahar instance. Hardware staging's existing `cradle` selection and
 save/DSP settings were preserved. No public push was made.
+
+## Retain model publications and weapon draw plans
+
+Started from clean `f5461e8d` / `0610f554`. This round changes renderer
+adapters only; original input, MoveBond, animation, AI, weapons, collision,
+audio and simulation ordering are unchanged.
+
+- First-person immutable layouts retain input-local consecutive matrix-run
+  ends. An unchanged quantized bone skips its entire consecutive run without
+  inspecting every flattened vertex. Runs never cross input boundaries or
+  reorder duplicate-transform dependencies. Both retained layouts own/free
+  their run metadata. This costs four bytes per template vertex per layout.
+- Generic model topology switches snapshot the *current output's* component
+  IDs, offsets and publication signatures before moving topology metadata.
+  A component at the same input index and exact output offsets can retain
+  immutable data, or all output if its current matrix/position/room signature
+  also matches. Retained variants never supply stale publication history.
+  Buffer changes, caller invalidation, failed sizing/replacement, different
+  components and moved ranges fall back to full publication. Scratch OOM
+  merely disables this reuse. GPU dirty ranges preserve the distinction
+  between pose changes and immutable-data changes.
+- Guard cache pose-only ranges now write only XYZ to GPU storage. The model
+  cache already proves that UVs and shade bytes are unchanged. Other callers,
+  including doors/monitors, retain their color updates; topology changes still
+  publish every attribute and remap textures. Dirty-buffer tracking and draw
+  order remain unchanged.
+- The world pass's already-proven adjacent material hit reads the retained
+  draw-enabled bit directly instead of repeating its full comparison and
+  copying prepared state. Cache lifetime remains one draw pass.
+- Weapon adjacent draw groups are prepared at each layout/UV invalidation,
+  using the exact previous contiguity/material/coordinate-space predicate.
+  Rendering reads these retained run ends rather than rediscovering them on
+  every frame. The 419-entry uint16 plan occupies 838 bytes; no sorting or
+  cross-material merge was introduced.
+
+Focused ASan/UBSan checks cover 120 alternating aggregate layouts with a
+simultaneously moving/re-roomed peer, exact partial dirty ranges, caller
+invalidation, reordered/shared components, replacement sizes and recovery.
+Full and incremental output remain byte-identical. First-person tests verify
+run bounds/matrix ownership, reference scalar transforms, retained-layout
+switches and both-hands/modem/PP7 paths. The optional 200-iteration sparse-bone
+test exercises 24 changed versus 1,740 unchanged vertices per publication;
+this is a host workload, not a measured emulator gain. Its output is in
+`build/host-tests/model-publication/first-person-bench.log`.
+
+The actual upload adapter passes 256 pose-only updates against full color/
+position writes, including mapped UV preservation and dirty ranges. Existing
+240 room/overlay replacement tests and 1,074,920 color/range/UV comparisons
+remain green. New `scripts/tests/test_renderer_batch_runs.py` compares 419,488
+starting batches across 2,048 changing layouts against the prior merge walk,
+including empty batches, vertex gaps, materials, texture IDs and coordinate
+spaces. This test is included in `scripts/test_port.sh`.
+
+Both the intermediate `5a133c76` and final candidate pass the complete host
+suite and ARM build. Logs: `build/host-tests/model-publication-full.log`,
+`model-draw-plan-full.log`, `arm-model-publication.log`,
+`arm-model-draw-plan.log`. Final executable SHA-256:
+`8d63390185f8283b4f42f068ded3eecf9da8ed83b66a7e513ca7c6aa79710714`.
+Retained at `build/3ds-candidates/model-draw-plan-8d633901/goldeneye-3ds.3dsx`.
+
+Azahar comparisons use the existing 750-tick movement/strafe/look/fire
+recording, one emulator process, and no concurrent builds. Baseline A and
+intermediate B ran ABBA; C adds only retained weapon draw groups. All runs
+have the same endpoint `19900.337891,-39.704582,17499.558594`, 750 original
+simulation ticks, seven shots, 36,649 world draws and 32,396 hand draws, with
+identical material-application/reuse counts. Evidence:
+`build/visual-probe/model-publication-{baseline-a,baseline-a-repeat,baseline-a-final,candidate-b,candidate-b-repeat}.result`
+and `model-draw-plan-c{,-repeat}.result`.
+
+Guard GPU packing ticks average 26,767,472 in A's initial pair versus
+7,065,345 in B: 73.6% less for that phase, approximately 0.098 ms saved per
+displayed frame in this workload. C retains the reduction. C's effects/hand
+submission averages 141,216,903 ticks versus B's 168,567,752: 16.2% less,
+approximately 0.136 ms per frame. These are phase measurements, not GPU
+execution timings or equivalent whole-game FPS gains. World submission did
+not show a meaningful isolated gain. A's frame peaks ranged 18–19 ms; C's
+two peaks were 18 ms. Counts over 16 ms were A 6/8/7 and C 7/7, so a reduced
+whole-frame tail or a 60 FPS lock is **not established**.
+
+The sparse-bone skip has zero hits in these live recordings. Intermediate
+combat B exercises cross-topology static reuse for 97,197 vertices, but zero
+whole-input skips because current poses change. It runs 4,470 simulation
+ticks, reaches 11/160 route targets, peaks at 29 ms and ends in Bond's death.
+This differs from earlier encounters and is not a controlled FPS comparison.
+Evidence: `build/visual-probe/model-publication-combat-b.result`.
+
+GPU skeletal transforms and selective cold geometry prewarming remain
+unimplemented. The shader currently receives transformed XYZ; the guard
+clip path reads CPU-transformed vertices. A GPU migration therefore needs an
+explicit local-position/matrix-index vertex path, palette bounds, preserved
+16.16 canonical matrices and precision/depth/lighting validation, plus a
+replacement renderer-side clipping input—not removal of original game
+systems. First-person rendering is the smaller pilot because it does not
+use the world-batch CPU clip walk. No alternate shader was silently enabled.
+
+Final C combat: 5,041 original simulation/gun/actor ticks and 5,040 displayed
+frames, 13/160 route targets before death, 32 ms peak after warmup, 571/4,920
+samples over 16 ms and one over 25 ms. It reused 95,187 static vertices across
+topology transitions. Dam reports zero unknown AI commands; 724 decoded
+sound starts have zero decode failures, seven rejected starts and NDSP error
+zero. This is not mission completion. The captured frame visibly retains the
+PP7, textured ground/canyon/tower and a distant guard; it is not exhaustive
+visual validation. Evidence: `model-draw-plan-combat-c.{result,png}`.
+
+Final C Facility smoke test completes 750 ticks and seven shots at the same
+prior endpoint `-199.956543,292.746887,-193.684525`, with 13 ms peak and zero
+samples over 16 ms. Its existing 305 unknown-AI events are unchanged from the
+prior candidate, including the exact opcode histogram
+`65:11,66:207,115:43,157:44`. Neither these authored AI gaps nor the known vent
+geometry issues were fixed by renderer optimization. Evidence:
+`build/visual-probe/model-draw-plan-facility-c.result`.
+
+The final 177-view authored-pad Dam tour completes with 62 room installations,
+10 peak resident rooms, 114 peak textures, 39 peak visible rooms, no camera/
+visibility/stream/monitor/articulated failures, and all 138 ready materializer
+records constructed. Evidence: `build/visual-probe/model-draw-plan-tour-c.{result,diag}`.
+This synchronous streaming tour is neither a player traversal nor a frame-rate
+benchmark. The unchanged canonical MoveBond, bondviewProcessInput, gun tick,
+active-prop tick and exact-size model-publication symbols are retained in the
+ARM executable; audit: `build/host-tests/model-publication/arm-symbols.log`.
+
+Final executable `8d633901...` is byte-matched across build output, candidate,
+hardware staging and Azahar. The staged/installed asset SHA remains
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Active emulator stage/input/tour overrides were removed, their configurations
+retained privately, and normal opening boot restored in one Azahar process.
+Hardware staging's preexisting `cradle` selector and all save/DSP settings
+were preserved. No public push or asset publication was made.

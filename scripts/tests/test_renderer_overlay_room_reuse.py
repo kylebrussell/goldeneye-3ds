@@ -189,6 +189,22 @@ int main(void)
     assert(!upload_dam_gpu_scene_after_overlay(&b,actual,true));
     b.source_vertex_count=count;
     assert(!upload_dam_gpu_scene_after_overlay(&b,NULL,true));
+    /* Mode 2 is only entered for a model-cache pose-only publication. UVs
+     * have already been mapped; shade bytes remain the immutable template. */
+    for(size_t step=0;step<256;++step) {
+        const size_t start=510, count=3;
+        b.gpu_dirty_vertex_count=0;
+        for(size_t i=start;i<start+count;++i) {
+            vertices[i].world[0]=(float)step-(float)i;
+            vertices[i].world[1]=-(float)step;
+            vertices[i].world[2]=(float)step/7.0f;
+        }
+        assert(upload_dam_gpu_world_scene_range(&a,full,start,count,17,1,0U));
+        assert(upload_dam_gpu_world_scene_range(&b,actual,start,count,17,1,2U));
+        assert(memcmp(full,actual,sizeof(full))==0);
+        assert(b.gpu_dirty_vertex_offset==start && b.gpu_dirty_vertex_count==count);
+    }
+    assert(!upload_dam_gpu_world_scene_range(&b,actual,0,0,0,0,3U));
     free(a.gpu_batch_bounds);free(b.gpu_batch_bounds);
     printf("240 actual adapter overlay transitions: %zu full vs %zu partial vertex writes; exact full buffers, room bounds, UVs, colors and empty/shrink/growth/fallback counts\n",full_writes,partial_writes);
 }

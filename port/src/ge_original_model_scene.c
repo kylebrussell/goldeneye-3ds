@@ -969,6 +969,7 @@ void ge_original_model_scene_cache_close(GeOriginalModelSceneCache *cache)
     free(cache->topology_storage);
     free(cache->quantized_matrices);
     free(cache->publication_ranges);
+    free(cache->publication_layout_scratch);
     memset(cache, 0, sizeof(*cache));
 }
 
@@ -1343,6 +1344,35 @@ static void cache_transform_vertex(
     }
 }
 
+typedef struct GeModelPublishedInput {
+    size_t component, vertex_offset, batch_offset;
+    uint64_t signature;
+} GeModelPublishedInput;
+
+/* Snapshot before a topology swap moves/frees its metadata. Only the output
+ * that was valid on entry can supply reuse, never a retained variant's old
+ * publication hashes. Allocation failure simply uses full publication. */
+static size_t cache_snapshot_publication(GeOriginalModelSceneCache *cache,
+    const GeDamRoomSceneStorage *storage)
+{
+    GeModelPublishedInput *snapshot = cache->publication_layout_scratch;
+    if (!cache->publication_ready || storage == NULL
+            || cache->published_vertices != storage->vertices
+            || cache->published_batches != storage->batches) return 0U;
+    if (cache->input_count > cache->publication_layout_scratch_capacity) {
+        if (cache->input_count > SIZE_MAX / sizeof(*snapshot)) return 0U;
+        snapshot = realloc(snapshot, cache->input_count * sizeof(*snapshot));
+        if (snapshot == NULL) return 0U;
+        cache->publication_layout_scratch = snapshot;
+        cache->publication_layout_scratch_capacity = cache->input_count;
+    }
+    for (size_t i = 0U; i < cache->input_count; ++i)
+        snapshot[i] = (GeModelPublishedInput){cache->input_component_indices[i],
+            cache->input_vertex_offsets[i], cache->input_batch_offsets[i],
+            cache->published_input_publication_signatures[i]};
+    return cache->input_count;
+}
+
 static GeOriginalModelSceneStatus cache_build_impl(
     GeOriginalModelSceneCache *cache,
     const GeOriginalModelSceneInput *inputs, size_t input_count,
@@ -1354,6 +1384,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
     size_t vertex_cursor = 0U;
     size_t batch_cursor = 0U;
     size_t input_index;
+    size_t previous_input_count = 0U;
     int reuse_publication_storage;
     uint64_t build_start;
     uint64_t phase_start;
@@ -1374,6 +1405,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
     if (cache->topology_ready
             && (cache->input_count != input_count
                 || cache->topology_signature != signature)) {
+        previous_input_count = cache_snapshot_publication(cache, storage);
         if (!cache_select_retained_topology(cache, signature, input_count))
             cache_retain_current_topology(cache);
     }
@@ -1466,9 +1498,19 @@ static GeOriginalModelSceneStatus cache_build_impl(
                 [cache->input_component_indices[input_index]];
         size_t local_vertex;
         size_t local_batch;
-        const int reuse_input_publication = reuse_publication_storage
-            && cache->published_input_publication_signatures[input_index]
-                == cache->input_publication_signatures[input_index];
+        const GeModelPublishedInput *previous = input_index < previous_input_count
+            ? &((const GeModelPublishedInput *)cache->publication_layout_scratch)[input_index]
+            : NULL;
+        const int reuse_component_storage = reuse_publication_storage
+            || (previous != NULL
+                && previous->component == cache->input_component_indices[input_index]
+                && previous->vertex_offset == vertex_cursor
+                && previous->batch_offset == batch_cursor);
+        const uint64_t previous_signature = reuse_publication_storage
+            ? cache->published_input_publication_signatures[input_index]
+            : previous != NULL ? previous->signature : 0U;
+        const int reuse_input_publication = reuse_component_storage
+            && previous_signature == cache->input_publication_signatures[input_index];
         const int publish_segment_space =
             cache_matrix_is_identity(input->matrix)
             && input->position[0] == 0.0f
@@ -1476,6 +1518,9 @@ static GeOriginalModelSceneStatus cache_build_impl(
             && input->position[2] == 0.0f;
 
         if (reuse_input_publication) {
+            cache->published_input_publication_signatures[input_index] =
+                cache->input_publication_signatures[input_index];
+            if (!reuse_publication_storage) cache->cross_topology_inputs_reused++;
             cache->unchanged_input_publications++;
             cache->unchanged_input_vertices_avoided +=
                 query->required_vertex_count;
@@ -1494,12 +1539,14 @@ static GeOriginalModelSceneStatus cache_build_impl(
          * Publish it once, then change only positions below. This retains
          * every byte (including padding) without one large struct copy per
          * flattened triangle vertex. */
-        if (!reuse_publication_storage) {
+        if (!reuse_component_storage) {
             if (query->required_vertex_count != 0U)
                 memcpy(storage->vertices + vertex_cursor, component->vertices,
                     query->required_vertex_count * sizeof(*storage->vertices));
         } else {
             cache->static_vertex_copies_avoided += query->required_vertex_count;
+            if (!reuse_publication_storage)
+                cache->cross_topology_static_vertices_reused += query->required_vertex_count;
         }
         for (local_vertex = 0U;
                 local_vertex < query->required_vertex_count; ++local_vertex) {
@@ -1558,7 +1605,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
         cache_profile_add(&cache->profile_vertex_transform_ticks,
                           phase_start, cache_profile_now(cache));
         phase_start = cache_profile_now(cache);
-        if (reuse_publication_storage) {
+        if (reuse_component_storage) {
             /* The retained topology already owns first_vertex and every
              * material field in this exact output buffer.  Avoid loading and
              * rewriting the full batch during animated frames; only the
@@ -1594,7 +1641,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
                 ? &cache->publication_ranges[
                     cache->publication_range_count - 1U] : NULL;
             const uint8_t static_changed =
-                reuse_publication_storage ? UINT8_C(0) : UINT8_C(1);
+                reuse_component_storage ? UINT8_C(0) : UINT8_C(1);
             if (range != NULL && range->static_data_changed == static_changed
                     && range->vertex_offset + range->vertex_count
                         == vertex_cursor

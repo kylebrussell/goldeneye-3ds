@@ -2500,7 +2500,7 @@ static bool upload_dam_gpu_scene_after_overlay(RuntimeDamPreview *preview,
     Vertex *destination, bool room_prefix_current);
 static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
     Vertex *destination, size_t vertex_offset, size_t vertex_count,
-    size_t batch_offset, size_t batch_count, bool map_texture_uv);
+    size_t batch_offset, size_t batch_count, unsigned update_mode);
 
 #if defined(GE_DAM_FULL_PROPS_LIVE)
 static void dam_publish_rendered_prop(RuntimeDamPreview *preview,
@@ -3528,6 +3528,9 @@ static bool write_input_probe_result(
         fprintf(stream, "first_person_components=%llu,%llu\n",
             (unsigned long long)first_person_cache->component_reuses,
             (unsigned long long)first_person_cache->component_decodes);
+        fprintf(stream, "first_person_matrix_runs=%llu,%llu\n",
+            (unsigned long long)first_person_cache->unchanged_matrix_runs_reused,
+            (unsigned long long)first_person_cache->unchanged_matrix_vertices_reused);
         fprintf(stream, "first_person_profile_ticks=%llu,%llu,%llu,%llu,%llu\n",
             (unsigned long long)first_person_cache->profile_build_ticks,
             (unsigned long long)first_person_cache->profile_input_topology_ticks,
@@ -3557,6 +3560,9 @@ static bool write_input_probe_result(
         const uint64_t collect_ticks = fine_profile.guard_scene_ticks
                 >= cache_ticks
             ? fine_profile.guard_scene_ticks - cache_ticks : 0U;
+        fprintf(stream, "guard_cross_topology=%llu,%llu\n",
+            (unsigned long long)objects->guard_scene_cache.cross_topology_inputs_reused,
+            (unsigned long long)objects->guard_scene_cache.cross_topology_static_vertices_reused);
         fprintf(stream, "runtime_profile_tick_hz=%lu\n",
             (unsigned long)SYSCLOCK_ARM11);
         if (objects->preview != NULL) {
@@ -3680,6 +3686,7 @@ typedef struct RuntimeFirstPersonScene {
     GeOriginalFirstPersonSceneCache cache;
     GeDamRoomWorldVertex *source_vertices;
     GeDamRoomDrawBatch *batches;
+    uint16_t batch_run_ends[FIRST_PERSON_BATCH_CAPACITY];
     GeDamCameraVertex *projected_vertices;
     RuntimeDamRenderBatch *render_batches;
     size_t vertex_count;
@@ -3694,6 +3701,9 @@ typedef struct RuntimeFirstPersonScene {
     bool uv_ready;
     bool ready;
 } RuntimeFirstPersonScene;
+
+static void renderer_prepare_batch_runs(const GeDamRoomDrawBatch *batches,
+    size_t count, uint16_t *ends);
 
 static void initialize_first_person_models(RuntimeFirstPersonModels *models,
                                            GeAssetPack *asset_pack)
@@ -3887,6 +3897,8 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
 
     phase_ticks[2] = svcGetSystemTick();
     if (!runtime->uv_ready) {
+        renderer_prepare_batch_runs(runtime->batches, runtime->batch_count,
+            runtime->batch_run_ends);
         for (batch_index = 0U; batch_index < runtime->batch_count;
                 ++batch_index) {
             const GeDamRoomDrawBatch *batch = &runtime->batches[batch_index];
@@ -8846,7 +8858,7 @@ static bool refresh_stage_live_overlays(
                             + objects->guard_overlay.batch_offset
                             + range->batch_offset,
                         range->batch_count,
-                        range->static_data_changed != 0U)) return false;
+                        range->static_data_changed != 0U ? 1U : 2U)) return false;
                 fine_profile.guard_gpu_upload_calls++;
                 fine_profile.guard_gpu_upload_vertices += range->vertex_count;
                 if (range->static_data_changed)
@@ -9635,6 +9647,22 @@ static Ge3dsMaterialStatus renderer_apply_material_cached(
     cache->fallback = binding->missing_texture_fallback;
     cache->valid = true;
     return GE_3DS_MATERIAL_OK;
+}
+
+/* Cache precisely the existing adjacent merge rule. Matrices/room updates
+ * cannot change compatibility; every authored layout/material switch
+ * rebuilds this plan. No sorting or widening across a material boundary. */
+static void renderer_prepare_batch_runs(const GeDamRoomDrawBatch *batches,
+    size_t count, uint16_t *ends)
+{
+    _Static_assert(FIRST_PERSON_BATCH_CAPACITY <= UINT16_MAX,
+        "first-person draw plan indices must fit");
+    for (size_t cursor = count; cursor != 0U;) {
+        const size_t i = --cursor;
+        ends[i] = i + 1U < count
+                && dam_batches_compatible(&batches[i], &batches[i + 1U])
+            ? ends[i + 1U] : (uint16_t)(i + 1U);
+    }
 }
 
 /* Snapshot only membership of the original visible-room publication, once
@@ -11031,12 +11059,17 @@ static bool prepare_dam_gpu_world_projection(
 
 static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
     Vertex *destination, size_t vertex_offset, size_t vertex_count,
-    size_t batch_offset, size_t batch_count, bool map_texture_uv)
+    size_t batch_offset, size_t batch_count, unsigned update_mode)
 {
     size_t batch_index;
     size_t vertex_index;
+    /* 0: positions/colors, 1: all attributes and UV mapping, 2: positions
+     * only. Mode 2 is exclusively for model-cache publications whose
+     * static_data_changed is false, including the immutable shade bytes.
+     * Door/monitor callers retain mode 0/1 and their color updates. */
+    const bool map_texture_uv = update_mode == 1U;
 
-    if (preview == NULL || destination == NULL
+    if (update_mode > 2U || preview == NULL || destination == NULL
             || preview->source_vertices == NULL || preview->batches == NULL
             || vertex_offset > preview->source_vertex_count
             || vertex_count > preview->source_vertex_count - vertex_offset
@@ -11061,8 +11094,17 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
             preview->gpu_batch_bounds_capacity = 0U;
         }
     }
-    renderer_upload_world_vertices(preview->source_vertices + vertex_offset,
-        destination + vertex_offset, vertex_count, map_texture_uv);
+    if (update_mode == 2U) {
+        for (vertex_index = vertex_offset;
+                vertex_index < vertex_offset + vertex_count; ++vertex_index) {
+            destination[vertex_index].x = preview->source_vertices[vertex_index].world[0];
+            destination[vertex_index].y = preview->source_vertices[vertex_index].world[1];
+            destination[vertex_index].z = preview->source_vertices[vertex_index].world[2];
+        }
+    } else {
+        renderer_upload_world_vertices(preview->source_vertices + vertex_offset,
+            destination + vertex_offset, vertex_count, map_texture_uv);
+    }
     for (batch_index = batch_offset;
             batch_index < batch_offset + batch_count;
             ++batch_index) {
@@ -16322,6 +16364,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             size_t next = i + 1U;
             size_t merged_authored_batches = 1U;
             size_t scanned_vertex_end = first_vertex + vertex_count;
+            bool material_draw_enabled;
 
             if (gpu_world_render
                     && !renderer_room_visible(&room_visibility, batch->room_id)) {
@@ -16396,18 +16439,23 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     && memcmp(&world_material_cache.material,
                               &batch->material,
                               sizeof(batch->material)) == 0) {
-                texture = world_material_cache.texture;
+                /* This pass has already proved the complete material equal
+                 * and owns the currently bound texture/fallback. Avoid a
+                 * second full comparison and copying a prepared state only
+                 * to read its draw_enabled bit. No GPU state has changed. */
+                fine_profile.world_material_apply_reuses++;
+                material_draw_enabled =
+                    world_material_cache.result.state.draw_enabled != 0U;
             } else {
                 slot = ge_3ds_scene_textures_find(
                     &dam_scene_textures, batch->texture.texture_id);
                 texture = slot != NULL ? (C3D_Tex *)&slot->texture : NULL;
                 fine_profile.world_texture_lookups++;
-            }
-            binding = (Ge3dsMaterialBinding){
-                texture,
-                GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE,
-            };
-            if (renderer_apply_material_cached(
+                binding = (Ge3dsMaterialBinding){
+                    texture,
+                    GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE,
+                };
+                material_draw_enabled = renderer_apply_material_cached(
                     &world_material_cache, &world_prepared_materials,
                     &batch->material, &binding,
                     &material_result,
@@ -16416,7 +16464,9 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     &fine_profile.world_material_prepare_hits,
                     &fine_profile.world_material_prepare_misses)
                     == GE_3DS_MATERIAL_OK
-                    && material_result.state.draw_enabled != 0U) {
+                    && material_result.state.draw_enabled != 0U;
+            }
+            if (material_draw_enabled) {
                 C3D_DrawArrays(GPU_TRIANGLES,
                                DAM_ROOM_VERTEX_OFFSET + first_vertex,
                                vertex_count);
@@ -16503,15 +16553,9 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             size_t vertex_count;
             size_t next;
             batch = &first_person->batches[i];
-            vertex_count = batch->vertex_count;
-            next = i + 1U;
-            while (next < first_person->batch_count
-                    && dam_batches_compatible(
-                        &first_person->batches[next - 1U],
-                        &first_person->batches[next])) {
-                vertex_count += first_person->batches[next].vertex_count;
-                ++next;
-            }
+            next = first_person->batch_run_ends[i];
+            const GeDamRoomDrawBatch *last = &first_person->batches[next - 1U];
+            vertex_count = last->first_vertex + last->vertex_count - batch->first_vertex;
             if (first_person_material_cache.valid
                     && memcmp(&first_person_material_cache.material,
                               &batch->material,

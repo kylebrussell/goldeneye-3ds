@@ -36,6 +36,7 @@ struct GeOriginalFirstPersonTopology {
     GeDamRoomDrawBatch *template_batches;
     uint16_t *template_matrix_indices;
     uint32_t *template_transform_sources;
+    uint32_t *template_matrix_run_ends;
     size_t input_count;
     size_t required_vertex_count;
     size_t required_batch_count;
@@ -50,6 +51,7 @@ static void ge_first_person_topology_close(GeOriginalFirstPersonTopology *layout
 {
     if (layout == NULL) return;
     free(layout->template_transform_sources);
+    free(layout->template_matrix_run_ends);
     free(layout->template_matrix_indices);
     free(layout->template_batches);
     free(layout->template_vertices);
@@ -94,6 +96,7 @@ static void ge_first_person_topology_swap(GeOriginalFirstPersonSceneCache *cache
     GE_SWAP_LAYOUT(GeDamRoomDrawBatch *, template_batches);
     GE_SWAP_LAYOUT(uint16_t *, template_matrix_indices);
     GE_SWAP_LAYOUT(uint32_t *, template_transform_sources);
+    GE_SWAP_LAYOUT(uint32_t *, template_matrix_run_ends);
     GE_SWAP_LAYOUT(size_t, input_count);
     GE_SWAP_LAYOUT(size_t, required_vertex_count);
     GE_SWAP_LAYOUT(size_t, required_batch_count);
@@ -451,6 +454,7 @@ void ge_original_first_person_scene_cache_close(
     free(cache->input_quantized_matrix_offsets);
     free(cache->template_matrix_indices);
     free(cache->template_transform_sources);
+    free(cache->template_matrix_run_ends);
     free(cache->quantized_matrix_changed);
     free(cache->quantized_matrices);
     free(cache->template_batches);
@@ -555,6 +559,7 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
     uint16_t *matrix_indices = NULL;
     uint16_t *matrix_bank_ids = NULL;
     uint32_t *transform_sources = NULL;
+    uint32_t *matrix_run_ends = NULL;
     uint16_t input_matrix_bank_ids[
         GE_ORIGINAL_FIRST_PERSON_MAX_DISPLAY_LISTS] = {0};
     size_t vertex_cursor = 0U;
@@ -568,13 +573,14 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
             required_vertices * sizeof(*matrix_bank_ids));
         transform_sources = malloc(
             required_vertices * sizeof(*transform_sources));
+        matrix_run_ends = malloc(required_vertices * sizeof(*matrix_run_ends));
     }
     if (required_batches != 0U)
         batches = malloc(required_batches * sizeof(*batches));
     if ((required_vertices != 0U
             && (vertices == NULL || matrix_indices == NULL
                 || matrix_bank_ids == NULL
-                || transform_sources == NULL))
+                || transform_sources == NULL || matrix_run_ends == NULL))
             || (required_batches != 0U && batches == NULL))
         goto fail;
     for (input_index = 0U; input_index < input_count; ++input_index) {
@@ -632,6 +638,15 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
         for (local_batch = 0U; local_batch < built.vertex_count;
                 ++local_batch)
             matrix_bank_ids[vertex_cursor + local_batch] = matrix_bank_id;
+        /* Input boundaries also bound runs: duplicate-transform sources
+         * continue to refer to earlier vertices in original output order. */
+        for (local_batch = built.vertex_count; local_batch != 0U;) {
+            const size_t local = --local_batch;
+            const size_t global = vertex_cursor + local;
+            matrix_run_ends[global] = local + 1U < built.vertex_count
+                    && matrix_indices[global] == matrix_indices[global + 1U]
+                ? matrix_run_ends[global + 1U] : (uint32_t)(local + 1U);
+        }
         for (local_batch = 0U; local_batch < built.batch_count; ++local_batch)
             batches[batch_cursor + local_batch].first_vertex += vertex_cursor;
         vertex_cursor += built.vertex_count;
@@ -646,16 +661,19 @@ static GeOriginalFirstPersonSceneStatus ge_first_person_decode_templates(
                 required_vertices, transform_sources)) goto fail;
     free(cache->template_matrix_indices);
     free(cache->template_transform_sources);
+    free(cache->template_matrix_run_ends);
     free(cache->template_batches);
     free(cache->template_vertices);
     cache->template_vertices = vertices;
     cache->template_batches = batches;
     cache->template_matrix_indices = matrix_indices;
     cache->template_transform_sources = transform_sources;
+    cache->template_matrix_run_ends = matrix_run_ends;
     free(matrix_bank_ids);
     return GE_ORIGINAL_FIRST_PERSON_SCENE_OK;
 
 fail:
+    free(matrix_run_ends);
     free(matrix_bank_ids);
     free(transform_sources);
     free(matrix_indices);
@@ -1075,7 +1093,10 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
                     && cache->quantized_matrix_changed[
                         cache->input_quantized_matrix_offsets[input_index]
                             + matrix_index] == 0U) {
-                cache->unchanged_matrix_vertices_reused++;
+                const size_t end = cache->template_matrix_run_ends[template_index];
+                cache->unchanged_matrix_vertices_reused += end - local_vertex;
+                cache->unchanged_matrix_runs_reused++;
+                local_vertex = end - 1U;
                 continue;
             }
             if (reuse_publication_storage) {

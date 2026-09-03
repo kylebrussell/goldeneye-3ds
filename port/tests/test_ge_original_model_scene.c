@@ -838,13 +838,47 @@ static void exercise_dirty_publication_ranges(const char *path)
         &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
     assert(cache.publication_range_count == 1U);
     assert(cache.publication_ranges[0].static_data_changed == 1U);
-    assert(cache.publication_ranges[0].vertex_count == storage.vertex_capacity);
+    assert(cache.publication_ranges[0].vertex_count == vertices_per_input);
+    assert(cache.cross_topology_inputs_reused == 3U);
     assert(ge_original_model_scene_cache_build(
         &reference, inputs, 4U, &direct, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
     assert(memcmp(direct.vertices, storage.vertices,
         storage.vertex_capacity * sizeof(*storage.vertices)) == 0);
     assert(memcmp(direct.batches, storage.batches,
         storage.batch_capacity * sizeof(*storage.batches)) == 0);
+    /* Alternate retained layouts while changing a peer's pose. The changed
+     * component needs static publication; the moving peer only needs pose;
+     * the remaining peers retain the latest output, not variant-old hashes. */
+    for (size_t frame = 0U; frame < 120U; ++frame) {
+        inputs[0].world_zbuffer_enabled ^= 1U;
+        inputs[1].position[1] = (float)frame;
+        inputs[1].room_id = (uint32_t)(frame % 17U);
+        assert(ge_original_model_scene_cache_build(
+            &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(cache.publication_ranges[0].static_data_changed == 1U);
+        assert(cache.publication_ranges[0].vertex_count == vertices_per_input);
+        if (frame != 0U) {
+            assert(cache.publication_range_count == 2U);
+            assert(cache.publication_ranges[1].static_data_changed == 0U);
+            assert(cache.publication_ranges[1].vertex_count == vertices_per_input);
+        }
+        reference.publication_ready = 0U;
+        assert(ge_original_model_scene_cache_build(
+            &reference, inputs, 4U, &direct, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(memcmp(direct.vertices, storage.vertices,
+            storage.vertex_capacity * sizeof(*storage.vertices)) == 0);
+        assert(memcmp(direct.batches, storage.batches,
+            storage.batch_capacity * sizeof(*storage.batches)) == 0);
+    }
+    assert(cache.cross_topology_static_vertices_reused > 0U);
+    /* Caller invalidation disables cross-layout reuse too. */
+    cache.publication_ready = 0U;
+    inputs[0].world_zbuffer_enabled ^= 1U;
+    const uint64_t reused_before_invalidation = cache.cross_topology_inputs_reused;
+    assert(ge_original_model_scene_cache_build(
+        &cache, inputs, 4U, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(cache.cross_topology_inputs_reused == reused_before_invalidation);
+    assert(cache.publication_ranges[0].vertex_count == storage.vertex_capacity);
     {
         float matrices[1][4][4] = {{{0}}};
         static const float edges[] = {

@@ -70,6 +70,13 @@ projection = world.index("C3D_FVUnifMtx4x4(")
 texture_lookup = world.index("ge_3ds_scene_textures_find(")
 material_apply = world.index("renderer_apply_material_cached(")
 assert reject < projection < texture_lookup < material_apply
+world_fast = world[world.index("if (world_material_cache.valid"):texture_lookup]
+assert "memcmp(&world_material_cache.material," in world_fast
+assert "sizeof(batch->material)) == 0" in world_fast
+assert "world_material_cache.result.state.draw_enabled != 0U" in world_fast
+assert "fine_profile.world_material_apply_reuses++" in world_fast
+assert "renderer_apply_material_cached(" not in world_fast
+assert "C3D_" not in world_fast
 merge = world[world.index("while (next < draw_batch_count)"):]
 # A rejected range may only bridge a draw under the same projection that
 # proved it invisible. Also don't spend clip-test work on an invisible room.

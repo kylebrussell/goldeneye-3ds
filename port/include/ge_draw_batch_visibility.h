@@ -64,6 +64,8 @@ GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify(
  * space after camera publication; do not reuse it across camera changes. */
 typedef struct GeDrawBatchClipContext {
     float world_to_clip[4][4];
+    /* Use < 0, not signbit: negative zero follows the scalar >= 0 path. */
+    uint8_t negative[3][4];
     int finite;
 } GeDrawBatchClipContext;
 
@@ -85,7 +87,9 @@ GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify_prepared(
 
 /* Exact composition of first-vertex acceptance, optional bounds, and scalar
  * outcode intersection. Reuses matrix validation and the first outcode; no
- * plane extraction/reassociation, approximate rejection, or altered order.
+ * plane extraction/reassociation, approximate rejection, or altered vertex
+ * order. Finite containing intervals allow the walk to omit axes that have
+ * already lost both common outcode bits; otherwise it transforms every axis.
  * Bounds must describe this vertex range (NULL is supported). Invalid input
  * fails open. The reason preserves the renderer's profiling counters. */
 GeDrawBatchVisibility ge_draw_batch_world_visibility_prepared(

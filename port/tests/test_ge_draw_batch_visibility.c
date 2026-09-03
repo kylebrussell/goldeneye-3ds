@@ -373,6 +373,88 @@ static void test_prepared_clip_boundary_bits(void)
     }
 }
 
+static void test_prepared_coefficient_signs(void)
+{
+    GeDamRoomWorldVertex vertices[8] = {0};
+    GeDamRoomDrawBatch batch = {.vertex_count = 8U};
+    GeDrawBatchWorldBounds bounds;
+    GeDrawBatchClipContext context;
+    float matrix[4][4];
+    /* Every sign combination in the twelve interval coefficients, including
+     * mixed signed zeros/subnormals. Exercise all eight corners, not merely a
+     * point bound, and keep the scalar classification as the oracle. */
+    static const float magnitudes[] = {1.0f, 0.0f, FLT_MIN, FLT_MAX};
+    for (size_t mode = 0U; mode < 4U; ++mode) {
+        for (size_t signs = 0U; signs < 4096U; ++signs) {
+            identity(matrix);
+            for (size_t row = 0U; row < 3U; ++row) {
+                for (size_t col = 0U; col < 4U; ++col) {
+                    float value = magnitudes[(mode + row + col) % 4U];
+                    matrix[row][col] = signs & ((size_t)1U << (row * 4U + col))
+                        ? -value : value;
+                }
+            }
+            for (size_t vertex = 0U; vertex < 8U; ++vertex)
+                for (size_t axis = 0U; axis < 3U; ++axis)
+                    vertices[vertex].world[axis] = vertex & ((size_t)1U << axis)
+                        ? 1.0f : -0.5f;
+            assert(ge_draw_batch_world_bounds_build(vertices, 8U, &batch, &bounds));
+            ge_draw_batch_clip_context_init(&context, matrix);
+            assert(context.finite);
+            for (size_t row = 0U; row < 3U; ++row)
+                for (size_t col = 0U; col < 4U; ++col)
+                    assert(context.negative[row][col] == (matrix[row][col] < 0.0f));
+            check_prepared(vertices, 8U, &batch, &bounds, matrix);
+        }
+    }
+    puts("prepared bounds: 16384 coefficient sign/zero/overflow cases matched");
+}
+
+static void test_finite_interval_masked_walk(void)
+{
+    GeDamRoomWorldVertex vertices[33] = {0}, before[33];
+    GeDamRoomDrawBatch batch = {.vertex_count = 33U};
+    /* Deliberately loose but containing bounds force an uncertain interval,
+     * then a real vertex walk. Both W signs exercise opposite-plane pairs. */
+    GeDrawBatchWorldBounds bounds = {{-100.0f, -100.0f, -100.0f},
+        {100.0f, 100.0f, 100.0f}, 1};
+    float matrix[4][4];
+    uint32_t seed = 511U;
+    size_t walked = 0U;
+    for (size_t sample = 0U; sample < 10000U; ++sample) {
+        identity(matrix);
+        matrix[3][3] = (sample & 1U) != 0U ? -1.0f : 1.0f;
+        for (size_t axis = 0U; axis < 3U; ++axis)
+            vertices[0].world[axis] = (float)((sample >> (axis * 2U)) % 3U) * 2.0f - 2.0f;
+        for (size_t vertex = 1U; vertex < 33U; ++vertex)
+            for (size_t axis = 0U; axis < 3U; ++axis)
+                vertices[vertex].world[axis] = vertex < sample % 33U
+                    ? vertices[0].world[axis] : random_coordinate(&seed);
+        memcpy(before, vertices, sizeof(vertices));
+        const GeDrawBatchVisibility result = reference_visibility(
+            vertices, 33U, &batch, &bounds, matrix);
+        if (result == GE_DRAW_BATCH_VERTICES_VISIBLE
+                || result == GE_DRAW_BATCH_VERTICES_CULLED) ++walked;
+        check_prepared(vertices, 33U, &batch, &bounds, matrix);
+        assert(memcmp(before, vertices, sizeof(vertices)) == 0);
+    }
+    assert(walked > 9000U);
+    /* A later vertex overflows only Y, while the first common plane is X.
+     * The interval cannot prove finiteness: retain the full fail-open walk. */
+    identity(matrix);
+    matrix[1][1] = FLT_MAX;
+    for (size_t vertex = 0U; vertex < 33U; ++vertex) {
+        vertices[vertex].world[0] = 2.0f;
+        vertices[vertex].world[1] = vertex == 32U ? FLT_MAX : 0.0f;
+        vertices[vertex].world[2] = 0.0f;
+    }
+    assert(ge_draw_batch_world_bounds_build(vertices, 33U, &batch, &bounds));
+    assert(reference_visibility(vertices, 33U, &batch, &bounds, matrix)
+        == GE_DRAW_BATCH_VERTICES_VISIBLE);
+    check_prepared(vertices, 33U, &batch, &bounds, matrix);
+    puts("finite-interval walk: 10000 exact comparisons and omitted-axis overflow passed");
+}
+
 #ifdef GE_DRAW_BATCH_VISIBILITY_BENCH
 static void benchmark_prepared_visibility(void)
 {
@@ -383,14 +465,14 @@ static void benchmark_prepared_visibility(void)
     float matrix[4][4];
     const size_t iterations = 1000000U;
     volatile size_t checksum = 0U;
-    for (size_t mode = 0U; mode < 3U; ++mode) {
+    for (size_t mode = 0U; mode < 4U; ++mode) {
         identity(matrix);
         for (size_t i = 0U; i < 24U; ++i) {
             vertices[i].world[0] = mode == 0U ? 0.5f : 2.0f;
             vertices[i].world[1] = 0.0f;
         }
         /* Third case has an outside first vertex and needs the full walk. */
-        if (mode == 2U) vertices[23].world[0] = 0.0f;
+        if (mode >= 2U) vertices[23].world[0] = 0.0f;
         assert(ge_draw_batch_world_bounds_build(vertices, 24U, &batch, &bounds));
         if (mode == 2U) bounds.valid = 0;
         ge_draw_batch_clip_context_init(&context, matrix);
@@ -461,6 +543,8 @@ int main(void)
     test_bounds_tangency_and_invalidation();
     test_prepared_invalid_inputs_and_snapshot_lifetime();
     test_prepared_clip_boundary_bits();
+    test_prepared_coefficient_signs();
+    test_finite_interval_masked_walk();
     test_group_bounds_prove_each_contained_batch();
 #ifdef GE_DRAW_BATCH_VISIBILITY_BENCH
     benchmark_prepared_visibility();

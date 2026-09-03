@@ -1453,3 +1453,121 @@ staging. Temporary emulator stage/input/tour overrides were removed and normal
 boot restored. Hardware staging's prior `cradle` selection is unchanged.
 Earlier `2925d771`, `8dedb999` and `3ade1696` binaries are retained privately.
 No save/DSP settings were manually edited, and no public push was made.
+
+## Reuse finite interval proofs during world clipping
+
+Continued from `2079e34d` / executable `0a7d3430`, with a clean working tree.
+Only the portable renderer visibility adapter and its tests changed; no
+canonical gameplay body, camera, portal membership, vertex data, material,
+draw ordering or tick scheduling changed.
+
+The per-pass camera context now snapshots the twelve coefficient `< 0.0f`
+comparisons used for bounds interval selection. Negative zero still selects
+the scalar nonnegative branch. Each interval multiply/add retains its exact
+grouping, and invalid/nonfinite matrices and bounds retain fail-open behavior.
+The snapshot grows by twelve bytes per coordinate space, with no allocation.
+
+An uncertain but finite containing interval also proves every contained
+vertex's four clip coordinates finite. In that case, the remaining scalar
+outcode-AND walk computes W and only axes that still have a common rejection
+bit. Bits cannot reappear after an AND. This omits irrelevant arithmetic, not
+vertices or draws. If the interval cannot prove finiteness, the full original
+four-coordinate walk remains necessary: even an otherwise irrelevant axis
+could overflow and require fail-open. The first-vertex fast path, classification
+reason, exact scalar grouping, traversal order and final draw decision remain
+unchanged.
+
+Verification before emulator measurement:
+
+- Focused ASan/UBSan: 20,000 randomized bounds comparisons; 16,384 exhaustive
+  coefficient sign/zero/overflow combinations; 10,000 forced uncertain-bound
+  walks with both W signs; an explicit later-vertex overflow on an axis that
+  had already lost its common bit; and existing boundary, nonfinite, invalid
+  range and snapshot-lifetime cases. Another 80,000 contained-batch checks
+  retain all 78,088 exact whole-room proofs.
+- The actual renderer helper tests pass under sanitizers, including room
+  membership, current room, dynamic overlays in all three coordinate spaces,
+  per-pass caching, stale publication and changed cameras. Optimized
+  `-O3 -fshort-enums` sanitizer coverage also passes.
+- The existing private actual-pack driver now additionally compares each
+  prepared classification reason against the original first-vertex/bounds/
+  full-scalar composition. Every sample matches across all 21 authored stages,
+  64 headings and connected-room masks of 1/4/10 where available. These remain
+  diagnostic camera/membership samples, not gameplay traces. Its timings were
+  collected alongside host tests and are not used as performance evidence.
+- Complete host suite and ARM/3DSX build passed. The ELF retains original
+  `MoveBond`, `bondviewProcessInput`, `ge_original_gun_live_tick` and
+  `ge_original_stage_active_props_tick_exact`.
+
+Logs in `build/host-tests/`: `clip-mask-focused.log`,
+`clip-mask-short-enums.log`, `clip-mask-authored-pack.log`,
+`clip-mask-full.log`, and `arm-clip-mask-final.log`.
+Candidate executable SHA-256:
+`df804a82141b937773c1420e2dab8f6194399a1517db4f9d4bb9608fa1f8d675`.
+
+A fresh pre-change `0a7d3430` combat run recorded 5,381 original simulation
+ticks and 32 ms maximum post-warmup frame work (671/5,260 samples over 16 ms,
+one over 25 ms, none over 33 ms). A sign-preparation-only `eb51f4bb` run had
+5,176 ticks and the same 32 ms maximum (732/5,055 over 16 ms, seven over 25 ms).
+Their differing encounters/draw counts do not establish an overall speedup.
+Evidence: `build/visual-probe/clip-sign-baseline-0a7d-combat.result` and
+`clip-sign-eb51-combat.result`. No builds run during emulator measurements.
+
+The final `df804a82` combat run completed 4,429 original movement/actor/gun
+ticks, reached 11/160 route targets and fired 21 PP7 shots with four damaging
+guard hits. It decoded 425 sounds without failures and queued 3,234 NDSP
+blocks with error zero; matrix failures were zero. It ended in death, not
+mission completion. Post-warmup work peaked at 31 ms: 531/4,308 samples over
+16 ms, five over 25 ms, none over 33 ms. The worst guard refresh remains
+7.36 ms, and slow frames still show up to 11 ms of overlay work nested inside
+simulation. The different encounter does not establish a controlled FPS gain
+against the 32 ms baseline. Evidence:
+`build/visual-probe/clip-mask-df80-combat.result`; a live screenshot is
+`clip-mask-df80-combat.png` in the same directory.
+
+A shorter ABBA comparison used the existing 750-tick Dam move/strafe/look/fire
+input file, with no builds or concurrent emulator instances. Both baseline
+`0a7d3430` runs and both final `df804a82` runs completed with identical endpoint
+`19900.337891,-39.704582,17499.558594`, 750 simulation/actor/gun ticks, seven
+shots, 36,649 world draw calls and identical draw/material/frustum counters.
+Sky/world submission ticks were baseline 467,681,776 / 466,999,359 versus
+candidate 457,488,474 / 457,150,185. At 268,111,856 ticks/sec, the two-run means
+are 2.324 / 2.274 ms per frame: **2.14% less sky/world CPU time**, approximately
+0.050 ms per frame in this workload, not a whole-game FPS gain. All four
+post-warmup maxima remain 19 ms; counts over 16 ms were baseline 8/9 versus
+candidate 7/7 out of 630 samples. Files in `build/visual-probe/`:
+`clip-mask-{baseline-0a7d,df80}-dam750{,-repeat}.result`.
+
+Final Facility smoke run: 750 simulation/presentation/actor/gun ticks, seven
+PP7 shots, unchanged endpoint `-199.956543,292.746887,-193.684525`, zero matrix
+failures, 14 ms post-warmup maximum with none of 630 samples over 16 ms.
+Evidence: `build/visual-probe/clip-mask-df80-facility.result`. This is a short
+movement/fire regression check, not a Facility playthrough or a fix for the
+previously documented vent-geometry gaps.
+
+The remaining performance priority is guard-overlay publication during live
+combat (up to 11 ms nested in simulation), including whether unchanged inputs
+can safely retain their publication across topology changes. Camera-dependent
+matrix work and the 4.05 ms first-person-cache component at the worst hand
+frame remain relevant. Any further cache work must preserve output storage
+identity, topology offsets, failed-install invalidation, eye-space batch flags
+and original tick ordering. These are investigation targets, not completed
+optimizations. Neither locked 60 FPS nor end-to-end mission completion is
+established by this pass.
+
+The exact final binary also completed the existing 177-view authored-pad Dam
+tour: 62 stream installations, 10 peak resident rooms, 114 peak textures and
+39 peak visible rooms, with zero camera/visibility/stream/guard/door/monitor/
+articulated-publication failures. All 138 ready materializer records were
+constructed. Evidence: `build/visual-probe/clip-mask-df80-tour.result` and
+`.diag`. These synchronous diagnostic views are not player traversal or a
+streaming-frame-time benchmark.
+
+Final executable `df804a82…` is byte-matched across build output, hardware
+staging and Azahar. Both staged/installed asset packs retain SHA-256
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+The candidate is retained privately at
+`build/3ds-candidates/clip-mask-df804a82/goldeneye-3ds.3dsx`.
+Temporary emulator input/stage/tour overrides were removed; normal boot was
+restarted in the single Azahar instance. Hardware staging's prior `cradle`
+selection and save/DSP settings were preserved. No public push was made.

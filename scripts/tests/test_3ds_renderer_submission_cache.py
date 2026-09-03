@@ -65,7 +65,7 @@ first_person_loop = renderer_draw.index(
     "for (i = 0U; i < first_person->batch_count;)", world_loop
 )
 world = renderer_draw[world_loop:first_person_loop]
-reject = world.index("!dam_visibility_contains_room(")
+reject = world.index("!renderer_room_visible(")
 projection = world.index("C3D_FVUnifMtx4x4(")
 texture_lookup = world.index("ge_3ds_scene_textures_find(")
 material_apply = world.index("renderer_apply_material_cached(")

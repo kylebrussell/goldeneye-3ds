@@ -255,3 +255,82 @@ original input/AI, moving geometry, HUD/menus, and audio. Only then choose the
 next dominant bottleneck or promote the candidate. The remaining true vertex
 growth, renderer submission cost, all-level performance, Dam completion, and
 New 3DS XL fidelity/performance still need live validation.
+
+## Follow-up: room membership and matrix-bank owner lookup
+
+Starting from `35fece21`, the world-render pass now snapshots membership of
+the original visible-room result into a 256-byte map once per pass. The old
+lookup scanned that same ordered list for each batch and merge candidate.
+Authored room IDs are uint8_t; wider nonmatching query IDs remain rejected.
+Unready visibility remains fail-open. The ordered result and all non-renderer
+users are unchanged. Nothing is cached across frames, and no portal, room
+residency, or gameplay visibility policy changes.
+
+The model-scene preparation pass now checks whether the preceding part uses
+the same matrix-bank pointer and count. If so, it reuses that part's already
+resolved **earliest** owner; otherwise it performs the previous first-match
+search. The temporary owner array, offsets, quantization count, matrix hashes,
+publication signatures, and floating-point operation order retain their old
+values. This avoids repeated prefix scans for consecutive body/head/weapon
+parts without new allocations or skipping original animation/model ticks.
+
+A proposed narrow-value hash rewrite was tested and **not retained**. ARM GCC
+already folds the four zero-byte FNV steps into the same constant multiply.
+The old/new helper assemblies are identical apart from labels, so there is
+no claimed hash optimization. Private evidence: `hash_codegen.c` and
+`hash_codegen.arm.s` under `build/host-tests/`.
+
+Validation:
+
+- `scripts/tests/test_renderer_room_membership.py` compiles the actual
+  platform/model helper bodies with ASan/UBSan. It compares 10,240,000 room
+  queries against the old list scan, including all byte-valued IDs, duplicates,
+  empty/unready lists, large query IDs, changed next-pass inputs, and snapshot
+  lifetime. Source checks retain rejection before material/projection changes
+  and preserve authored merge ordering.
+- The same test verifies 262,144 exact earliest-owner results for consecutive,
+  interleaved, randomized, null-bank, and changed-count inputs. For 256 parts
+  grouped eight per bank, actual helper comparisons fall from 31,968 to 4,223.
+  This is an algorithm-work count, not an FPS or whole-model speedup.
+- The existing authored PP7, window, and Dam gate model-scene ASan/UBSan tests
+  pass, including shared-bank reuse, pose publication, topology variants,
+  unchanged inputs, and dirty ranges (`bank-owner-model-scene-20260903.log`).
+- A private room-membership stress run uses the initial authored geometry of
+  all 21 stage descriptors with 1/4/10-ID subsets (clamped to available rooms),
+  changing one sampled ID each pass. Old/new decisions match. The ASan/UBSan
+  run passes. These synthetic sets are **not** original portal-visibility
+  gameplay traces or evidence that missions have been completed.
+- Final combined host suite and ARM/3DSX pass. The ELF retains original
+  `MoveBond`, `bondviewProcessInput`, gun and active-prop dispatch entry points.
+
+Host-only `-O2` sample for 512 membership passes over the ten-ID cases,
+including rebuilding the map on each pass:
+
+| Authored geometry | Previous list scan | Membership map |
+| --- | ---: | ---: |
+| Dam, 874 batches | 0.810 ms | 0.163 ms |
+| Facility, 547 batches | 0.455 ms | 0.110 ms |
+| Control, 739 batches | 0.553 ms | 0.137 ms |
+| Egyptian, 1,031 batches | 1.041 ms | 0.191 ms |
+
+These totals measure only lookups, not drawing or emulator frame times.
+Evidence under `build/host-tests/`: `room-bank-helpers-20260903.log`,
+`room-membership-{optimized,sanitizer}-20260903.log`,
+`room-bank-final-20260903.log`, and `arm-room-bank-20260903.log`.
+Private driver: `room_membership_bench.c`, with extracted actual helpers in
+`room_membership_bodies.inc`.
+
+Latest candidate SHA-256:
+`079305a8393a6b876d59872373a3d6d1c298c046037d3ba4a49be0745bba2696`.
+Saved separately at `build/3ds-candidates/room-bank-079305a8/goldeneye-3ds.3dsx`.
+The asset pack remains `938536d4...`. macOS stayed locked, so hardware staging
+and Azahar still contain verified executable `0797edaa...` (distinct from this
+new `079305a8...` candidate). No saves, input/stage configs, DSP settings, or
+emulator instances changed.
+
+Next: run the latest combined candidate in Azahar when UI access returns,
+starting with Facility movement and Dam aim/combat. Read renderer phase and
+allocation counters alongside simulation work and frame tails before selecting
+the next optimization. Actual vertex-buffer growth still copies room geometry.
+Reliable 60 FPS, all-level gameplay, Dam completion, and New 3DS XL behavior
+remain unverified; host tests do not satisfy those goals.

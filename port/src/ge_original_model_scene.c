@@ -1201,6 +1201,23 @@ static int cache_matrix_bank_matches(
         && left->segment3_matrix_count == right->segment3_matrix_count;
 }
 
+static size_t cache_find_matrix_bank_owner(
+    const GeOriginalModelSceneInput *inputs, size_t index,
+    const uint64_t *resolved_owners)
+{
+    if (index != 0U && cache_matrix_bank_matches(&inputs[index], &inputs[index - 1U])) {
+        /* During this first pass the previous slot still holds its earliest
+         * owner (or UINT64_MAX for a new bank), not its eventual matrix hash.
+         * Consecutive parts can reuse that exact search result. */
+        const uint64_t owner = resolved_owners[index - 1U];
+        return owner != UINT64_MAX ? (size_t)owner : index - 1U;
+    }
+    size_t prior;
+    for (prior = 0U; prior < index; ++prior)
+        if (cache_matrix_bank_matches(&inputs[index], &inputs[prior])) break;
+    return prior;
+}
+
 /* Prepare every distinct canonical segment-3 bank once. Related body, head,
  * hat, and weapon scene parts commonly share the same model-instance bank;
  * the old publication pass converted and hashed all 16 elements once for
@@ -1223,9 +1240,8 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
         const GeOriginalModelSceneInput *input = &inputs[input_index];
         const size_t matrix_count = input->segment3_matrices != NULL
             ? input->segment3_matrix_count : 1U;
-        size_t prior;
-        for (prior = 0U; prior < input_index; ++prior)
-            if (cache_matrix_bank_matches(input, &inputs[prior])) break;
+        const size_t prior = cache_find_matrix_bank_owner(
+            inputs, input_index, cache->input_quantized_matrix_hashes);
         if (prior < input_index) {
             cache->input_quantized_matrix_offsets[input_index] =
                 cache->input_quantized_matrix_offsets[prior];

@@ -9524,6 +9524,35 @@ static Ge3dsMaterialStatus renderer_apply_material_cached(
     return GE_3DS_MATERIAL_OK;
 }
 
+/* Snapshot only membership of the original visible-room publication, once
+ * per world draw. Preserve its ordered list for portal/streaming/gameplay
+ * users; this byte map is read-only renderer scratch, never a visibility
+ * policy or an across-frame cache. Authored room IDs are uint8_t. */
+typedef struct RuntimeRendererRoomVisibility {
+    uint8_t rooms[UINT8_MAX + 1U];
+    bool ready;
+} RuntimeRendererRoomVisibility;
+
+static void renderer_prepare_room_visibility(
+    RuntimeRendererRoomVisibility *membership,
+    const GeOriginalBgVisibilityResult *visibility, bool ready)
+{
+    memset(membership, 0, sizeof(*membership));
+    if (!ready || visibility == NULL
+            || visibility->room_count > GE_ORIGINAL_BG_VISIBILITY_MAX_VISIBLE)
+        return;
+    membership->ready = true;
+    for (size_t i = 0U; i < visibility->room_count; ++i)
+        membership->rooms[visibility->rooms[i].room] = 1U;
+}
+
+static bool renderer_room_visible(
+    const RuntimeRendererRoomVisibility *membership, uint32_t room)
+{
+    return !membership->ready
+        || (room <= UINT8_MAX && membership->rooms[room] != 0U);
+}
+
 static bool renderer_world_batch_may_draw(
     const RuntimeDamPreview *preview, size_t source_index,
     uint8_t *visibility_cache, size_t visibility_cache_count,
@@ -15985,8 +16014,11 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             ? dam_preview->batch_count : 0U;
         int coordinate_projection = -1;
         GeDrawBatchClipContext clip_contexts[3];
+        RuntimeRendererRoomVisibility room_visibility;
 
         if (gpu_world_render) {
+            renderer_prepare_room_visibility(&room_visibility,
+                &dam_preview->visibility_result, dam_preview->visibility_ready);
             ge_draw_batch_clip_context_init(
                 &clip_contexts[GE_DAM_ROOM_COORDINATE_AUTHORED],
                 dam_preview->authored_world_to_clip);
@@ -16031,9 +16063,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             size_t merged_authored_batches = 1U;
             size_t scanned_vertex_end = first_vertex + vertex_count;
 
-            if (gpu_world_render && dam_preview->visibility_ready
-                    && !dam_visibility_contains_room(
-                        dam_preview, batch->room_id)) {
+            if (gpu_world_render
+                    && !renderer_room_visible(&room_visibility, batch->room_id)) {
                 i = next;
                 continue;
             }
@@ -16054,10 +16085,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     : dam_preview->batches[next_source].first_vertex;
                 const GeDamRoomDrawBatch *next_batch =
                     &dam_preview->batches[next_source];
-                const bool next_room_visible = !(gpu_world_render
-                    && dam_preview->visibility_ready
-                    && !dam_visibility_contains_room(
-                        dam_preview, next_batch->room_id));
+                const bool next_room_visible = !gpu_world_render
+                    || renderer_room_visible(&room_visibility, next_batch->room_id);
                 if (!next_room_visible || next_first != scanned_vertex_end
                         || batch->coordinate_space
                             != next_batch->coordinate_space) {

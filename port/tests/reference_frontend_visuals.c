@@ -1,3 +1,6 @@
+/* Independent scalar oracle from 75f49a25; deliberately not routed through
+ * the prepared implementation tested alongside it. Compile separately,
+ * like the production adapter, so benchmarks preserve the call boundary. */
 #include "ge_original_frontend_visuals.h"
 
 #include <math.h>
@@ -29,66 +32,39 @@ static uint8_t color_byte(float value)
     return (uint8_t)(value + 0.5f);
 }
 
-int ge_original_frontend_lighting_prepare(
-    float rotation_y_radians, const uint8_t ambient_rgb[3],
-    const uint8_t diffuse_rgb[3], const int8_t light_direction[3],
-    GeOriginalFrontendLightingContext *context)
-{
-    size_t channel;
-    if (context == NULL) return 0;
-    context->valid = 0U;
-    if (ambient_rgb == NULL || diffuse_rgb == NULL || light_direction == NULL)
-        return 0;
-    context->cosine = cosf(rotation_y_radians);
-    context->sine = sinf(rotation_y_radians);
-    for (channel = 0U; channel < 3U; ++channel)
-        context->direction[channel] = (float)light_direction[channel] / 127.0f;
-    (void)normalize3(context->direction);
-    memcpy(context->ambient, ambient_rgb, sizeof(context->ambient));
-    memcpy(context->diffuse, diffuse_rgb, sizeof(context->diffuse));
-    context->valid = 1U;
-    return 1;
-}
-
-int ge_original_frontend_generate_lit_vertex(
+int reference_frontend_generate_lit_vertex(
     const uint8_t packed_normal[3], uint8_t alpha,
     float rotation_y_radians, const uint8_t ambient_rgb[3],
     const uint8_t diffuse_rgb[3], const int8_t light_direction[3],
-    GeOriginalFrontendGeneratedVertex *output)
-{
-    GeOriginalFrontendLightingContext context;
-    if (packed_normal == NULL || output == NULL
-            || !ge_original_frontend_lighting_prepare(rotation_y_radians,
-                ambient_rgb, diffuse_rgb, light_direction, &context)) return 0;
-    return ge_original_frontend_generate_lit_vertex_prepared(
-        packed_normal, alpha, &context, output);
-}
-
-int ge_original_frontend_generate_lit_vertex_prepared(
-    const uint8_t packed_normal[3], uint8_t alpha,
-    const GeOriginalFrontendLightingContext *context,
     GeOriginalFrontendGeneratedVertex *output)
 {
     float source[3];
+    float direction[3];
     float diffuse;
+    const float cosine = cosf(rotation_y_radians);
+    const float sine = sinf(rotation_y_radians);
     size_t channel;
-    if (packed_normal == NULL || context == NULL || !context->valid || output == NULL)
+    if (packed_normal == NULL || ambient_rgb == NULL || diffuse_rgb == NULL
+            || light_direction == NULL || output == NULL)
         return 0;
     source[0] = (float)(int8_t)packed_normal[0] / 127.0f;
     source[1] = (float)(int8_t)packed_normal[1] / 127.0f;
     source[2] = (float)(int8_t)packed_normal[2] / 127.0f;
-    output->normal[0] = source[0] * context->cosine + source[2] * context->sine;
+    output->normal[0] = source[0] * cosine + source[2] * sine;
     output->normal[1] = source[1];
-    output->normal[2] = -source[0] * context->sine + source[2] * context->cosine;
+    output->normal[2] = -source[0] * sine + source[2] * cosine;
     (void)normalize3(output->normal);
-    diffuse = output->normal[0] * context->direction[0]
-        + output->normal[1] * context->direction[1]
-        + output->normal[2] * context->direction[2];
+    for (channel = 0U; channel < 3U; ++channel)
+        direction[channel] = (float)light_direction[channel] / 127.0f;
+    (void)normalize3(direction);
+    diffuse = output->normal[0] * direction[0]
+        + output->normal[1] * direction[1]
+        + output->normal[2] * direction[2];
     if (diffuse < 0.0f) diffuse = 0.0f;
     for (channel = 0U; channel < 3U; ++channel)
         output->lit_rgba[channel] = color_byte(
-            (float)context->ambient[channel]
-                + diffuse * (float)context->diffuse[channel]);
+            (float)ambient_rgb[channel]
+                + diffuse * (float)diffuse_rgb[channel]);
     output->lit_rgba[3] = alpha;
     /* guLookAtReflect(eye +Z, target origin, up +Y) publishes +X and +Y.
      * Fast3D's non-linear G_TEXTURE_GEN maps each signed dot to [0,1]. */
@@ -97,7 +73,7 @@ int ge_original_frontend_generate_lit_vertex_prepared(
     return 1;
 }
 
-void ge_original_frontend_rareware_body_uv(
+void reference_frontend_rareware_body_uv(
     const GeOriginalFrontendGeneratedVertex *vertex, float uv[2])
 {
     /* Fast3D's generated signed-dot domain and s10.5 texture coordinates
@@ -121,43 +97,25 @@ void ge_original_frontend_rareware_body_uv(
             / (float)GE_ORIGINAL_RAREWARE_REFLECTION_TEXTURE_HEIGHT;
 }
 
-void ge_original_frontend_rareware_projection_prepare(float rotation_y_degrees,
-    float camera_eye_z, GeOriginalFrontendProjectionContext *context)
-{
-    const float radians = rotation_y_degrees
-        * (3.14159265358979323846f / 180.0f);
-    if (context == NULL) return;
-    context->cosine = cosf(radians);
-    context->sine = sinf(radians);
-    context->focal = 120.0f
-        / tanf(60.0f * 0.5f * (3.14159265358979323846f / 180.0f));
-    context->camera_eye_z = camera_eye_z;
-    context->valid = 1U;
-}
-
-void ge_original_frontend_rareware_project(
+void reference_frontend_rareware_project(
     const float authored[3], float rotation_y_degrees, float camera_eye_z,
     float projected[3])
 {
-    GeOriginalFrontendProjectionContext context;
-    if (authored == NULL || projected == NULL) return;
-    ge_original_frontend_rareware_projection_prepare(
-        rotation_y_degrees, camera_eye_z, &context);
-    ge_original_frontend_rareware_project_prepared(authored, &context, projected);
-}
-
-void ge_original_frontend_rareware_project_prepared(const float authored[3],
-    const GeOriginalFrontendProjectionContext *context, float projected[3])
-{
+    const float radians = rotation_y_degrees
+        * (3.14159265358979323846f / 180.0f);
+    const float cosine = cosf(radians);
+    const float sine = sinf(radians);
+    const float focal = 120.0f
+        / tanf(60.0f * 0.5f * (3.14159265358979323846f / 180.0f));
     float rotated_x;
     float rotated_z;
     float depth;
     float scale;
-    if (authored == NULL || context == NULL || !context->valid || projected == NULL) return;
-    rotated_x = authored[0] * context->cosine + authored[2] * context->sine;
-    rotated_z = -authored[0] * context->sine + authored[2] * context->cosine;
-    depth = context->camera_eye_z - rotated_z;
-    scale = context->focal / fmaxf(1.0f, depth);
+    if (authored == NULL || projected == NULL) return;
+    rotated_x = authored[0] * cosine + authored[2] * sine;
+    rotated_z = -authored[0] * sine + authored[2] * cosine;
+    depth = camera_eye_z - rotated_z;
+    scale = focal / fmaxf(1.0f, depth);
     /* The original 320x240 perspective is uniformly mapped to the centred
      * 320x240 region of the 400-pixel top screen. */
     projected[0] = 200.0f + rotated_x * scale;

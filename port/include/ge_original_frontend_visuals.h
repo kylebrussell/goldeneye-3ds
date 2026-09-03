@@ -17,6 +17,29 @@ typedef struct GeOriginalFrontendGeneratedVertex {
     uint8_t lit_rgba[4];
 } GeOriginalFrontendGeneratedVertex;
 
+/* Per-publication snapshots; keep canonical presentation values/ordering,
+ * but prepare constant light direction and rotation only once. */
+typedef struct GeOriginalFrontendLightingContext {
+    float cosine, sine, direction[3];
+    uint8_t ambient[3], diffuse[3], valid;
+} GeOriginalFrontendLightingContext;
+typedef struct GeOriginalFrontendProjectionContext {
+    float cosine, sine, focal, camera_eye_z;
+    uint8_t valid;
+} GeOriginalFrontendProjectionContext;
+
+int ge_original_frontend_lighting_prepare(float rotation_y_radians,
+    const uint8_t ambient_rgb[3], const uint8_t diffuse_rgb[3],
+    const int8_t light_direction[3], GeOriginalFrontendLightingContext *context);
+int ge_original_frontend_generate_lit_vertex_prepared(
+    const uint8_t packed_normal[3], uint8_t alpha,
+    const GeOriginalFrontendLightingContext *context,
+    GeOriginalFrontendGeneratedVertex *output);
+void ge_original_frontend_rareware_projection_prepare(float rotation_y_degrees,
+    float camera_eye_z, GeOriginalFrontendProjectionContext *context);
+void ge_original_frontend_rareware_project_prepared(const float authored[3],
+    const GeOriginalFrontendProjectionContext *context, float projected[3]);
+
 int ge_original_frontend_generate_lit_vertex(
     const uint8_t packed_normal[3], uint8_t alpha,
     float rotation_y_radians, const uint8_t ambient_rgb[3],

@@ -5,6 +5,119 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "reference_frontend_visuals.h"
+
+static void check_prepared(const uint8_t normal[3], uint8_t alpha,
+    float radians, float degrees, float camera_z, const uint8_t ambient[3],
+    const uint8_t diffuse[3], const int8_t direction[3], const float position[3])
+{
+    GeOriginalFrontendLightingContext lighting;
+    GeOriginalFrontendProjectionContext projection;
+    GeOriginalFrontendGeneratedVertex old, single, prepared;
+    float old_projection[3], new_projection[3], single_projection[3];
+    assert(ge_original_frontend_lighting_prepare(radians,ambient,diffuse,direction,&lighting));
+    assert(reference_frontend_generate_lit_vertex(normal,alpha,radians,ambient,diffuse,direction,&old));
+    assert(ge_original_frontend_generate_lit_vertex(normal,alpha,radians,ambient,diffuse,direction,&single));
+    assert(ge_original_frontend_generate_lit_vertex_prepared(normal,alpha,&lighting,&prepared));
+    assert(memcmp(&old,&prepared,sizeof(old))==0 && memcmp(&old,&single,sizeof(old))==0);
+    reference_frontend_rareware_project(position,degrees,camera_z,old_projection);
+    ge_original_frontend_rareware_projection_prepare(degrees,camera_z,&projection);
+    ge_original_frontend_rareware_project_prepared(position,&projection,new_projection);
+    ge_original_frontend_rareware_project(position,degrees,camera_z,single_projection);
+    assert(memcmp(old_projection,new_projection,sizeof(old_projection))==0);
+    assert(memcmp(old_projection,single_projection,sizeof(old_projection))==0);
+}
+
+static uint32_t random_word(uint32_t *seed)
+{ *seed=*seed*UINT32_C(1664525)+UINT32_C(1013904223);return *seed; }
+
+static void exercise_prepared(void)
+{
+    uint32_t seed=4689;
+    for(size_t sample=0;sample<40000;++sample) {
+        uint8_t normal[3],ambient[3],diffuse[3];int8_t direction[3];float position[3];
+        for(size_t c=0;c<3;++c) {
+            normal[c]=sample%16==0?0U:(uint8_t)(random_word(&seed)>>16);
+            ambient[c]=(uint8_t)(random_word(&seed)>>16);
+            diffuse[c]=(uint8_t)(random_word(&seed)>>16);
+            direction[c]=sample%8==0?0:(int8_t)(random_word(&seed)>>16);
+            position[c]=(float)(int16_t)(random_word(&seed)>>16);
+        }
+        check_prepared(normal,(uint8_t)sample,(float)sample/1000.0f,
+            (float)sample/30.0f,(float)(sample%5000),ambient,diffuse,direction,position);
+    }
+    {
+        uint8_t normal[3]={127,0,0},ambient[3]={20,40,60},diffuse[3]={200,150,100};
+        int8_t direction[3]={77,77,46};
+        GeOriginalFrontendLightingContext lighting;
+        GeOriginalFrontendGeneratedVertex a,b;
+        assert(ge_original_frontend_lighting_prepare(0.4f,ambient,diffuse,direction,&lighting));
+        assert(reference_frontend_generate_lit_vertex(normal,81,0.4f,ambient,diffuse,direction,&a));
+        memset(ambient,0,3);memset(diffuse,0,3);memset(direction,0,3);
+        assert(ge_original_frontend_generate_lit_vertex_prepared(normal,81,&lighting,&b));
+        assert(memcmp(&a,&b,sizeof(a))==0);
+        assert(!ge_original_frontend_lighting_prepare(0,NULL,diffuse,direction,&lighting));
+        assert(!ge_original_frontend_generate_lit_vertex_prepared(normal,81,&lighting,&b));
+        assert(memcmp(&a,&b,sizeof(a))==0);
+        assert(!ge_original_frontend_lighting_prepare(0,ambient,NULL,direction,&lighting));
+        assert(!ge_original_frontend_lighting_prepare(0,ambient,diffuse,NULL,&lighting));
+        assert(!ge_original_frontend_lighting_prepare(0,ambient,diffuse,direction,NULL));
+        assert(!ge_original_frontend_generate_lit_vertex_prepared(NULL,81,&lighting,&b));
+        assert(!ge_original_frontend_generate_lit_vertex_prepared(normal,81,NULL,&b));
+        assert(!ge_original_frontend_generate_lit_vertex_prepared(normal,81,&lighting,NULL));
+        GeOriginalFrontendProjectionContext projection={0};
+        float p[3]={1,2,3},unchanged[3]={1,2,3};
+        ge_original_frontend_rareware_project_prepared(p,&projection,p);
+        assert(memcmp(p,unchanged,sizeof(p))==0);
+        ge_original_frontend_rareware_project_prepared(p,NULL,p);
+        assert(memcmp(p,unchanged,sizeof(p))==0);
+    }
+    puts("prepared frontend: 40000 byte-exact scalar-oracle cases, zero normals/lights, changed snapshot inputs and invalidation passed");
+}
+
+#ifdef GE_FRONTEND_PREPARE_BENCH
+static void benchmark_prepared(void)
+{
+    const uint8_t ambient[3]={150,150,150},diffuse[3]={255,255,255};
+    const int8_t direction[3]={77,77,46};
+    uint8_t normals[780][3];float positions[780][3];
+    GeOriginalFrontendGeneratedVertex output[780];float projected[780][3];
+    uint32_t seed=964;
+    for(size_t v=0;v<780;++v)for(size_t c=0;c<3;++c) {
+        normals[v][c]=(uint8_t)(random_word(&seed)>>16);
+        positions[v][c]=(float)(int16_t)(random_word(&seed)>>16);
+    }
+    double elapsed[2];volatile float sums[2]={0};
+    for(unsigned mode=0;mode<2;++mode) {
+        const clock_t start=clock();
+        for(size_t frame=0;frame<2000;++frame) {
+            const float radians=(float)frame/1000.0f,degrees=(float)frame/20.0f;
+            GeOriginalFrontendLightingContext lighting;
+            GeOriginalFrontendProjectionContext projection;
+            if(mode) {
+                assert(ge_original_frontend_lighting_prepare(radians,ambient,diffuse,direction,&lighting));
+                ge_original_frontend_rareware_projection_prepare(degrees,880,&projection);
+            }
+            for(size_t v=0;v<780;++v) {
+                if(mode) {
+                    assert(ge_original_frontend_generate_lit_vertex_prepared(normals[v],255,&lighting,&output[v]));
+                    ge_original_frontend_rareware_project_prepared(positions[v],&projection,projected[v]);
+                } else {
+                    assert(reference_frontend_generate_lit_vertex(normals[v],255,radians,ambient,diffuse,direction,&output[v]));
+                    reference_frontend_rareware_project(positions[v],degrees,880,projected[v]);
+                }
+            }
+            sums[mode]+=output[frame%780].generated_uv[0]+projected[frame%780][0];
+        }
+        elapsed[mode]=1000.0*(clock()-start)/CLOCKS_PER_SEC;
+    }
+    assert(sums[0]==sums[1]);
+    printf("frontend 1560000 lit/projected vertices (includes frame preparation): scalar %.3f ms prepared %.3f ms\n",elapsed[0],elapsed[1]);
+}
+#endif
 
 static int close_float(float left, float right)
 {
@@ -13,6 +126,10 @@ static int close_float(float left, float right)
 
 int main(int argc, char **argv)
 {
+    exercise_prepared();
+#ifdef GE_FRONTEND_PREPARE_BENCH
+    benchmark_prepared();
+#endif
     static const uint8_t ambient[3] = {0x96, 0x96, 0x96};
     static const uint8_t diffuse[3] = {0xff, 0xff, 0xff};
     static const int8_t direction[3] = {77, 77, 46};
@@ -148,6 +265,15 @@ int main(int argc, char **argv)
                 vertices, query.required_vertex_count, &built)
                 == GE_ORIGINAL_RAREWARE_OK);
             assert(built.vertex_count == query.required_vertex_count);
+            for(size_t frame=0;frame<64;++frame)for(size_t v=0;v<built.vertex_count;++v) {
+                const GeGbiVertex *source=&vertices[v].source;
+                const uint8_t packed[3]={source->red,source->green,source->blue};
+                const float position[3]={(float)source->x,(float)source->y,(float)source->z};
+                check_prepared(packed,source->alpha,(float)frame/30.0f,
+                    (float)frame*5.0f,880.0f,ambient,diffuse,direction,position);
+            }
+            printf("authored Rareware pass %u: %zu exact scalar/prepared vertex comparisons\n",
+                (unsigned)pass,64U*built.vertex_count);
             free(vertices);
         }
         free(segment);

@@ -926,3 +926,73 @@ lock bypass occurred. Next remains an unlocked accumulated-candidate A/B on
 Facility movement, Dam combat and streaming beyond initial residency, checking
 texture continuity, room proofs and UV counters alongside frame-time tails.
 This cycle does not establish reliable 60 FPS or complete level playability.
+
+## Follow-up: reject affine-W speculation; prepare opening-screen transforms
+
+Continued from `75f49a25`. A proposed model-publication shortcut proved W=1
+for exact affine matrices, with a full projective fallback and per-input
+matrix-run invalidation. It passed 600,004 byte-exact comparisons in both model
+and first-person adapters, including signed zero and one-ULP proof rejection.
+It was nevertheless **removed**: normal host vectorization favored the old
+four-component transform (1.274 → 1.956 ms for 48-vertex matrix runs), while a
+scalar-only compilation gave only a modest, workload-dependent gain
+(2.648 → 2.292 ms, but a regression at one-vertex runs). There is no target
+measurement establishing a win. Both production model-scene files are restored
+exactly; do not enable/retry this experiment merely because its scalar math is
+correct. Private evidence: `affine-transform-prototype-20260903.log`, saved
+standalone `affine-transform-candidate.c`, and `affine-transform-candidate.patch`
+under `build/host-tests/`. The archived extraction script there describes the
+rejected source and is not part of the test suite.
+
+The retained change instead removes repeated constant work in animated opening
+screens. `ge_original_frontend_lighting_prepare` snapshots rotation sine/cosine,
+normalized light direction and authored ambient/diffuse bytes once per
+publication. The prepared vertex function retains the original per-normal
+rotation/normalization, diffuse arithmetic, color rounding/clamping and
+generated reflection coordinates. Nintendo and GoldenEye logo publication
+prepares from the same canonical presentation fields before its vertex loops.
+The Rareware front/body share one frame-local lighting context; front, body and
+letters share one prepared rotation/camera projection. No context survives into
+the next frame. Single-vertex APIs remain available and match the old output.
+
+This changes platform fixed-function realization only. Canonical menu timing,
+logo poses, geometry, texture atlas arithmetic, primitive colors, letter/body
+ordering and gameplay are unchanged. It targets opening-screen CPU cost, not
+the remaining gameplay/combat frame-time gap.
+
+Verification:
+
+- `port/tests/reference_frontend_visuals.c` preserves the independent scalar
+  implementation from `75f49a25`. 40,000 cases compare normals, lit RGBA,
+  generated UVs and projected positions byte-for-byte against both prepared
+  and single-vertex APIs. Coverage includes signed packed normals, zero
+  normals/lights, varied angles/cameras, clipping-depth clamps, snapshot
+  lifetime, invalid input and failed preparation without stale publication.
+- The ROM-backed Rareware passes add 51,456 vertex comparisons over 64
+  rotations: 3,456 front, 1,536 letters and 46,464 body. The reference and
+  candidate match. This is CPU data equivalence, not a PICA screenshot test.
+- Renderer source checks require one preparation before the logo vertex loops,
+  no static across-frame contexts, and unchanged Nintendo/title input choice.
+- The complete host suite passes in `prepared-frontend-full-20260903.log`.
+  Final focused ASan/UBSan and source-wiring checks are in
+  `prepared-frontend-sanitizer-verified-20260903.log`.
+- Host `-O3` benchmark, 2,000 frames × 780 lit/projected vertices, including
+  context preparation: **49.015 ms scalar → 13.138 ms prepared**. The scalar
+  oracle is compiled in a separate translation unit like the production
+  adapter. An earlier same-unit experiment allowed the compiler to inline and
+  hoist baseline work that the production build cannot hoist; it measured
+  8.635 → 9.042 ms and is not a like-for-like production-call comparison.
+  Both logs are preserved; the comparable run is
+  `prepared-frontend-bench-final-20260903.log`. Neither proves target FPS.
+- ARM/3DSX passes (`arm-prepared-frontend-20260903.log`). The ELF retains the
+  prepared frontend APIs plus original MoveBond, input, gun and active-prop
+  dispatch. The rejected affine shortcut is not in this executable.
+
+Candidate: `build/3ds-candidates/frontend-prepared-04d7b78d/goldeneye-3ds.3dsx`,
+SHA-256 `04d7b78d9c77973e28e5c4f607efa38734589f64ee9318f30f442cd078aaca23`.
+Assets remain `938536d4...`; hardware staging and Azahar remain verified
+`0797edaa...`. macOS remained locked; no emulator, save/config or public-repo
+mutation occurred. The next validation remains the accumulated-candidate A/B
+against that verified build, including the full opening sequence, Facility
+movement, Dam combat, and streaming beyond initial rooms. Sustained 60 FPS,
+hardware timing and high-fidelity mission completion are still unverified.

@@ -12716,8 +12716,22 @@ static bool prepare_original_frontend_pitem_scene(
     }
     if (!runtime->logo_ready) goto done;
     {
+        GeOriginalFrontendLightingContext lighting;
         const float cosine = cosf(presentation->nintendo_rotation_radians);
         const float sine = sinf(presentation->nintendo_rotation_radians);
+        if (prop == PROP_GOLDENEYELOGO || prop == PROP_NINTENDOLOGO) {
+            const uint8_t ambient = prop == PROP_NINTENDOLOGO
+                ? presentation->nintendo_ambient : presentation->title_light_ambient;
+            const uint8_t diffuse = prop == PROP_NINTENDOLOGO
+                ? 0U : presentation->title_light_diffuse;
+            const uint8_t ambient_rgb[3] = {ambient, ambient, ambient};
+            const uint8_t diffuse_rgb[3] = {diffuse, diffuse, diffuse};
+            if (!ge_original_frontend_lighting_prepare(
+                    prop == PROP_NINTENDOLOGO
+                        ? presentation->nintendo_rotation_radians : 0.0f,
+                    ambient_rgb, diffuse_rgb, presentation->title_light_direction,
+                    &lighting)) goto done;
+        }
         for (part_index = 0U; part_index < runtime->logo_vertex_count;
                 ++part_index) {
             const GeDamRoomWorldVertex *source =
@@ -12775,8 +12789,6 @@ static bool prepare_original_frontend_pitem_scene(
                 if ((prop == PROP_GOLDENEYELOGO
                             || prop == PROP_NINTENDOLOGO)
                         && batch->material.lighting_enabled != 0U) {
-                    uint8_t ambient_rgb[3];
-                    uint8_t diffuse_rgb[3];
                     const uint8_t packed_normal[3] = {
                         source->source.red,
                         source->source.green,
@@ -12790,29 +12802,8 @@ static bool prepare_original_frontend_pitem_scene(
                     float top_u, top_v, bottom_u, bottom_v;
                     /* guLookAtReflect's +X/+Y axes drive the logo's exact
                      * G_TEXTURE_GEN reflection coordinates. */
-                    if (prop == PROP_NINTENDOLOGO) {
-                        ambient_rgb[0] = presentation->nintendo_ambient;
-                        ambient_rgb[1] = presentation->nintendo_ambient;
-                        ambient_rgb[2] = presentation->nintendo_ambient;
-                        diffuse_rgb[0] = 0U;
-                        diffuse_rgb[1] = 0U;
-                        diffuse_rgb[2] = 0U;
-                    } else {
-                        ambient_rgb[0] = presentation->title_light_ambient;
-                        ambient_rgb[1] = presentation->title_light_ambient;
-                        ambient_rgb[2] = presentation->title_light_ambient;
-                        diffuse_rgb[0] = presentation->title_light_diffuse;
-                        diffuse_rgb[1] = presentation->title_light_diffuse;
-                        diffuse_rgb[2] = presentation->title_light_diffuse;
-                    }
-                    if (!ge_original_frontend_generate_lit_vertex(
-                            packed_normal, source->source.alpha,
-                            prop == PROP_NINTENDOLOGO
-                                ? presentation->nintendo_rotation_radians
-                                : 0.0f,
-                            ambient_rgb, diffuse_rgb,
-                            presentation->title_light_direction,
-                            &generated))
+                    if (!ge_original_frontend_generate_lit_vertex_prepared(
+                            packed_normal, source->source.alpha, &lighting, &generated))
                         goto done;
                     destination[vertex].r =
                         (float)generated.lit_rgba[0] / 255.0f;
@@ -13850,6 +13841,8 @@ static bool prepare_original_frontend_rareware(
 {
     const RuntimeGbiModel *front;
     const RuntimeGbiModel *body;
+    GeOriginalFrontendLightingContext lighting;
+    GeOriginalFrontendProjectionContext logo_projection;
     Vertex *destination;
     const float radians = presentation != NULL
         ? presentation->rareware_rotation_degrees
@@ -13860,20 +13853,27 @@ static bool prepare_original_frontend_rareware(
             || (front = runtime->rareware_front) == NULL || !front->loaded
             || (body = runtime->rareware_body) == NULL || !body->loaded)
         return false;
-    destination = (Vertex *)vertex_buffer + RAREWARE_FRONT_VERTEX_OFFSET;
-    for (index = 0U; index < front->vertex_count; ++index) {
+    {
         static const uint8_t diffuse_rgb[3] = {255U, 255U, 255U};
         static const int8_t direction[3] = {0, 127, 0};
+        const uint8_t ambient_rgb[3] = {
+            presentation->rareware_light_ambient,
+            presentation->rareware_light_ambient,
+            presentation->rareware_light_ambient,
+        };
+        if (!ge_original_frontend_lighting_prepare(radians, ambient_rgb,
+                diffuse_rgb, direction, &lighting)) return false;
+        ge_original_frontend_rareware_projection_prepare(
+            presentation->rareware_rotation_degrees, presentation->camera_eye[2],
+            &logo_projection);
+    }
+    destination = (Vertex *)vertex_buffer + RAREWARE_FRONT_VERTEX_OFFSET;
+    for (index = 0U; index < front->vertex_count; ++index) {
         const RuntimeModelVertex *source = &front->vertices[index];
         const uint8_t packed_normal[3] = {
             (uint8_t)(int8_t)lrintf(source->normal_x * 127.0f),
             (uint8_t)(int8_t)lrintf(source->normal_y * 127.0f),
             (uint8_t)(int8_t)lrintf(source->normal_z * 127.0f),
-        };
-        const uint8_t ambient_rgb[3] = {
-            presentation->rareware_light_ambient,
-            presentation->rareware_light_ambient,
-            presentation->rareware_light_ambient,
         };
         const float authored[3] = {source->x, source->y, source->z};
         GeOriginalFrontendGeneratedVertex generated;
@@ -13881,13 +13881,11 @@ static bool prepare_original_frontend_rareware(
         float tl_u, tl_v, tr_u, tr_v;
         float bl_u, bl_v, br_u, br_v;
         float top_u, top_v, bottom_u, bottom_v;
-        if (!ge_original_frontend_generate_lit_vertex(
-                packed_normal, 255U, radians, ambient_rgb, diffuse_rgb,
-                direction, &generated))
+        if (!ge_original_frontend_generate_lit_vertex_prepared(
+                packed_normal, 255U, &lighting, &generated))
             return false;
-        ge_original_frontend_rareware_project(
-            authored, presentation->rareware_rotation_degrees,
-            presentation->camera_eye[2], projected);
+        ge_original_frontend_rareware_project_prepared(
+            authored, &logo_projection, projected);
         Tex3DS_SubTextureTopLeft(
             &rareware_front_subtexture, &tl_u, &tl_v);
         Tex3DS_SubTextureTopRight(
@@ -13915,17 +13913,10 @@ static bool prepare_original_frontend_rareware(
     destination = (Vertex *)vertex_buffer + RAREWARE_BODY_VERTEX_OFFSET;
     for (index = 0U; index < body->vertex_count; ++index) {
         const RuntimeModelVertex *source = &body->vertices[index];
-        static const uint8_t diffuse_rgb[3] = {255U, 255U, 255U};
-        static const int8_t direction[3] = {0, 127, 0};
         const uint8_t packed_normal[3] = {
             (uint8_t)(int8_t)lrintf(source->normal_x * 127.0f),
             (uint8_t)(int8_t)lrintf(source->normal_y * 127.0f),
             (uint8_t)(int8_t)lrintf(source->normal_z * 127.0f),
-        };
-        const uint8_t ambient_rgb[3] = {
-            presentation->rareware_light_ambient,
-            presentation->rareware_light_ambient,
-            presentation->rareware_light_ambient,
         };
         GeOriginalFrontendGeneratedVertex generated;
         float generated_uv[2];
@@ -13934,14 +13925,12 @@ static bool prepare_original_frontend_rareware(
         float top_u, top_v, bottom_u, bottom_v;
         const float authored[3] = {source->x, source->y, source->z};
         float projected[3];
-        if (!ge_original_frontend_generate_lit_vertex(
-                packed_normal, 255U, radians, ambient_rgb, diffuse_rgb,
-                direction, &generated))
+        if (!ge_original_frontend_generate_lit_vertex_prepared(
+                packed_normal, 255U, &lighting, &generated))
             return false;
         ge_original_frontend_rareware_body_uv(&generated, generated_uv);
-        ge_original_frontend_rareware_project(
-            authored, presentation->rareware_rotation_degrees,
-            presentation->camera_eye[2], projected);
+        ge_original_frontend_rareware_project_prepared(
+            authored, &logo_projection, projected);
         Tex3DS_SubTextureTopLeft(
             &rareware_body_subtexture, &tl_u, &tl_v);
         Tex3DS_SubTextureTopRight(
@@ -13978,9 +13967,8 @@ static bool prepare_original_frontend_rareware(
             };
             float projected[3];
             letters[index] = runtime->rareware_mesh->vertices[index];
-            ge_original_frontend_rareware_project(
-                authored, presentation->rareware_rotation_degrees,
-                presentation->camera_eye[2], projected);
+            ge_original_frontend_rareware_project_prepared(
+                authored, &logo_projection, projected);
             letters[index].x = projected[0];
             letters[index].y = projected[1];
             letters[index].z = projected[2];

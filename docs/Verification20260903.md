@@ -334,3 +334,70 @@ allocation counters alongside simulation work and frame tails before selecting
 the next optimization. Actual vertex-buffer growth still copies room geometry.
 Reliable 60 FPS, all-level gameplay, Dam completion, and New 3DS XL behavior
 remain unverified; host tests do not satisfy those goals.
+
+## Follow-up: exact color-upload lookup candidate — not performance-validated
+
+At `fb3276ca`, ARM disassembly of `upload_dam_gpu_world_scene_range` showed
+four `vcvt.f32.u32` and four `vdiv.f32` operations per vertex (in each of its
+UV-mapping/nonmapping loop variants). The old Dam combat trace uploaded
+4,910,934 guard vertices, so this is a recurring target-side arithmetic cost,
+not just a startup conversion.
+
+The candidate replaces these byte-to-float divisions with a 1 KiB read-only
+table. Its 256 entries are constant expressions using the same `/ 255.0f`
+division, not a rounded reciprocal multiply. Current RGBA bytes are still
+sampled on every upload, including topology-stable dynamic monitor colors.
+Position, UV preservation/remapping, upload ranges, bounds invalidation, dirty
+range accumulation, and first-person/HUD paths are unchanged.
+
+Correctness and generated-code evidence:
+
+- All 256 normalization results match byte-for-byte. The test deliberately
+  checks that reciprocal multiplication differs for 126 values; that shortcut
+  is not used.
+- The actual helper passes ASan/UBSan over 1,074,920 vertices in 2,048 changing
+  color/range/UV passes. Complete output buffers match the old arithmetic,
+  including untouched prefixes/suffixes and zero-length ranges.
+- The initial authored geometry of all 21 stage descriptors passes 256
+  changing-color publications per stage against the old helper, with exact
+  output bytes under ASan/UBSan. This is a renderer test, not gameplay or
+  original mission completion.
+- Cross-compiling the actual extracted helper/table and inspecting `.rodata`
+  confirms all 256 ARM binary32 words (1,024 bytes). The final ARM world-upload
+  loop has zero `vdiv.f32` and zero `vcvt.f32` instructions.
+- Full host suite and ARM/3DSX pass. Evidence under `build/host-tests/`:
+  `renderer-vertex-colors-20260903.log`, `color-upload-sanitizer-20260903.log`,
+  `vertex-colors-full-20260903.log`, and `arm-vertex-colors-20260903.log`.
+  Generated audit inputs/data are under `renderer-vertex-colors/`.
+
+**No speedup is established.** The Mac-native `-O2` packing microbenchmark was
+slower with the lookup; disabling vectorization did not reverse that result.
+For Dam's 9,129 vertices over 256 publications, the default build measured
+3.112 ms with divisions versus 3.868 ms with the lookup; scalar compilation
+measured 3.440 ms versus 3.835 ms. This host does not execute the same code as
+the ARM11 target, but the regression must not be presented as a performance
+gain. Fewer ARM divisions alone also do not prove faster gameplay. Logs:
+`color-upload-optimized-20260903.log` and `color-upload-scalar-20260903.log`;
+private driver: `color_upload_bench.c`.
+
+The two exact candidates are retained for an isolated target A/B test:
+
+- Control, before color lookup:
+  `build/3ds-candidates/room-bank-079305a8/goldeneye-3ds.3dsx`, SHA-256
+  `079305a8393a6b876d59872373a3d6d1c298c046037d3ba4a49be0745bba2696`.
+- Experimental color lookup:
+  `build/3ds-candidates/color-lookup-bdd7f472/goldeneye-3ds.3dsx`, SHA-256
+  `bdd7f472bb4bbfd5a6c28dc08526fe004ea8807b15453df2157a6d6ee8a18fb6`.
+
+Both use unchanged assets `938536d4...`. macOS remained locked, so neither was
+promoted to hardware staging or Azahar. Those still contain verified
+`0797edaa...`; saves, input/stage configs, DSP settings, and emulator instances
+were untouched.
+
+Next unlocked work should compare these two builds on the same Dam combat
+and Facility movement traces without concurrent host builds. Compare guard
+upload ticks per vertex, frame tails, and simulation work, not just a single
+FPS average. If target timings regress or fail to improve, drop the lookup
+change; do not stack further assumed wins on top of it. The earlier pending
+optimizations also still require combined target validation. Sustained 60 FPS,
+all-level gameplay, and high-fidelity mission completion remain unproven.

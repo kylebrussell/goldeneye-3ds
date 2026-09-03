@@ -19,6 +19,7 @@ python3 "${repo_dir}/scripts/pack_3ds_assets.py" \
 "${repo_dir}/scripts/test_gun_update_exact.sh"
 bash "${repo_dir}/scripts/test_scene_overlay_growth.sh" "${test_dir}/scene-overlay-growth"
 python3 "${repo_dir}/scripts/tests/test_renderer_room_membership.py"
+python3 "${repo_dir}/scripts/tests/test_renderer_vertex_colors.py" "${test_dir}/renderer-vertex-colors"
 "${repo_dir}/scripts/test_original_gunbarrel.sh" "${repo_dir}"
 "${repo_dir}/scripts/test_original_frontend_cast.sh" "${repo_dir}"
 python3 "${repo_dir}/scripts/tests/test_frontend_cast_render_mode.py"

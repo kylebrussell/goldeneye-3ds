@@ -1096,3 +1096,102 @@ comparison; and a real Dam playthrough through both gates and the objectives.
 The combat probes still die before leaving initial room residency, and the
 camera tour does not substitute for that playthrough. Sustained 60 FPS,
 hardware performance, audible fidelity and mission completion remain unproven.
+
+## Combat publication optimization: bulk copy and cold capacity reserve
+
+This pass preserves original simulation, animation, input and rendering data.
+Published overlay batches now use one contiguous copy followed by adjustment
+of only the vertex-index origin, instead of repeated large struct copies.
+At cold stage load, an optional transaction reserves up to one resident
+scene's worth of overlay capacity, bounded by the existing scene limits.
+Allocation failure leaves the old scene intact and retains normal growth.
+Successful relocation changes the generation before runtime pointers are
+published. No geometry, game ticks or visibility work is omitted.
+
+The reserve is deliberately **cold-load only**. Later streamed installations
+can replace storage with exact-sized buffers; this does not promise that
+growth will never occur after room transitions. On Dam it costs 1,421,780
+additional target bytes (1.36 MiB); Facility uses 903,896 bytes. The 21-stage
+host audit's largest extra allocation is 1,926,320 bytes (Egyptian, host ABI,
+not a target-memory measurement).
+
+Fresh Azahar runs used the same 160-target combat config, with no concurrent
+builds, invincibility or gameplay changes:
+
+| Metric | Prior `04d7b78d` | Bulk copy `c2fdf516` | Reserve + bulk `952088b7` |
+| --- | ---: | ---: | ---: |
+| Simulation ticks before death | 4,996 | 5,825 | 6,365 |
+| Route targets reached / 160 | 12 | 11 | 14 |
+| PP7 shots / damaging hits | 35 / 3 | 37 / 5 | 51 / 5 |
+| Worst measured guard refresh | 13.79 ms | 13.45 ms | 10.33 ms |
+| Replacement work at that guard peak | 6.83 ms | 6.54 ms | 1.12 ms |
+| Allocating overlay publications | 4 | 4 | 0 |
+| Room vertices copied during growth | 36,516 | 36,516 | 0 |
+| Post-warmup frame-work peak | 38 ms | 31 ms | 28 ms |
+| Post-warmup samples over 16 ms | 642 / 4,875 | 514 / 5,704 | 576 / 6,244 |
+| Post-warmup samples over 25 ms | 10 | 6 | 6 |
+
+These are observed peaks, not deterministic encounter replays or a controlled
+whole-run FPS comparison: survival, firing and targets differ. Every route
+ended in death before completion, reporting `status=failed`, not an emulator
+crash. All stayed within initial room residency. The reserve run performed
+51 guard topology replacements with zero buffer-growth events; all 6,365
+original movement, actor and gun ticks ran. It decoded 739 sounds with zero
+decode failures and queued 4,627 NDSP blocks, with no reported guard matrix or
+overlay errors. Evidence: private
+`build/visual-probe/bulk-publish-baseline-04d7-combat.result`,
+`bulk-publish-candidate-c2fd-combat.result`, and
+`startup-reserve-9520-combat.result`.
+
+At the latest worst guard-refresh frame, cache work is 8.29 ms, including
+5.66 ms topology work and 1.79 ms vertex transformation. These nested fields
+are measurements at the worst total guard frame, not independent component
+maxima. Renderer submission still peaks at 8.74 ms. Model topology/template
+work and sky/world submission remain the next measured targets. The 28 ms
+post-warmup frame demonstrates that sustained 60 FPS is **not** achieved.
+
+The latest Facility movement/look/fire probe completed all 750 simulation,
+movement, actor, gun and presented frames, seven PP7 shots and the exact prior
+endpoint `-199.956543,292.746887,-193.684525`. Post-warmup maximum is 14 ms,
+with zero of 630 samples over 16 ms. This is a narrow vents test, not a
+Facility playthrough or resolution of its known geometry gaps. Evidence:
+`build/visual-probe/startup-reserve-9520-facility.result`.
+
+Validation passed:
+
+- Focused ASan/UBSan overlay tests: 416 existing capacity/alias/failure/fallback
+  cases, 32 independent reserve-capacity/allocation-failure cases, empty-scene
+  publication, no-op/invalid requests, and 1,024 distinct byte-checked batch
+  payloads across growth/shrink/empty/refill transitions.
+- Complete host suite and ARM/3DSX build for the production candidate.
+- Additional ASan/UBSan authored cold-reserve audit across all 21 stages,
+  verifying unchanged vertex/batch bytes and metadata, followed by the existing
+  Silo eviction and Streets retained-overlay streaming checks. This test-only
+  extension was added after the full suite; production code did not change.
+
+Logs: `build/host-tests/startup-reserve-sanitizer.log`,
+`startup-reserve-full.log`, `arm-startup-reserve.log`, and
+`startup-reserve-all-stages.log`. ARM ELF retains `MoveBond`,
+`bondviewProcessInput`, `ge_original_stage_active_props_tick_exact`,
+`ge_original_gun_live_tick`, and the new reserve function. The exact latest
+executable is `952088b77885010490e5ddb7658ccdb0dfb7dc8977aa185901aaeb1ef0182def`;
+asset pack remains
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+The executable is installed in Azahar and hardware staging; private fallback
+copies of the preceding candidates remain available. No public push was made.
+
+The latest candidate also completed the existing 177-view authored-pad Dam
+tour: 62 streamed installations, 34 evictions, zero camera/visibility/stream
+or guard/door/monitor/articulated publication failures; peak residency 10
+rooms, peak textures 114, peak visible rooms 39. All 138 ready materializer
+records constructed. Evidence: `startup-reserve-9520-tour.result` and `.diag`
+in `build/visual-probe/`. The tour deliberately jumps cameras and synchronously
+waits for requested room sets: its 564 ms average / 1,008 ms peak displayed
+intervals are not combat-frame measurements and do not establish smooth
+player-driven streaming. It proves reserve-to-streamed-transaction compatibility,
+not complete visual fidelity or mission completion. A sustained live traversal
+beyond initial residency remains necessary to measure actual streaming dips.
+
+Azahar's temporary Facility and input/tour overrides were removed after the
+checks and normal boot restored, leaving the hash-checked latest code/data
+pair installed. Hardware staging's pre-existing `cradle` selection is unchanged.

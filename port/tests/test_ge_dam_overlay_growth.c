@@ -215,10 +215,111 @@ static void exercise_invalid_growth(unsigned retain_mask, unsigned mode)
     ge_dam_dynamic_scene_close(&scene);
 }
 
+static void exercise_reserve(unsigned mask, size_t failure)
+{
+    GeDamDynamicScene scene;
+    initialize_scene(&scene, mask, OLD_V, OLD_B);
+    GeDamRoomWorldVertex vertices[ROOM_V + OLD_V];
+    GeDamRoomDrawBatch batches[ROOM_B + OLD_B], local[OLD_B];
+    memcpy(vertices, scene.vertices, sizeof(vertices));
+    memcpy(batches, scene.batches, sizeof(batches));
+    memcpy(local, scene.overlay_batches, sizeof(local));
+    const GeDamDynamicScene before = scene;
+    const size_t required_allocations = (!(mask & 1U)) + (!(mask & 2U)) + (!(mask & 4U));
+    allocation_calls = 0U;
+    fail_after = failure;
+    fail_once = SIZE_MAX;
+    const GeDamDynamicSceneStatus status =
+        ge_dam_dynamic_scene_reserve_overlay(&scene, 36U, 16U);
+    fail_after = SIZE_MAX;
+    if (failure < required_allocations) {
+        assert(status == GE_DAM_DYNAMIC_SCENE_NO_MEMORY);
+        assert(memcmp(&scene, &before, sizeof(scene)) == 0);
+        assert(live_count == 0U);
+    } else {
+        assert(status == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(scene.vertex_storage_capacity >= ROOM_V + 36U);
+        assert(scene.batch_storage_capacity >= ROOM_B + 16U);
+        assert(scene.overlay_batch_storage_capacity >= 16U);
+        assert(memcmp(&scene.scene, &before.scene, sizeof(scene.scene)) == 0);
+        assert(scene.overlay_vertex_count == OLD_V && scene.overlay_batch_count == OLD_B);
+        assert(scene.generation == before.generation + (required_allocations != 0U));
+        assert(scene.overlay_vertices == scene.vertices + ROOM_V);
+        const GeDamDynamicScene reserved = scene;
+        allocation_calls = 0U;
+        assert(ge_dam_dynamic_scene_reserve_overlay(&scene, 36U, 16U) == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(allocation_calls == 0U && memcmp(&scene, &reserved, sizeof(scene)) == 0);
+        assert(ge_dam_dynamic_scene_reserve_overlay(&scene, OLD_V - 1U, OLD_B)
+            == GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT);
+        assert(ge_dam_dynamic_scene_reserve_overlay(&scene, SIZE_MAX, OLD_B)
+            == GE_DAM_DYNAMIC_SCENE_VERTEX_CAPACITY);
+        assert(ge_dam_dynamic_scene_reserve_overlay(&scene, OLD_V, SIZE_MAX)
+            == GE_DAM_DYNAMIC_SCENE_BATCH_CAPACITY);
+        assert(memcmp(&scene, &reserved, sizeof(scene)) == 0);
+    }
+    assert(memcmp(scene.vertices, vertices, sizeof(vertices)) == 0);
+    assert(memcmp(scene.batches, batches, sizeof(batches)) == 0);
+    assert(memcmp(scene.overlay_batches, local, sizeof(local)) == 0);
+    ge_dam_dynamic_scene_close(&scene);
+    assert(live_count == 0U);
+}
+
+static void exercise_large_publication(void)
+{
+    enum { BATCHES = 1024 };
+    GeDamDynamicScene scene;
+    GeDamRoomWorldVertex *vertices = calloc(BATCHES * 3U, sizeof(*vertices));
+    GeDamRoomDrawBatch *batches = malloc(BATCHES * sizeof(*batches));
+    GeDamRoomDrawBatch room_before[ROOM_B];
+    const size_t counts[] = {127U, 1024U, 511U, 0U, 1023U, 1U, 1024U};
+    assert(vertices != NULL && batches != NULL);
+    fail_after = fail_once = SIZE_MAX;
+    initialize_scene(&scene, 0U, OLD_V, OLD_B);
+    scene.limits.vertex_capacity = ROOM_V + BATCHES * 3U;
+    scene.limits.batch_capacity = ROOM_B + BATCHES;
+    memcpy(room_before, scene.batches, sizeof(room_before));
+    for (size_t i = 0U; i < BATCHES; ++i) {
+        /* Include padding/diagnostic payload, not just draw-state fields. */
+        memset(&batches[i], (int)(i * 37U + 1U) & 255, sizeof(batches[i]));
+        batches[i].first_vertex = i * 3U;
+        batches[i].vertex_count = 3U;
+        batches[i].triangle_count = 1U;
+        vertices[i * 3U].world[0] = (float)i;
+    }
+    for (size_t step = 0U; step < sizeof(counts) / sizeof(counts[0]); ++step) {
+        const size_t count = counts[step];
+        assert(ge_dam_dynamic_scene_set_overlay(&scene,
+            count ? vertices : NULL, count * 3U,
+            count ? batches : NULL, count) == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(scene.scene.triangle_count == ROOM_B + count);
+        assert(memcmp(room_before, scene.batches, sizeof(room_before)) == 0);
+        if (count != 0U) {
+            assert(memcmp(scene.overlay_vertices, vertices,
+                count * 3U * sizeof(*vertices)) == 0);
+            assert(memcmp(scene.overlay_batches, batches,
+                count * sizeof(*batches)) == 0);
+        }
+        for (size_t i = 0U; i < count; ++i) {
+            GeDamRoomDrawBatch expected;
+            memcpy(&expected, &batches[i], sizeof(expected));
+            expected.first_vertex += ROOM_V;
+            assert(memcmp(&scene.batches[ROOM_B + i], &expected,
+                sizeof(expected)) == 0);
+        }
+    }
+    ge_dam_dynamic_scene_close(&scene);
+    assert(live_count == 0U);
+    free(batches);
+    free(vertices);
+    puts("Large publication: 1024 distinct batch payloads, growth/shrink/empty/refill exact");
+}
+
 int main(void)
 {
     size_t cases = 0U;
     for (unsigned mask = 0U; mask < 8U; ++mask) {
+        for (size_t failure = 0U; failure < 4U; ++failure)
+            exercise_reserve(mask, failure);
         for (unsigned mode = 0U; mode < 6U; ++mode) {
             exercise_invalid_growth(mask, mode);
             ++cases;
@@ -241,6 +342,30 @@ int main(void)
             cases += 3U;
         }
     }
+    exercise_large_publication();
+    {
+        GeDamDynamicScene empty = {0};
+        GeDamRoomWorldVertex vertices[3] = {0};
+        GeDamRoomDrawBatch batch = {0};
+        empty.initialized = 1U;
+        empty.limits = (GeDamDynamicSceneLimits){1U, 3U, 1U};
+        batch.vertex_count = 3U;
+        batch.triangle_count = 1U;
+        assert(ge_dam_dynamic_scene_reserve_overlay(&empty, 3U, 1U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(empty.scene.vertex_count == 0U && empty.overlay_vertices == NULL);
+        const GeDamDynamicScene reserved = empty;
+        assert(ge_dam_dynamic_scene_reserve_overlay(&empty, 0U, 0U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(memcmp(&empty, &reserved, sizeof(empty)) == 0);
+        allocation_calls = 0U;
+        assert(ge_dam_dynamic_scene_set_overlay(&empty, vertices, 3U, &batch, 1U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(allocation_calls == 0U && empty.scene.vertex_count == 3U);
+        ge_dam_dynamic_scene_close(&empty);
+        assert(live_count == 0U);
+    }
+    puts("Cold reserve: 32 independent-capacity/failure cases, empty publication and no-op requests passed");
     printf("Independent scene growth: %zu capacity/alias/failure/fallback cases passed\n", cases);
     return 0;
 }

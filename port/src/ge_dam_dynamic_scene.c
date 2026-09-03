@@ -510,6 +510,81 @@ static GeDamDynamicSceneStatus ge_dam_dynamic_scene_prepare_replacement(
     return GE_DAM_DYNAMIC_SCENE_OK;
 }
 
+GeDamDynamicSceneStatus ge_dam_dynamic_scene_reserve_overlay(
+    GeDamDynamicScene *cache, size_t vertex_capacity, size_t batch_capacity)
+{
+    GeDamRoomWorldVertex *vertices;
+    GeDamRoomDrawBatch *batches, *overlay;
+    size_t total_vertices, total_batches;
+    if (cache == NULL || !cache->initialized
+            || cache->scene.vertex_count < cache->overlay_vertex_count
+            || cache->scene.batch_count < cache->overlay_batch_count
+            || vertex_capacity < cache->overlay_vertex_count
+            || batch_capacity < cache->overlay_batch_count)
+        return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
+    const size_t room_vertices = cache->scene.vertex_count - cache->overlay_vertex_count;
+    const size_t room_batches = cache->scene.batch_count - cache->overlay_batch_count;
+    if (room_vertices > cache->limits.vertex_capacity
+            || vertex_capacity > cache->limits.vertex_capacity - room_vertices)
+        return GE_DAM_DYNAMIC_SCENE_VERTEX_CAPACITY;
+    if (room_batches > cache->limits.batch_capacity
+            || batch_capacity > cache->limits.batch_capacity - room_batches)
+        return GE_DAM_DYNAMIC_SCENE_BATCH_CAPACITY;
+    total_vertices = room_vertices + vertex_capacity;
+    total_batches = room_batches + batch_capacity;
+    if (total_vertices > SIZE_MAX / sizeof(*vertices)
+            || total_batches > SIZE_MAX / sizeof(*batches)
+            || batch_capacity > SIZE_MAX / sizeof(*overlay))
+        return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
+    vertices = cache->vertices;
+    batches = cache->batches;
+    overlay = cache->overlay_batches;
+    /* All allocations finish before any borrowed pointer is invalidated. */
+    if (total_vertices > cache->vertex_storage_capacity) {
+        vertices = malloc(total_vertices * sizeof(*vertices));
+        if (vertices == NULL) goto fail;
+    }
+    if (total_batches > cache->batch_storage_capacity) {
+        batches = malloc(total_batches * sizeof(*batches));
+        if (batches == NULL) goto fail;
+    }
+    if (batch_capacity > cache->overlay_batch_storage_capacity) {
+        overlay = malloc(batch_capacity * sizeof(*overlay));
+        if (overlay == NULL) goto fail;
+    }
+    if (vertices == cache->vertices && batches == cache->batches
+            && overlay == cache->overlay_batches) return GE_DAM_DYNAMIC_SCENE_OK;
+    if (vertices != cache->vertices) {
+        if (cache->scene.vertex_count != 0U)
+            memcpy(vertices, cache->vertices, cache->scene.vertex_count * sizeof(*vertices));
+        free(cache->vertices);
+        cache->vertices = vertices;
+        cache->vertex_storage_capacity = total_vertices;
+    }
+    if (batches != cache->batches) {
+        if (cache->scene.batch_count != 0U)
+            memcpy(batches, cache->batches, cache->scene.batch_count * sizeof(*batches));
+        free(cache->batches);
+        cache->batches = batches;
+        cache->batch_storage_capacity = total_batches;
+    }
+    if (overlay != cache->overlay_batches) {
+        if (cache->overlay_batch_count != 0U)
+            memcpy(overlay, cache->overlay_batches, cache->overlay_batch_count * sizeof(*overlay));
+        free(cache->overlay_batches);
+        cache->overlay_batches = overlay;
+        cache->overlay_batch_storage_capacity = batch_capacity;
+    }
+    ge_dam_refresh_overlay_vertex_alias(cache);
+    ++cache->generation;
+    return GE_DAM_DYNAMIC_SCENE_OK;
+fail:
+    if (vertices != cache->vertices) free(vertices);
+    if (batches != cache->batches) free(batches);
+    if (overlay != cache->overlay_batches) free(overlay);
+    return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
+}
+
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_prepare_next(
     GeDamDynamicScene *cache, GeDamPreloadQueue *queue,
     GeDamDynamicSceneTransaction *transaction)
@@ -1016,10 +1091,14 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
         const size_t publish_end = vertex_count == old_vertex_count
                 && batch_count == old_batch_count
             ? overlay_batch_offset + batch_count : new_overlay_batch_count;
+        /* The two views differ only in their vertex-index origin. Copy the
+         * contiguous payload once rather than issuing a large struct copy
+         * for every batch, then patch exactly that field in the new view. */
+        if (publish_end != overlay_batch_offset)
+            memcpy(cache->batches + room_batch_count + overlay_batch_offset,
+                cache->overlay_batches + overlay_batch_offset,
+                (publish_end - overlay_batch_offset) * sizeof(*cache->batches));
         for (index = overlay_batch_offset; index < publish_end; ++index) {
-            GeDamRoomDrawBatch *local =
-                &cache->overlay_batches[index];
-            cache->batches[room_batch_count + index] = *local;
             cache->batches[room_batch_count + index]
                 .first_vertex += room_vertex_count;
         }
@@ -1117,12 +1196,14 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     const size_t publish_end = new_batches == cache->batches
             && vertex_count == old_vertex_count && batch_count == old_batch_count
         ? overlay_batch_offset + batch_count : new_overlay_batch_count;
+    if (publish_end != publish_start)
+        memcpy(new_batches + room_batch_count + publish_start,
+            new_overlay_batches + publish_start,
+            (publish_end - publish_start) * sizeof(*new_batches));
     for (index = publish_start; index < publish_end; ++index) {
-        GeDamRoomDrawBatch published = new_overlay_batches[index];
         /* Range validation above bounds every local offset by the new
          * overlay vertex count, so adding the room prefix cannot overflow. */
-        published.first_vertex += room_vertex_count;
-        new_batches[room_batch_count + index] = published;
+        new_batches[room_batch_count + index].first_vertex += room_vertex_count;
     }
 
     if (new_vertices != cache->vertices) {

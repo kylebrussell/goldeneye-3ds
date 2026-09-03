@@ -7,6 +7,55 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+static void exercise_authored_cold_reserve(GeAssetPack *pack)
+{
+    const GeDamDynamicSceneLimits limits = {10U, 65536U, 65536U};
+    size_t peak_bytes = 0U;
+    for (size_t id = 0U; id < GE_STAGE_COUNT; ++id) {
+        const GeStageAssetDescriptor *stage = ge_stage_asset_descriptor((GeStageId)id);
+        GeStageResolvedAssets assets;
+        GeDamDynamicScene scene;
+        uint8_t rooms[10];
+        size_t count;
+        assert(ge_stage_assets_resolve(pack, stage, &assets) == GE_STAGE_ASSET_OK);
+        assert(ge_dam_world_collect_connected(&assets.world, stage->expected_spawn_room,
+            rooms, sizeof(rooms), &count) == GE_DAM_WORLD_OK);
+        assert(ge_dam_dynamic_scene_init_for_stage(&scene, pack, stage,
+            &assets.world, rooms, count, &limits) == GE_DAM_DYNAMIC_SCENE_OK);
+        const GeDamRoomScene before = scene.scene;
+        const size_t vb = before.vertex_count * sizeof(*scene.vertices);
+        const size_t bb = before.batch_count * sizeof(*scene.batches);
+        void *vertices = vb ? malloc(vb) : NULL;
+        void *batches = bb ? malloc(bb) : NULL;
+        assert((!vb || vertices) && (!bb || batches));
+        if (vb) memcpy(vertices, scene.vertices, vb);
+        if (bb) memcpy(batches, scene.batches, bb);
+        size_t spare_v = limits.vertex_capacity - before.vertex_count;
+        size_t spare_b = limits.batch_capacity - before.batch_count;
+        if (spare_v > before.vertex_count) spare_v = before.vertex_count;
+        if (spare_b > before.batch_count) spare_b = before.batch_count;
+        assert(ge_dam_dynamic_scene_reserve_overlay(&scene, spare_v, spare_b)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(memcmp(&scene.scene, &before, sizeof(before)) == 0);
+        if (vb) assert(memcmp(vertices, scene.vertices, vb) == 0);
+        if (bb) assert(memcmp(batches, scene.batches, bb) == 0);
+        assert(scene.overlay_vertex_count == 0U && scene.overlay_batch_count == 0U);
+        assert(scene.vertex_storage_capacity <= limits.vertex_capacity
+            && scene.batch_storage_capacity <= limits.batch_capacity);
+        const size_t extra = (scene.vertex_storage_capacity - before.vertex_count) * sizeof(*scene.vertices)
+            + (scene.batch_storage_capacity - before.batch_count + scene.overlay_batch_storage_capacity)
+                * sizeof(*scene.batches);
+        if (extra > peak_bytes) peak_bytes = extra;
+        printf("%s cold reserve: %zu extra host bytes; geometry/batches unchanged\n", stage->key, extra);
+        free(batches);
+        free(vertices);
+        ge_dam_dynamic_scene_close(&scene);
+        ge_stage_assets_close(&assets);
+    }
+    printf("Authored cold reserve: %u stages; peak %zu extra host bytes\n", GE_STAGE_COUNT, peak_bytes);
+}
 
 int main(int argc, char **argv)
 {
@@ -28,6 +77,7 @@ int main(int argc, char **argv)
     stage = ge_stage_asset_descriptor_by_key("silo");
     assert(stage != NULL && stage->level_id == 20);
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
+    exercise_authored_cold_reserve(&pack);
     assert(ge_stage_assets_resolve(&pack, stage, &assets)
            == GE_STAGE_ASSET_OK);
     assert(ge_dam_world_collect_connected(

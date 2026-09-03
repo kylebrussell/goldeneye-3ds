@@ -135,6 +135,13 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_init_for_stage(
     size_t initial_room_count,
     const GeDamDynamicSceneLimits *limits);
 
+/* Optional cold-load allocation policy: reserve local overlay capacity, never
+ * additional geometry. Failure leaves the entire scene unchanged. Successful
+ * relocation increments generation; callers must refresh borrowed pointers.
+ * Requests are bounded by the existing total scene limits. */
+GeDamDynamicSceneStatus ge_dam_dynamic_scene_reserve_overlay(
+    GeDamDynamicScene *cache, size_t vertex_capacity, size_t batch_capacity);
+
 /* Builds the queue head off to the side without changing cache residency. */
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_prepare_next(
     GeDamDynamicScene *cache, GeDamPreloadQueue *queue,

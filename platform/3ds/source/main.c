@@ -1382,6 +1382,8 @@ typedef struct RuntimeDamPreview {
     size_t gpu_uploaded_vertex_count;
     uint64_t gpu_overlay_only_uploads;
     uint64_t gpu_room_vertices_reused;
+    GeDamDynamicSceneStatus cold_overlay_reserve_status;
+    size_t cold_overlay_reserve_bytes;
     size_t gpu_dirty_vertex_offset;
     size_t gpu_dirty_vertex_count;
     float original_camera_view[4][4];
@@ -3566,6 +3568,9 @@ static bool write_input_probe_result(
             fprintf(stream, "overlay_gpu_room_reuse=%llu,%llu\n",
                 (unsigned long long)objects->preview->gpu_overlay_only_uploads,
                 (unsigned long long)objects->preview->gpu_room_vertices_reused);
+            fprintf(stream, "overlay_startup_reserve=%u,%lu\n",
+                (unsigned)objects->preview->cold_overlay_reserve_status,
+                (unsigned long)objects->preview->cold_overlay_reserve_bytes);
             fprintf(stream, "overlay_publication_paths=%llu,%llu,%llu\n",
                 (unsigned long long)scene->overlay_inplace_replacements,
                 (unsigned long long)scene->overlay_allocating_replacements,
@@ -10842,6 +10847,23 @@ static void load_dam_room_preview(GeAssetPack *asset_pack,
             preview->world_room_ids, preview->world_room_count,
             &dynamic_limits);
         if (preview->dynamic_scene_status == GE_DAM_DYNAMIC_SCENE_OK) {
+            GeDamDynamicScene *scene = &preview->dynamic_scene;
+            /* Cold-load allocation policy, not extra authored geometry: keep
+             * up to one resident scene's worth of spare overlay storage.
+             * Bound it by existing capacities. No gameplay/borrowed scene
+             * pointer is live yet; OOM retains the original growth path. */
+            size_t spare_vertices = dynamic_limits.vertex_capacity - scene->scene.vertex_count;
+            size_t spare_batches = dynamic_limits.batch_capacity - scene->scene.batch_count;
+            if (spare_vertices > scene->scene.vertex_count)
+                spare_vertices = scene->scene.vertex_count;
+            if (spare_batches > scene->scene.batch_count)
+                spare_batches = scene->scene.batch_count;
+            preview->cold_overlay_reserve_status =
+                ge_dam_dynamic_scene_reserve_overlay(scene, spare_vertices, spare_batches);
+            preview->cold_overlay_reserve_bytes =
+                (scene->vertex_storage_capacity - scene->scene.vertex_count) * sizeof(*scene->vertices)
+                + (scene->batch_storage_capacity - scene->scene.batch_count
+                    + scene->overlay_batch_storage_capacity) * sizeof(*scene->batches);
             free(batches);
             free(world_vertices);
             preview->source_vertices = preview->dynamic_scene.vertices;

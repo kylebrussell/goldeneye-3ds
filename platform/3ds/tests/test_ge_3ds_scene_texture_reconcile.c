@@ -1,7 +1,9 @@
 #include "ge_3ds_scene_texture.h"
+#include "ge_dam_dynamic_scene.h"
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -570,6 +572,176 @@ static void test_large_preflight_first_use_order_and_rollback(void)
     assert(delete_count == 191U);
 }
 
+typedef struct RoomCommitTest {
+    GeDamDynamicScene *scene;
+    GeDamPreloadQueue *queue;
+    GeDamDynamicSceneTransaction *transaction;
+    Ge3dsSceneTextures *current;
+    Ge3dsSceneTextures *candidate;
+    GeDamDynamicSceneStatus status;
+    size_t calls;
+} RoomCommitTest;
+
+static int commit_test_room(void *context)
+{
+    RoomCommitTest *test = context;
+    ++test->calls;
+    /* Geometry is allowed to fail here: neither borrow has moved yet. */
+    assert(test->current->slots[0].owned == 1U);
+    assert(test->current->slots[0].texture.test_handle == 801U);
+    assert(test->candidate->slots[0].owned == 0U);
+    assert(test->candidate->slots[0].texture.test_handle == 801U);
+    assert(delete_count == 0U);
+    test->status = ge_dam_dynamic_scene_commit(
+        test->scene, test->queue, test->transaction);
+    return test->status == GE_DAM_DYNAMIC_SCENE_OK;
+}
+
+static void test_room_and_texture_publication_is_atomic(void)
+{
+    /* Real room/queue commits, synthetic geometry and GPU handles. Cover a
+     * borrow validation failure, invalid geometry, stale queue head, failure
+     * after queue pop (eviction rollback), capacity corruption, then success. */
+    for (unsigned failure = 0U; failure < 6U; ++failure) {
+        GeTextureCache cache = {0};
+        Ge3dsSceneTextureSlot slots[2], next_slots[4];
+        Ge3dsSceneTextures current = {.slots = slots, .capacity = 2U,
+            .texture_count = 2U, .loaded_count = 2U};
+        Ge3dsSceneTextures candidate;
+        Ge3dsSceneTextureReconcileStats stats;
+        GeDamRoomDrawBatch batches[] = {
+            authored_batch(1U), authored_batch(3U), authored_batch(9U)};
+        GeDamDynamicScene scene = {0};
+        GeDamDynamicSceneTransaction transaction = {0};
+        GeDamPreloadQueue queue;
+        const uint8_t initial_room = 1U;
+        reset_counters();
+        resident_slot(&slots[0], 1U, 801U);
+        resident_slot(&slots[1], 2U, 802U);
+        assert(ge_3ds_scene_textures_reconcile_prepare(&cache, batches, 3U,
+            &current, next_slots, 4U, &candidate, &stats)
+            == GE_3DS_SCENE_TEXTURE_PARTIAL);
+        scene.initialized = 1U;
+        scene.limits.room_capacity = 4U;
+        scene.room_count = scene.scene.room_count = 1U;
+        scene.room_ids[0] = initial_room;
+        scene.resident[initial_room] = scene.room_age[initial_room] = 1U;
+        scene.generation = 10U;
+        scene.vertices = calloc(3U, sizeof(*scene.vertices));
+        scene.scene.vertex_count = 3U;
+        scene.room_ranges = calloc(1U, sizeof(*scene.room_ranges));
+        transaction.vertices = calloc(3U, sizeof(*transaction.vertices));
+        transaction.scene.vertex_count = 3U;
+        transaction.room_ranges = calloc(1U, sizeof(*transaction.room_ranges));
+        assert(scene.vertices && scene.room_ranges
+            && transaction.vertices && transaction.room_ranges);
+        transaction.room = transaction.room_ids[0] = 2U;
+        transaction.room_count = transaction.scene.room_count = 1U;
+        transaction.prepared = transaction.includes_request = 1U;
+        transaction.evicted_count = 1U;
+        transaction.evicted_rooms[0] = initial_room;
+        assert(ge_dam_preload_queue_init(&queue, 4U, 4U, &initial_room, 1U)
+            == GE_DAM_PRELOAD_OK);
+        assert(ge_dam_preload_queue_request(&queue, 2U) == 1U);
+        if (failure == 0U) next_slots[0].image_id = 77U;
+        if (failure == 1U) {
+            free(transaction.room_ranges);
+            transaction.room_ranges = NULL;
+        }
+        if (failure == 2U) transaction.room = 3U;
+        if (failure == 3U) transaction.evicted_rooms[0] = 3U;
+        if (failure == 4U) candidate.capacity = 2U;
+        GeDamPreloadQueue before_queue = queue;
+        GeDamRoomWorldVertex *old_vertices = scene.vertices;
+        GeDamRoomWorldVertex *new_vertices = transaction.vertices;
+        Ge3dsSceneTextures before_current = current, before_candidate = candidate;
+        Ge3dsSceneTextureSlot before_slots[2], before_next[4];
+        memcpy(before_slots, slots, sizeof(slots));
+        memcpy(before_next, next_slots, sizeof(next_slots));
+        RoomCommitTest test = {&scene, &queue, &transaction,
+            &current, &candidate, GE_DAM_DYNAMIC_SCENE_OK, 0U};
+        Ge3dsSceneTextureStatus result =
+            ge_3ds_scene_textures_reconcile_commit_after(&current, &candidate,
+                &stats, commit_test_room, &test);
+        if (failure < 5U) {
+            assert(result == (failure == 0U || failure == 4U
+                ? GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT
+                : GE_3DS_SCENE_TEXTURE_COMMIT_REJECTED));
+            assert(test.calls == (failure == 0U || failure == 4U ? 0U : 1U));
+            assert(memcmp(&current, &before_current, sizeof(current)) == 0);
+            assert(memcmp(&candidate, &before_candidate, sizeof(candidate)) == 0);
+            assert(memcmp(slots, before_slots, sizeof(slots)) == 0);
+            assert(memcmp(next_slots, before_next, sizeof(next_slots)) == 0);
+            assert(memcmp(&queue, &before_queue, sizeof(queue)) == 0);
+            assert(scene.generation == 10U && scene.vertices == old_vertices);
+            assert(scene.resident[1] && !scene.resident[2]);
+            assert(stats.released_count == 0U && delete_count == 0U);
+            candidate.capacity = 4U;
+            ge_dam_dynamic_scene_abort(&scene, &transaction);
+        } else {
+            assert(result == GE_3DS_SCENE_TEXTURE_PARTIAL && test.calls == 1U);
+            assert(test.status == GE_DAM_DYNAMIC_SCENE_OK);
+            assert(scene.generation == 11U && scene.vertices == new_vertices);
+            assert(!scene.resident[1] && scene.resident[2]);
+            assert(queue.pending_count == 0U && queue.loading_count == 0U);
+            assert(ge_dam_preload_queue_room_state(&queue, 2U)
+                == GE_DAM_PRELOAD_ROOM_RESIDENT);
+            assert(current.slots == NULL && next_slots[0].owned == 1U);
+            assert(next_slots[0].texture.test_handle == 801U);
+            assert(stats.released_count == 1U && deletion_count(802U) == 1U);
+        }
+        ge_3ds_scene_textures_close(&candidate);
+        ge_3ds_scene_textures_close(&current);
+        assert(delete_count == 3U && deletion_count(801U) == 1U
+            && deletion_count(802U) == 1U && deletion_count(1003U) == 1U);
+        ge_dam_dynamic_scene_close(&scene);
+    }
+}
+
+static void test_sustained_residency_only_imports_new_images(void)
+{
+    GeTextureCache cache = {0};
+    Ge3dsSceneTextureSlot slots[64], next_slots[64];
+    Ge3dsSceneTextures current = {0};
+    size_t retained = 0U, imported = 0U, released = 0U;
+    reset_counters();
+    for (size_t step = 0U; step < 96U; ++step) {
+        GeDamRoomDrawBatch batches[64];
+        Ge3dsSceneTextures next;
+        Ge3dsSceneTextureReconcileStats stats;
+        for (size_t i = 0U; i < 64U; ++i)
+            batches[i] = authored_batch((uint16_t)(100U + step + i));
+        assert(ge_3ds_scene_textures_reconcile_prepare(&cache, batches, 64U,
+            &current, next_slots, 64U, &next, &stats)
+            == GE_3DS_SCENE_TEXTURE_OK);
+        for (size_t i = 0U; i < 64U; ++i) {
+            const Ge3dsSceneTextureSlot *slot = ge_3ds_scene_textures_find(
+                &next, batches[i].texture.texture_id);
+            assert(slot && slot->texture.test_handle == 1100U + step + i);
+            assert(slot->width == 32U && slot->height == 16U);
+            assert(memcmp(&slot->subtexture, &imported_texture.subtexture,
+                sizeof(slot->subtexture)) == 0);
+        }
+        assert(ge_3ds_scene_textures_reconcile_commit(&current, &next, &stats)
+            == GE_3DS_SCENE_TEXTURE_OK);
+        retained += stats.retained_count;
+        imported += stats.imported_count;
+        released += stats.released_count;
+        memcpy(slots, next_slots, sizeof(slots));
+        current = next;
+        current.slots = slots;
+        next.slots = NULL;
+        ge_3ds_scene_textures_close(&next);
+    }
+    assert(retained == 5985U && imported == 159U && released == 95U);
+    assert(import_count == 159U && delete_count == 95U);
+    ge_3ds_scene_textures_close(&current);
+    assert(delete_count == import_count);
+    for (uint32_t handle = 1100U; handle < 1259U; ++handle)
+        assert(deletion_count(handle) == 1U);
+    puts("96 synthetic room texture sets: 159 imports, 5985 retained; exact handles/UVs");
+}
+
 int main(void)
 {
     test_abort_keeps_current_and_releases_only_import();
@@ -582,6 +754,8 @@ int main(void)
     test_index_load_append_move_and_large_fallback();
     test_index_collisions_reconcile_and_unindexed_append();
     test_large_preflight_first_use_order_and_rollback();
-    puts("ge_3ds_scene_texture reconciliation/index: 11 cases passed");
+    test_room_and_texture_publication_is_atomic();
+    test_sustained_residency_only_imports_new_images();
+    puts("ge_3ds_scene_texture reconciliation/index/room commit: 13 cases passed");
     return 0;
 }

@@ -1408,6 +1408,7 @@ typedef struct RuntimeDamPreview {
     GeDamDynamicScene dynamic_scene;
     GeDamDynamicSceneStatus dynamic_scene_status;
     Ge3dsSceneTextureStatus stream_texture_status;
+    uint64_t stream_texture_work[3]; /* committed retained/imported/released */
     GeDamCameraStatus stream_camera_status;
     uint8_t stream_allocation_failed;
     uint32_t diagnostic_stream_phase;
@@ -1732,6 +1733,10 @@ static bool write_visual_probe_tour_diagnostic(
             (unsigned int)preview->stream_camera_status);
     fprintf(stream, "stream_texture_status=%u\n",
             (unsigned int)preview->stream_texture_status);
+    fprintf(stream, "room_texture_work=%llu,%llu,%llu\n",
+            (unsigned long long)preview->stream_texture_work[0],
+            (unsigned long long)preview->stream_texture_work[1],
+            (unsigned long long)preview->stream_texture_work[2]);
     fprintf(stream, "stream_allocation_failed=%u\n",
             (unsigned int)preview->stream_allocation_failed);
     fprintf(stream, "stream_phase=%u\n",
@@ -3544,6 +3549,10 @@ static bool write_input_probe_result(
             fprintf(stream, "room_geometry_work=%llu,%llu\n",
                 (unsigned long long)scene->room_geometry_decodes,
                 (unsigned long long)scene->room_geometry_reuses);
+            fprintf(stream, "room_texture_work=%llu,%llu,%llu\n",
+                (unsigned long long)objects->preview->stream_texture_work[0],
+                (unsigned long long)objects->preview->stream_texture_work[1],
+                (unsigned long long)objects->preview->stream_texture_work[2]);
             fprintf(stream, "overlay_publication_paths=%llu,%llu,%llu\n",
                 (unsigned long long)scene->overlay_inplace_replacements,
                 (unsigned long long)scene->overlay_allocating_replacements,
@@ -7228,13 +7237,15 @@ static bool prepare_stage_guard_texture_residency(
     RuntimeStageOrdinaryObjects *objects, Ge3dsSceneTextures *candidate,
     Ge3dsSceneTextureReconcileStats *stats)
 {
+    if (objects == NULL || objects->guard_models == NULL) return true;
+    if (objects->preview == NULL || objects->preview->texture_cache == NULL)
+        return false;
     RuntimeGuardTextureResidency residency = {
         objects->preview->texture_cache, candidate, stats};
     /* Loaded body/head tables describe this stage's actual chosen guards.
      * Import hidden parts during level installation, and borrow them through
      * room-residency changes. No pose, visibility, AI or RNG is advanced. */
-    return objects->guard_models == NULL
-        || ge_original_character_models_visit_texture_ids(
+    return ge_original_character_models_visit_texture_ids(
             objects->guard_models, &residency, include_stage_guard_texture);
 }
 
@@ -11193,10 +11204,23 @@ fail:
     return false;
 }
 
-/* Reprojection boundary for the next original bondview/player integration:
- * callers supply runtime-space camera state; this function reruns the exact
- * decompiled matrix producer and atomically publishes clipped render batches.
- * A failed update leaves a previously valid camera frame intact. */
+typedef struct RuntimeRoomStreamCommit {
+    RuntimeDamPreview *preview;
+    GeDamDynamicSceneTransaction *transaction;
+} RuntimeRoomStreamCommit;
+
+static int commit_room_stream_geometry(void *context)
+{
+    RuntimeRoomStreamCommit *commit = context;
+    commit->preview->dynamic_scene_status = ge_dam_dynamic_scene_commit(
+        &commit->preview->dynamic_scene, &commit->preview->preload_queue,
+        commit->transaction);
+    return commit->preview->dynamic_scene_status == GE_DAM_DYNAMIC_SCENE_OK;
+}
+
+/* Original player camera/visibility publication and queued room streaming.
+ * Scene allocation/import failures preserve the last resident geometry and
+ * textures; the camera itself can still advance with the original player. */
 static bool update_original_dam_camera(
     RuntimeDamPreview *preview,
     const float camera_position[3],
@@ -11204,7 +11228,8 @@ static bool update_original_dam_camera(
     const float camera_up[3],
     uint8_t room,
     Vertex *destination,
-    bool project_scene)
+    bool project_scene,
+    RuntimeStageOrdinaryObjects *objects)
 {
     const float level_scale = preview != NULL && preview->stage_assets != NULL
         ? preview->stage_assets->level_scale : 0.0f;
@@ -11320,7 +11345,11 @@ static bool update_original_dam_camera(
         return false;
     }
     visual_probe_record_stream_phase(preview, 5U, room);
-    if (!project_scene) {
+    /* Matrix-only gameplay updates must still drain the original visibility
+     * preload queue. Previously only the startup/diagnostic camera could
+     * install rooms beyond the initial connected set. No upload is needed
+     * for an ordinary camera change when residency has not changed. */
+    if (!project_scene && preview->preload_queue.pending_count == 0U) {
         preview->original_camera_ready = true;
         return true;
     }
@@ -11330,6 +11359,7 @@ static bool update_original_dam_camera(
         RuntimeDamPreview *candidate_preview = NULL;
         Ge3dsSceneTextureSlot *candidate_slots = NULL;
         Ge3dsSceneTextures candidate_textures = {0};
+        Ge3dsSceneTextureReconcileStats texture_stats = {0};
         Vertex *candidate_destination = NULL;
         Ge3dsSceneTextureStatus texture_status;
         bool candidate_projected = false;
@@ -11349,7 +11379,7 @@ static bool update_original_dam_camera(
              * scratch state. Keeping this transaction copy on the 3DS main
              * thread stack consumed over 18 KiB and overflowed only when a
              * nonresident authored room first entered this branch. */
-            candidate_preview = malloc(sizeof(*candidate_preview));
+            candidate_preview = calloc(1U, sizeof(*candidate_preview));
             candidate_slots = calloc(DAM_SCENE_TEXTURE_CAPACITY,
                                      sizeof(*candidate_slots));
             /* The live PICA path consumes authored world vertices with the
@@ -11368,10 +11398,18 @@ static bool update_original_dam_camera(
                         || candidate_destination != NULL)) {
                 visual_probe_record_stream_phase(preview, 8U,
                     transaction.room);
-                texture_status = ge_3ds_scene_textures_load(
+                texture_status = ge_3ds_scene_textures_reconcile_prepare(
                     preview->texture_cache, transaction.batches,
-                    transaction.scene.batch_count, candidate_slots,
-                    DAM_SCENE_TEXTURE_CAPACITY, &candidate_textures);
+                    transaction.scene.batch_count, &dam_scene_textures,
+                    candidate_slots, DAM_SCENE_TEXTURE_CAPACITY,
+                    &candidate_textures, &texture_stats);
+                if ((texture_status == GE_3DS_SCENE_TEXTURE_OK
+                        || texture_status == GE_3DS_SCENE_TEXTURE_PARTIAL)
+                        && objects != NULL
+                        && !prepare_stage_guard_texture_residency(
+                            objects, &candidate_textures, &texture_stats)) {
+                    texture_status = GE_3DS_SCENE_TEXTURE_DEPENDENCY_FAILED;
+                }
                 if (texture_status == GE_3DS_SCENE_TEXTURE_OK
                         || texture_status == GE_3DS_SCENE_TEXTURE_PARTIAL) {
                     *candidate_preview = *preview;
@@ -11413,20 +11451,32 @@ static bool update_original_dam_camera(
                 preview->stream_allocation_failed = 1U;
             }
             if (candidate_projected) {
+                RuntimeRoomStreamCommit commit = {preview, &transaction};
+                const uint8_t requested_room = transaction.room;
                 visual_probe_record_stream_phase(preview, 11U,
-                    transaction.room);
-                preview->dynamic_scene_status = ge_dam_dynamic_scene_commit(
-                    &preview->dynamic_scene, &preview->preload_queue,
-                    &transaction);
+                    requested_room);
+                /* Validate all borrowed textures before the fallible geometry
+                 * commit. On rejection both publications remain unchanged;
+                 * on success only ownership transfer/deletion remains. */
+                preview->stream_texture_status =
+                    ge_3ds_scene_textures_reconcile_commit_after(
+                        &dam_scene_textures, &candidate_textures,
+                        &texture_stats, commit_room_stream_geometry, &commit);
+                candidate_projected = preview->stream_texture_status
+                        == GE_3DS_SCENE_TEXTURE_OK
+                    || preview->stream_texture_status
+                        == GE_3DS_SCENE_TEXTURE_PARTIAL;
                 visual_probe_record_stream_phase(preview, 12U,
-                    transaction.room);
+                    requested_room);
             }
             if (candidate_projected
                     && preview->dynamic_scene_status
                         == GE_DAM_DYNAMIC_SCENE_OK) {
                 GeDamRoomScene *published = &preview->dynamic_scene.scene;
 
-                ge_3ds_scene_textures_close(&dam_scene_textures);
+                preview->stream_texture_work[0] += texture_stats.retained_count;
+                preview->stream_texture_work[1] += texture_stats.imported_count;
+                preview->stream_texture_work[2] += texture_stats.released_count;
                 memcpy(dam_scene_texture_slots, candidate_slots,
                     DAM_SCENE_TEXTURE_CAPACITY * sizeof(*candidate_slots));
                 dam_scene_textures = candidate_textures;
@@ -11511,7 +11561,7 @@ static void initialize_original_dam_camera(
         runtime_position[axis] = spawn->position[axis] / level_scale;
     }
     (void)update_original_dam_camera(preview, runtime_position, spawn->look,
-        spawn->up, preview->world_room_ids[0], destination, true);
+        spawn->up, preview->world_room_ids[0], destination, true, NULL);
 }
 
 static void map_rareware_quad_uv(RuntimeGbiMesh *mesh, size_t texture_index,
@@ -17520,7 +17570,7 @@ start_stage_runtime:
             const bool camera_updated = update_original_dam_camera(
                 &dam_preview, view->position, view->look, view->up,
                 view->room,
-                (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, true);
+                (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, true, NULL);
             visual_probe_record_camera(
                 &visual_probe_tour, &dam_preview, camera_updated);
             visual_probe_tour.current_view_ready = camera_updated
@@ -17539,7 +17589,7 @@ start_stage_runtime:
             &dam_preview, dam_intro.player.camera_position,
             dam_intro.player.camera_look, dam_intro.player.camera_up,
             (uint8_t)dam_intro.player.room,
-            (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, true);
+            (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, true, NULL);
     }
     if (bond_animations.loaded)
         (void)ge_original_guard_animation_table_bind(
@@ -18073,9 +18123,10 @@ start_stage_runtime:
                         port.original_buttons);
                     if (!visual_probe_tour.enabled
                             && dam_intro.player.initialized
-                            && dam_intro.player.publication_generation
-                                != rendered_player_generation
-                            ) {
+                            && (dam_intro.player.publication_generation
+                                    != rendered_player_generation
+                                || dam_preview.preload_queue.pending_count
+                                    != 0U)) {
                         const u64 camera_start = osGetTime();
                         const bool camera_updated = update_original_dam_camera(
                                 &dam_preview,
@@ -18085,7 +18136,7 @@ start_stage_runtime:
                                 (uint8_t)dam_intro.player.room,
                                 (Vertex *)vertex_buffer
                                     + DAM_ROOM_VERTEX_OFFSET,
-                                false);
+                                false, &stage_ordinary_objects);
                         frame_profile.camera_ms += osGetTime() - camera_start;
                         if (camera_updated) {
                             if (dam_stage && dam_objects.guard_status
@@ -18274,7 +18325,7 @@ start_stage_runtime:
                             orbit_camera.room,
                             (Vertex *)vertex_buffer
                                 + DAM_ROOM_VERTEX_OFFSET,
-                            false);
+                            false, &stage_ordinary_objects);
                         frame_profile.camera_ms +=
                             osGetTime() - camera_start;
                     }
@@ -18695,7 +18746,8 @@ start_stage_runtime:
                 const bool camera_updated = update_original_dam_camera(
                     &dam_preview, view->position, view->look, view->up,
                     view->room,
-                    (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, true);
+                    (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, true,
+                    &stage_ordinary_objects);
                 bool ready_update = camera_updated;
                 bool ordinary_refresh_attempted = false;
                 bool ordinary_refresh_succeeded = false;

@@ -16,7 +16,9 @@ typedef enum Ge3dsSceneTextureStatus {
     GE_3DS_SCENE_TEXTURE_OK = 0,
     GE_3DS_SCENE_TEXTURE_PARTIAL,
     GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT,
-    GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED
+    GE_3DS_SCENE_TEXTURE_CAPACITY_EXCEEDED,
+    GE_3DS_SCENE_TEXTURE_COMMIT_REJECTED,
+    GE_3DS_SCENE_TEXTURE_DEPENDENCY_FAILED
 } Ge3dsSceneTextureStatus;
 
 typedef struct Ge3dsSceneTextureSlot {
@@ -109,6 +111,19 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_commit(
     Ge3dsSceneTextures *current,
     Ge3dsSceneTextures *candidate,
     Ge3dsSceneTextureReconcileStats *stats);
+
+/* Runs a related fallible publication (such as the prepared room geometry)
+ * after validating every borrow, but before releasing/transferring textures.
+ * A zero return leaves both texture sets untouched. After a nonzero return,
+ * texture ownership transfer has no remaining failure points. The callback
+ * must not change either texture set or their slot storage. Single-threaded,
+ * like the renderer; this is not a GPU synchronization primitive. */
+typedef int (*Ge3dsSceneTextureCommitGate)(void *context);
+Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_commit_after(
+    Ge3dsSceneTextures *current,
+    Ge3dsSceneTextures *candidate,
+    Ge3dsSceneTextureReconcileStats *stats,
+    Ge3dsSceneTextureCommitGate commit_gate, void *context);
 
 const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     const Ge3dsSceneTextures *scene,

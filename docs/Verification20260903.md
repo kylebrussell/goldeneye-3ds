@@ -572,3 +572,102 @@ reconciliation API there, with correct borrowed ownership, hidden character
 dependencies and geometry/texture rollback; do not replace the call without
 closing that transaction boundary. Reliable 60 FPS across levels and
 end-to-end high-fidelity gameplay remain unverified.
+
+## Follow-up: transactional room texture reuse and live preload draining
+
+Continued from `0949d643`. The queued room camera path now uses the existing
+texture reconciliation machinery: retained GPU images are borrowed during
+preparation, newly required images are imported, and obsolete images are
+released only at commit. Loaded guard body/head tables supply hidden texture
+dependencies, including inactive draw switches. Bootstrap camera calls pass
+no object provider; gameplay, POSEND and live tours pass the stage provider.
+
+The texture API adds a commit gate. It validates borrowed ownership and set
+capacities before calling the related fallible geometry publication. A failed
+geometry/queue commit leaves both texture sets unchanged; a successful callback
+is followed only by ownership transfers and obsolete-texture deletion. The
+callback cannot mutate texture sets, and this is a single-threaded ownership
+transaction, not GPU synchronization. Existing ordinary-object texture callers
+retain their original ungated API. Candidate preview allocation is now zeroed:
+the old allocation/import failure path could free an uninitialized render-batch
+pointer before the preview copy had been assigned.
+
+Inspection also found that normal gameplay passed `project_scene=false` and
+returned before processing the visibility preload queue. Only bootstrap and
+diagnostic cameras could install additional rooms. Matrix-only gameplay now
+enters the same room transaction when a request is pending, and pending work
+keeps the camera update eligible even with an unchanged player generation.
+No-request camera updates still avoid geometry upload. This is platform scene
+publication, not a replacement for original movement, collision or visibility.
+The original room aging/eviction selection remains unchanged. This fix needs a
+live traversal beyond the initial ten-room set; short opening-area traces are
+not sufficient evidence for it.
+
+Input and tour reports add `room_texture_work=retained,imported,released` for
+successfully committed **room** transactions. These counters exclude initial
+loads, ordinary-object rebuilds and aborted candidates; they are not total GPU
+activity or gameplay ticks.
+
+Verification:
+
+- Texture sanitizer tests now exercise the real room/queue commit behind the
+  gate: stale borrowed image, invalid geometry metadata, mismatched queue head,
+  failure after queue pop with rollback, invalid texture capacity, and successful
+  mixed retained/new/missing publication. They verify queue/residency/generation
+  preservation, ownership transfer and exactly-once destruction. Existing hidden
+  dependencies, empty sets, capacity, index and slot-relocation coverage passes.
+- A 96-step synthetic sliding residency test performs 159 imports and retains
+  5,985 images, versus 6,144 imports for full reload. Handles, dimensions and UV
+  metadata match. Tests pass at default sanitizer settings and `-O2` with
+  sanitizers and `-fshort-enums`; an optimized native run also passes.
+- A source-contract check guards gameplay queue draining, explicit live guard
+  providers, prepare/projection/gated-commit ordering, rollback and ownership
+  handoff. It does not substitute for live execution of main.c in Azahar.
+- Private actual-pack comparison exercises 21 authored stage samples. Eighteen
+  connected samples perform 41 texture-set publications each (initial set plus
+  four install/evict cycles within up to ten rooms). Frigate, Cradle and Cuba's
+  connected samples have one room and perform five unchanged publications.
+  Cold/reused sets match image IDs, dimensions and FNV-1a hashes/lengths of every
+  source blob passed to the importer, with no missing images. Real asset-pack,
+  catalog, cache, geometry and queue implementations run under ASan/UBSan;
+  Citro3D/Tex3DS calls are instrumented host doubles, not GPU execution. Every
+  mock allocation is deleted exactly once. No guards/player input are simulated
+  by this comparison; the separate hidden-dependency tests cover that contract.
+
+| Authored room sample | Full-load import calls | Reuse import calls |
+| --- | ---: | ---: |
+| Dam | 811 | 91 |
+| Facility | 750 | 86 |
+| Control | 1,218 | 93 |
+| Aztec | 1,964 | 119 |
+
+This is a reduction in repeated import work, **not measured FPS or GPU time**.
+Private source/runner: `build/host-tests/room_texture_pack_probe.c` and
+`run_room_texture_pack_probe.sh`. Evidence: `room-texture-pack-final-20260903.log`,
+`room-texture-reconcile-20260903.log`, `room-texture-short-enums-20260903.log`.
+The earlier pack-probe logs include intermediate link/setup attempts; the final
+log is the completed 21-stage comparison.
+
+The complete host suite passes (`room-texture-reuse-full-20260903.log`), and now
+includes texture reconciliation and runtime wiring checks. ARM/3DSX passes
+(`arm-room-texture-reuse{,-final}-20260903.log`); the ELF retains MoveBond,
+bondviewProcessInput, the live original gun and active-prop dispatch, room
+prepare/commit and the new gated texture commit.
+
+Candidate:
+`build/3ds-candidates/room-texture-d49118d4/goldeneye-3ds.3dsx`, SHA-256
+`d49118d4cfce3553d8929c3e203a911c3d96f121b76857871324c0d6ac89c2b4`.
+Assets remain `938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+Hardware staging and Azahar still match verified `0797edaa...`; macOS remained
+locked. No save/config/audio/emulator-instance changes or public pushes were
+made. Reliable 60 FPS and end-to-end mission fidelity remain unverified.
+
+Next: compare this accumulated candidate against `0797edaa...` on the existing
+Facility movement and Dam aim/combat traces once unlocked, plus a traversal
+beyond initial residency. Inspect frame-time tails and the room work counters,
+guard textures, portal transitions and scene-install failures. A further known
+publication boundary to tighten is ordinary-object installation: it currently
+sets the overlay before reconciling its textures, and a camera room install
+followed by the object refresh can upload the combined geometry twice. Make
+that boundary failure-safe before attempting deferred/coalesced upload; do not
+just suppress one upload when a following rebuild can fail.

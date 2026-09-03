@@ -308,12 +308,25 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_commit(
     Ge3dsSceneTextures *candidate,
     Ge3dsSceneTextureReconcileStats *stats)
 {
+    return ge_3ds_scene_textures_reconcile_commit_after(
+        current, candidate, stats, NULL, NULL);
+}
+
+Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_commit_after(
+    Ge3dsSceneTextures *current,
+    Ge3dsSceneTextures *candidate,
+    Ge3dsSceneTextureReconcileStats *stats,
+    Ge3dsSceneTextureCommitGate commit_gate, void *context)
+{
     size_t candidate_index;
     size_t released_count = 0U;
 
     if (current == NULL || candidate == NULL || current == candidate
             || candidate->slots == NULL || candidate->capacity == 0U
-            || candidate->slots == current->slots)
+            || candidate->slots == current->slots
+            || candidate->texture_count > candidate->capacity
+            || current->texture_count > current->capacity
+            || (current->texture_count != 0U && current->slots == NULL))
         return GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT;
 
     /* Validate every borrow before changing either set, so a malformed or
@@ -329,6 +342,8 @@ Ge3dsSceneTextureStatus ge_3ds_scene_textures_reconcile_commit(
                 || resident->owned == 0U)
             return GE_3DS_SCENE_TEXTURE_INVALID_ARGUMENT;
     }
+    if (commit_gate != NULL && !commit_gate(context))
+        return GE_3DS_SCENE_TEXTURE_COMMIT_REJECTED;
     for (candidate_index = 0U;
             candidate_index < candidate->texture_count; ++candidate_index) {
         Ge3dsSceneTextureSlot *slot = &candidate->slots[candidate_index];

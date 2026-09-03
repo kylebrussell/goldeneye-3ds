@@ -257,37 +257,6 @@ void ge_port_player_gait_decode_joint_handle(
                       (u8 *)(uintptr_t)frame, rotation);
 }
 
-void ge_port_player_gait_build_group_quaternion(
-    ModelRenderData *render_data, Model *model, ModelNode *node,
-    quatf rotation)
-{
-    ModelRoData_GroupRecord *group;
-    Mtxf *parent;
-    Mtxf local;
-    Mtxf *destination;
-    if (g_active_gait == NULL || model != g_active_gait->model ||
-        render_data == NULL || model->render_pos == NULL || node == NULL ||
-        (node->Opcode & 0x300u) != 0u) {
-        if (g_active_gait != NULL) {
-            g_active_gait->matrix_build_ok = 0;
-        }
-        return;
-    }
-    group = &node->Data->Group;
-    parent = node->Parent != NULL
-        ? modelFindNodeMtx(model, node->Parent, 0) : render_data->basemtx;
-    destination = &model->render_pos[group->MatrixID0].pos;
-    quaternion_to_transform_matrix(&group->Origin, rotation, &local);
-    if (parent != NULL) {
-        matrix_4x4_multiply_homogeneous(parent, &local, destination);
-    } else {
-        *destination = local;
-    }
-    if (g_ModelJointPositionedFunc != NULL) {
-        g_ModelJointPositionedFunc(group->MatrixID0, destination);
-    }
-}
-
 void ge_port_player_gait_instcalcmatrices(ModelRenderData *render_data,
                                           Model *model)
 {

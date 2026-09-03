@@ -2,6 +2,9 @@
 #include "ge_original_frontend_cast_model.h"
 #include "ge_3ds_original_frontend_cast.h"
 #include "ge_original_player_gait_internal.h"
+#include "ge_original_character_models.h"
+#include "ge_original_guard_animation_table.h"
+#include "assets/animationtable_data.h"
 
 #include <ultra64.h>
 #ifdef MAXFLOAT
@@ -18,6 +21,176 @@ typedef int PLAYERFLAG;
 #include <string.h>
 
 static struct player harness_player;
+
+static unsigned joint_callback_calls;
+static Mtxf *joint_callback_matrix;
+
+static void audit_joint_callback(s32 index, Mtxf *matrix)
+{
+    assert(index == 0);
+    assert(matrix == joint_callback_matrix);
+    ++joint_callback_calls;
+    /* Aiming modifies the primary joint before its children are built. */
+    matrix->m[3][0] += 11.0f;
+}
+
+static void audit_non_gait_quaternion_matrices(void)
+{
+    Model model = {0};
+    ModelRenderData render_data = {0};
+    union ModelRoData data = {0};
+    union ModelRoData parent_data = {0};
+    ModelNode node = {0};
+    ModelNode parent_node = {0};
+    RenderPosView matrices[4];
+    coord3d rotation = {.x = 0.0f, .y = 0.6f, .z = 0.0f};
+    quatf quaternion;
+    Mtxf base;
+    Mtxf local;
+    Mtxf expected;
+    unsigned parent_kind;
+    unsigned flags;
+    size_t row, column, index;
+    data.Group.MatrixID0 = 0;
+    data.Group.MatrixID1 = 1;
+    data.Group.MatrixID2 = 2;
+    data.Group.Origin = (coord3d){.x = 3.0f, .y = 5.0f, .z = 7.0f};
+    node.Data = &data;
+    parent_node.Opcode = MODELNODE_OPCODE_GROUP;
+    parent_node.Data = &parent_data;
+    parent_data.Group.MatrixID0 = 3;
+    model.render_pos = matrices;
+    matrix_4x4_set_identity(&base);
+    base.m[3][0] = 13.0f;
+    quaternion_set_rotation_around_xyzf(rotation.f, quaternion);
+    for (parent_kind = 0; parent_kind < 3; ++parent_kind) {
+        node.Parent = parent_kind == 2 ? &parent_node : NULL;
+        render_data.basemtx = parent_kind == 1 ? &base : NULL;
+        for (flags = 0; flags < 4; ++flags) {
+            /* No selected player gait: this is the ordinary guard/cast path.
+             * Unwritten transient slots must not masquerade as valid poses. */
+            for (index = 0; index < 3; ++index)
+                for (row = 0; row < 4; ++row)
+                    for (column = 0; column < 4; ++column)
+                        matrices[index].pos.m[row][column] = NAN;
+            matrices[3].pos = base;
+            node.Opcode = MODELNODE_OPCODE_GROUP | (flags << 8);
+            joint_callback_calls = 0;
+            joint_callback_matrix = &matrices[0].pos;
+            g_ModelJointPositionedFunc = audit_joint_callback;
+            ge_port_player_gait_build_group_quaternion(
+                &render_data, &model, &node, quaternion);
+            g_ModelJointPositionedFunc = NULL;
+            quaternion_to_transform_matrix(data.Group.Origin.f,
+                                             quaternion, local.m);
+            if (parent_kind != 0) {
+                matrix_4x4_multiply_homogeneous(&base, &local, &expected);
+                expected.m[3][0] += 11.0f;
+            } else {
+                expected = local;
+            }
+            assert(joint_callback_calls == (parent_kind != 0));
+            for (row = 0; row < 4; ++row)
+                for (column = 0; column < 4; ++column) {
+                    assert(isfinite(matrices[0].pos.m[row][column]));
+                    assert(matrices[0].pos.m[row][column]
+                           == expected.m[row][column]);
+                }
+            for (index = 1; index < 3; ++index)
+                for (row = 0; row < 4; ++row)
+                    for (column = 0; column < 4; ++column)
+                        if ((flags & (1U << (index - 1U))) != 0)
+                            assert(isfinite(matrices[index].pos.m[row][column]));
+                        else
+                            assert(isnan(matrices[index].pos.m[row][column]));
+        }
+    }
+}
+
+static void *read_pose_asset(GeAssetPack *pack, const char *path, size_t *size)
+{
+    const GeAssetPackEntry *entry = ge_asset_pack_find(pack, path);
+    void *bytes;
+    assert(entry != NULL && entry->data_size > 0);
+    *size = (size_t)entry->data_size;
+    bytes = malloc(*size);
+    assert(bytes != NULL);
+    assert(ge_asset_pack_read(pack, path, bytes, *size, NULL)
+        == GE_ASSET_PACK_OK);
+    return bytes;
+}
+
+static void audit_authored_guard_animation_merges(GeAssetPack *pack)
+{
+    static const uint32_t animations[] = {
+        PTR_ANIM_walking, PTR_ANIM_fire_standing,
+        PTR_ANIM_hit_left_shoulder, PTR_ANIM_death_neck,
+        PTR_ANIM_fire_standing_one_handed_weapon,
+    };
+    GeOriginalCharacterModelStatus status;
+    GeOriginalCharacterModelProvider *provider;
+    GeOriginalCharacterModelPair pair;
+    size_t data_size, entries_size;
+    void *data = read_pose_asset(pack,
+        "converted/animations/bond/animation_data.bin", &data_size);
+    void *entries = read_pose_asset(pack,
+        "converted/animations/bond/animation_entries.bin", &entries_size);
+    Model *model;
+    RenderPosView *matrices;
+    ModelRenderData render_data = {0};
+    Mtxf view;
+    size_t animation, tick, matrix, row, column;
+    unsigned blend_frames = 0;
+    assert(ge_original_guard_animation_table_bind(data, data_size));
+    assert(ge_original_guard_animation_entries_bind(entries, entries_size));
+    provider = ge_original_character_model_provider_create(pack, 2, 1, &status);
+    assert(provider != NULL);
+    assert(ge_original_character_model_resolve_pair(provider,
+        BODY_Russian_Soldier, HEAD_Male_Karl, 0, &pair));
+    model = pair.model_instance;
+    matrices = model->render_pos;
+    modelSetScale(model, pair.scale);
+    modelSetAnimTranslationScale(model, 1.0f);
+    modelSetAnimPlaySpeed(model, 0.5f, 0.0f);
+    matrix_4x4_set_identity(&view);
+    view.m[3][2] = -500.0f;
+    render_data.basemtx = &view;
+    modelSetDistanceDisabled(1);
+    for (animation = 0; animation < sizeof(animations) / sizeof(*animations);
+            ++animation) {
+        ModelAnimation *next = ge_port_guard_animation_resolve(animations[animation]);
+        assert(next != NULL);
+        modelSetAnimation(model, next, animation % 2U, 0.0f, 1.0f,
+                          animation == 0 ? 0.0f : 12.0f);
+        for (tick = 0; tick < 40; ++tick) {
+            modelTickAnim(model, 1, 1);
+            blend_frames += model->unk84 != 0.0f;
+            assert(ge_original_character_model_prepare_instance_relations(
+                provider, model));
+            /* Model updates must write every authored guard matrix even
+             * during merges, regardless of the frame allocator's old bytes. */
+            for (matrix = 0; matrix < pair.matrix_count; ++matrix)
+                for (row = 0; row < 4; ++row)
+                    for (column = 0; column < 4; ++column)
+                        matrices[matrix].pos.m[row][column] = NAN;
+            render_data.mtxlist = &matrices[0].pos;
+            subcalcmatrices(&render_data, model);
+            for (matrix = 0; matrix < pair.matrix_count; ++matrix)
+                for (row = 0; row < 4; ++row)
+                    for (column = 0; column < 4; ++column)
+                        assert(isfinite(matrices[matrix].pos.m[row][column]));
+        }
+        assert(model->unk84 == 0.0f);
+    }
+    assert(blend_frames > 0);
+    printf("authored guard pose merges passed: 200 frames, %u blended\n",
+           blend_frames);
+    modelSetDistanceDisabled(0);
+    ge_original_character_model_provider_destroy(provider);
+    ge_original_guard_animation_table_reset();
+    free(entries);
+    free(data);
+}
 
 struct player *ge_original_spawn_player_get(void)
 {
@@ -269,6 +442,7 @@ static void reset_pose(GeOriginalFrontendCast *cast,
 
 int main(int argc, char **argv)
 {
+    audit_non_gait_quaternion_matrices();
     static const uint32_t animation_offsets[] = {
         UINT32_C(0x5d10), UINT32_C(0x6254), UINT32_C(0x637c),
         UINT32_C(0x6808), UINT32_C(0x6d50), UINT32_C(0x777c),
@@ -315,6 +489,7 @@ int main(int argc, char **argv)
     memset(&harness_player, 0, sizeof(harness_player));
     harness_player.c_lodscalez = 1.0f;
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
+    audit_authored_guard_animation_merges(&pack);
     owner = ge_original_frontend_cast_model_create(&pack, &status);
     if (owner == NULL) {
         fprintf(stderr, "cast owner create: %s\n",

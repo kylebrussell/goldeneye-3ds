@@ -161,3 +161,63 @@ The build, SD staging directory, and Azahar installation are byte-matched.
 The final full host suite, focused ASan/UBSan cases, and ARM/3DSX build passed.
 Final verification logs: `build/host-tests/full-lifetime-checkpoint-20260902.log`
 and `build/host-tests/arm-lifetime-checkpoint-20260902.log`.
+
+## Follow-up: original guard quaternion blends
+
+The remaining pose investigation found a restricted early adapter in
+`ge_port_player_gait_build_group_quaternion`: it returned without writing any
+matrix unless the model was the active Bond gait, and rejected auxiliary
+matrix flags `0x100/0x200`. Canonical `process_02_position` also calls this
+path for guards whenever `unk84` enables animation merging. This could retain
+old transient arena bytes instead of the current blended pose.
+
+That adapter is removed. The generator now extracts the entire original
+`sub_GAME_7F06DB5C` body, including both auxiliary-matrix branches and the
+original parent-dependent joint callback. The only adaptations are its public
+symbol, pointer-sized locals/casts, and the correctly typed two-argument joint
+callback. No pose sanitization, actor skipping, or replacement animation logic
+was added.
+
+Verification:
+
+- A non-gait model with poisoned matrix slots failed the finite-matrix
+  assertion before the change. It now passes with absent/base/model-node
+  parents, all four auxiliary-flag combinations, exact primary transforms,
+  and callback identity/count checks.
+- A ROM-backed Russian soldier/Karl pair advances the original animation
+  clock through walking, firing, injury, death, and one-handed firing records:
+  200 frames, including 92 blended frames. All authored matrix slots are
+  poisoned before each real `subcalcmatrices` call and must be rewritten to
+  finite values. ASan/UBSan passes alongside the existing 34 cast actors,
+  22 animation records, and 14 weapon models.
+- Full host suite and ARM/3DSX build pass. Logs:
+  `build/host-tests/quaternion-regression-before-20260902.log`,
+  `quaternion-authored-regression-20260902.log`,
+  `full-quaternion-20260902.log`, and `arm-quaternion-20260902.log`.
+
+Azahar was unlocked. Two baseline retries of 46c751de ended in Bond death
+without reproducing the intermittent matrix error (4,303 and 4,138 gameplay
+ticks, 11/160 targets). The fixed build's report,
+`build/visual-probe/dam-canonical-quaternion-08505980.result`, records 4,951
+simulation/actor ticks, 13/160 targets, healthy actor status, no matrix failure,
+35 PP7 shots/three guard hits, Bond death/report-ready, and 3,795 NDSP blocks.
+It passed the prior failure area but did **not** complete Dam. The deterministic
+poisoned-buffer tests establish the fixed defect; one successful live retry
+alone would not establish absence of every possible matrix bug.
+
+Performance remains incomplete: 1,126/8,910 post-warmup presented frames took
+more than 16 ms; peak 229 ms. The slow-frame capture places 215 ms of that peak
+inside overlay work, with full scene rebuilds near presented frames 1,979 and
+1,983. One guard-topology replacement returned INVALID_ARGUMENT and fell back
+to full rebuilding. Investigate that renderer transaction boundary next;
+do not weaken validation or discard geometry. Host tests ran concurrently, so
+this is not a controlled FPS comparison. Audio delivery remains verified,
+not a listening fidelity comparison.
+
+Executable SHA-256:
+`08505980a5914d14c47cf3d7a9627a3715c298ee661655f75b00ae925401de8b`.
+Assets remain
+`938536d47ee48aa275f97614886551889a5cbc7107726e6e433bd4ecd1fe3743`.
+The build, SD staging directory, and Azahar installation are byte-matched.
+The temporary input-probe config was moved back into private probe output to
+restore normal launch. No ROM-derived assets, firmware, or saves are committed.

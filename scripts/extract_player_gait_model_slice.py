@@ -32,6 +32,7 @@ FUNCTIONS = (
     "subcalcpos",
     "process_01_group_heading",
     "modelBuildGroupMatrices",
+    "sub_GAME_7F06DB5C",
     "modelAnimReadBitsAsU16Angle",
     "sub_GAME_7F06DEC0",
     "process_02_position",
@@ -157,6 +158,8 @@ def main() -> None:
     pieces = [
         "/* Generated from src/game/model.c; do not hand-edit. */",
         '#include "ge_original_player_gait_internal.h"',
+        '#include <math.h>',
+        '#include <stdint.h>',
         "typedef int PLAYERFLAG;",
         '#include "game/bondview.h"',
         '#include "game/player.h"',
@@ -185,6 +188,27 @@ def main() -> None:
     ]
     for name in FUNCTIONS:
         body = find_function(source, name)
+        if name == "sub_GAME_7F06DB5C":
+            # Retain every original quaternion/auxiliary-matrix branch. The
+            # decomp spells a parent/matrix pointer as s32 and calls the
+            # two-argument joint callback through a three-s32 cast. Only
+            # repair that ABI; this path also serves guards, not just gait.
+            replacements = (
+                ("sub_GAME_7F06DB5C(",
+                 "ge_port_player_gait_build_group_quaternion("),
+                ("s32 *new_var;", "intptr_t *new_var;"),
+                ("s32 sp1C;", "intptr_t sp1C;"),
+                ("(s32)arg2->Parent", "(intptr_t)arg2->Parent"),
+                ("(s32)&sp48[sp54]", "(intptr_t)&sp48[sp54]"),
+                ("((void (*)(s32, s32, s32)) g_ModelJointPositionedFunc)"
+                 "(sp54, sp1C, sp1C);",
+                 "g_ModelJointPositionedFunc(sp54, (Mtxf *)sp1C);"),
+            )
+            for needle, replacement in replacements:
+                if body.count(needle) != 1:
+                    raise ValueError("quaternion matrix native-ABI adaptation drift: "
+                                     + needle)
+                body = body.replace(needle, replacement)
         if name == "modelCalculateRwDataIndexes":
             runtime_records = (
                 ("ModelRoData_HeaderRecord",

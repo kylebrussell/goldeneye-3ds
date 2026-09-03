@@ -96,6 +96,13 @@ assert "rendered_player_generation = UINT64_MAX" not in source[
 # GPU submission is outside this test; material compilation is the real port
 # implementation. Deliberate collisions must retain exact bindings/results.
 material_source = (repo / "platform/3ds/source/ge_3ds_material.c").read_text()
+compiler_source = (repo / "port/src/ge_pica_apply.c").read_text()
+compiler_fields = set(re.findall(r"\bmaterial->(\w+)", compiler_source
+    + function_body(material_source, "ge_3ds_material_prepare")))
+key_fields = set(re.findall(r"\bmaterial->(\w+)",
+    function_body(source, "renderer_material_key")))
+assert compiler_fields == key_fields, (compiler_fields - key_fields,
+    key_fields - compiler_fields)
 cache_start = source.index("enum {\n    RENDERER_PREPARED_MATERIAL_CACHE_CAPACITY")
 cache_end = source.index("static bool renderer_material_result_gpu_equal(", cache_start)
 test_source = r'''
@@ -113,6 +120,13 @@ Ge3dsMaterialStatus ge_3ds_material_prepare(const GePicaMaterial *material,
 ''' + function_body(material_source, "ge_3ds_material_prepare") + source[cache_start:cache_end] + r'''
 static RuntimeRendererPreparedMaterialCache cache;
 static uint64_t hits, misses;
+static size_t material_set(const GePicaMaterial *material,
+    const Ge3dsMaterialBinding *binding)
+{
+    RuntimeRendererPreparedMaterialKey key;
+    renderer_material_key(material, binding, &key);
+    return renderer_material_hash(&key);
+}
 static void check(const GePicaMaterial *material, Ge3dsMaterialBinding binding)
 {
     Ge3dsMaterialResult expected = {0}, actual = {0};
@@ -132,11 +146,11 @@ int main(void)
     material.color_combine = GE_PICA_COMBINE_TEXTURE0_MODULATE_PRIMITIVE;
     material.alpha_combine = GE_PICA_ALPHA_PRIMITIVE;
     material.texture_enabled = 1;
-    set = renderer_material_hash(&material, &binding);
+    set = material_set(&material, &binding);
     for (uint32_t i = 0; i < 65536U && count < 3U; ++i) {
         material.primitive_color.red = (uint8_t)i;
         material.primitive_color.green = (uint8_t)(i >> 8U);
-        if (renderer_material_hash(&material, &binding) == set)
+        if (material_set(&material, &binding) == set)
             colliders[count++] = material;
     }
     assert(count == 3U);
@@ -149,18 +163,37 @@ int main(void)
     assert(misses == 3U);
     check(&colliders[1], binding);
     assert(misses == 4U);
-    /* Every decoded byte, texture identity and fallback remain part of the
-     * key. Randomized deterministic churn checks evictions against uncached
-     * compilation, including unknown enum values handled by the compiler. */
+    /* Mutating ANY decoded byte must preserve the uncached result. Bytes
+     * outside the compiler's dependency set may reuse exact preparation. */
     for (size_t i = 0; i < sizeof(material); ++i) {
         material = colliders[0];
         ((uint8_t *)&material)[i] ^= 1U;
         uint64_t before = misses;
         check(&material, binding);
-        assert(misses == before + 1U);
+        assert(misses <= before + 1U);
+        before = misses;
         check(&material, binding);
-        assert(misses == before + 1U);
+        assert(misses == before);
     }
+    memset(&cache, 0, sizeof(cache));
+    hits = misses = 0U;
+    material = colliders[0];
+    binding.missing_texture_fallback = GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE;
+    for (size_t i = 0U; i < 65536U; ++i) {
+        material.texture_id = (uint16_t)i;
+        material.texture_image_address = (uint32_t)i * 64U;
+        material.texture_scale_s = (uint16_t)i;
+        material.combine_mux0 = (uint32_t)i;
+        binding.texture0 = &textures[i % 2U];
+        check(&material, binding);
+    }
+    assert(misses == 1U && hits == 65535U);
+    binding.texture0 = NULL;
+    check(&material, binding);
+    assert(misses == 2U); /* Unbound texture has different preparation. */
+    binding.missing_texture_fallback = GE_3DS_MATERIAL_TEXTURE_FALLBACK_REPLACE;
+    check(&material, binding);
+    assert(misses == 3U);
     for (size_t i = 0; i < 4000U; ++i) {
         material = colliders[i % 3U];
         material.fallback_flags = (i % 7U == 0U)

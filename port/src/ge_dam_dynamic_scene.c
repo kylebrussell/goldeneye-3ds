@@ -1014,6 +1014,32 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit_overlay_batches(
     return GE_DAM_DYNAMIC_SCENE_OK;
 }
 
+GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit_overlay_rooms(
+    GeDamDynamicScene *cache, size_t overlay_batch_offset,
+    const GeDamRoomDrawBatch *source_batches, size_t batch_count)
+{
+    size_t room_batch_count, index;
+    if (cache != NULL) cache->overlay_update_attempts++;
+    if (cache == NULL || cache->initialized == 0U || source_batches == NULL
+            || batch_count == 0U
+            || overlay_batch_offset > cache->overlay_batch_count
+            || batch_count > cache->overlay_batch_count - overlay_batch_offset
+            || cache->scene.vertex_count < cache->overlay_vertex_count
+            || cache->scene.batch_count < cache->overlay_batch_count) {
+        if (cache != NULL) cache->overlay_update_failures++;
+        return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
+    }
+    room_batch_count = cache->scene.batch_count - cache->overlay_batch_count;
+    for (index = 0U; index < batch_count; ++index) {
+        const uint8_t room = source_batches[index].room_id;
+        cache->overlay_batches[overlay_batch_offset + index].room_id = room;
+        cache->batches[room_batch_count + overlay_batch_offset + index].room_id = room;
+    }
+    cache->overlay_update_successes++;
+    cache->generation++;
+    return GE_DAM_DYNAMIC_SCENE_OK;
+}
+
 int ge_dam_dynamic_scene_is_resident(
     const GeDamDynamicScene *cache, uint8_t room)
 {

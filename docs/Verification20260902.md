@@ -727,3 +727,83 @@ Build, hardware-stage and Azahar executable copies match; both staged asset
 copies match. Saves and emulator DSP configuration were untouched. Only the
 existing Azahar instance was used. Source/tests/docs are the public checkpoint;
 ROM-derived assets, executable artifacts and local probe outputs stay private.
+
+## Exact preparation keys, pose-room publication, and idle presentation
+
+Continued from `706aa4d6`. Material preparation now keys only on the exact
+field dependency set of `ge_pica_apply_compile` and `ge_3ds_material_prepare`,
+including fallback diagnostics and texture presence. The actual texture
+identity remains in per-draw GPU binding; UVs, lighting, original mux words
+and other inputs already consumed elsewhere are not part of preparation.
+The regression test audits every `material->field` read in those compiler
+bodies against the key builder and compares against unchanged uncached
+preparation for all 65,536 texture IDs, arbitrary byte mutations, collisions,
+evictions, null textures and fallback modes. This also reduces cache storage.
+
+Measured in the same no-concurrent-build Dam aim replay:
+
+| Measurement | Fresh 0797edaa baseline | Compact-key 8f8d05d5 |
+| --- | ---: | ---: |
+| Simulation / presented frames | 750 / 839 | 750 / 853 |
+| World preparation misses | 7,568 | 24 |
+| First-person preparation misses | 12 | 3 |
+| Measured work per presented frame | 14.98 ms | 14.76 ms |
+| Post-warmup frames over 16 ms | 95 / 719 | 73 / 733 |
+| Post-warmup peak | 29 ms | 29 ms |
+
+Private evidence: `dam-material-key-baseline-0797edaa-aim.result` and
+`dam-material-key-8f8d05d5-aim.result`. These are small additional steady-frame
+improvements, not an elimination of cold publication spikes.
+
+Pose-only guard cache ranges now publish only room IDs into both batch views
+instead of recopying immutable materials and texture metadata. Scene
+generation and update accounting still advance for the changed vertices.
+This path is selected only when the model cache reports unchanged static
+data. Tests compare all batch bytes, retained triangle totals, counters,
+generation and failed-range rollback; topology changes still use the full
+publication path.
+
+The existing input runner had a Dam-only load gate. Stick/button traces now
+work in other stages through the same original live input chain; Dam-specific
+coordinate/guard routes are rejected outside Dam. Results now include the
+level ID. A Facility trace (level 34, build `2f158ac1...`) completed 750
+simulation passes, seven PP7 shots and original movement from
+`94.120,400.449,-792.803` to `-199.957,292.747,-193.685`, with zero guard-matrix
+and sight failures. Its 3,138 presentations exposed redundant zero-retrace
+rendering; this was a startup-area trace, not Facility completion or a full
+visual-fidelity audit. Evidence: `facility-room-publish-2f158ac1-move.result`
+and `stage-move-look-fire-750.cfg`.
+
+The next candidate gates gameplay presentation when no retrace is ready.
+Input is already latched by `ge_port_advance_*`, and audio is pumped before a
+one-millisecond idle yield. It neither drops ready gameplay passes nor waits
+for display VBlank after rendering. RAMROM's authored presentation cadence
+is left alone. This also avoids reticking render-owned HUD services on an
+unchanged simulation frame. `idle_present_skips` makes the behavior visible.
+A new test retains a fire edge through 1,000 zero-retrace polls, verifies no
+frame/RNG advance, and dispatches that edge once on the next original tick.
+
+The complete host suite passed (`material-pose-idle-full-20260902.log`), as did
+focused ASan/UBSan scene and gun/modem tests (`material-pose-idle-gun-20260902.log`)
+and ARM/3DSX (`arm-idle-presentation-20260902.log`). macOS locked before the
+candidate's emulator run; the user was asked to unlock it. **The retrace gate
+has not been measured or validated in Azahar yet.** Do not attribute the
+earlier material-key measurements to this later pacing change.
+
+Candidate executable SHA-256:
+`74a923f6f13a70fab2c5682061c7a01f2f0d0aab3acb47dc506629b778b57796`.
+It remains at `platform/3ds/goldeneye-3ds.3dsx` and
+`build/3ds-candidates/material-pose-idle-74a923f6/goldeneye-3ds.3dsx`.
+The verified hardware stage and Azahar virtual SD were left/restored at
+`0797edaa862003dfd1925a06c073519d62a176bf74c46ea58a04827154e0b975` with the unchanged
+`938536d4...` asset pack. Temporary stage/input configs were moved into the
+private report directory, restoring normal menu startup. Saves and DSP
+configuration were not changed.
+
+Next unlocked verification: deploy the candidate, repeat Facility's movement
+trace and Dam's aim/combat traces, check that presentations follow original
+tick dispatches while elapsed retraces still accumulate correctly, check HUD,
+input edges, audio and stability, then sample another authored stage. Compare
+total work per simulation interval as well as frame work: eliminating idle
+presentations changes the denominator, so old frame averages are not a fair
+standalone pacing comparison. Keep the verified deployment until this passes.

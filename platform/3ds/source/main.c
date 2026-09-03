@@ -569,6 +569,7 @@ typedef struct RuntimeFineProfile {
     uint64_t guard_replace_ticks;
     uint64_t guard_import_ticks;
     uint64_t guard_refresh_peak[7];
+    uint64_t idle_present_skips;
 } RuntimeFineProfile;
 
 static RuntimeFineProfile fine_profile;
@@ -2774,6 +2775,11 @@ static bool write_input_probe_result(
     stream = fopen(INPUT_PROBE_RESULT_PATH, "wb");
     if (stream == NULL) return false;
     fprintf(stream, "GE_INPUT_PROBE_RESULT 1\n");
+    fprintf(stream, "level_id=%ld\n",
+        (long)(objects->preview != NULL && objects->preview->stage_assets != NULL
+            ? objects->preview->stage_assets->level_id : LEVELID_NONE));
+    fprintf(stream, "idle_present_skips=%llu\n",
+        (unsigned long long)fine_profile.idle_present_skips);
     fprintf(stream, "status=%s\n",
         objects->actor_tick_status == RUNTIME_STAGE_ACTOR_TICK_READY
                 && objects->active_prop_status
@@ -8004,6 +8010,21 @@ static bool refresh_stage_guard_overlay_impl(
             const GeOriginalModelScenePublicationRange *range =
                 &objects->guard_scene_cache.publication_ranges[range_index];
             size_t batch_index;
+            if (!range->static_data_changed) {
+                /* Pose-only cache publications retain topology, coordinate
+                 * space, materials and texture bindings in both scene views.
+                 * Only authored room IDs can differ; preserve the existing
+                 * generation notification for the changed vertex positions. */
+                if (range->batch_count != 0U) {
+                    objects->overlay_status =
+                        ge_dam_dynamic_scene_commit_overlay_rooms(
+                            dynamic_scene, segment->batch_offset + range->batch_offset,
+                            segment->batches + range->batch_offset, range->batch_count);
+                    if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK)
+                        return false;
+                }
+                continue;
+            }
             if (range->static_data_changed
                     && !ensure_stage_guard_overlay_textures(objects,
                         segment->batches + range->batch_offset,
@@ -9269,11 +9290,54 @@ enum {
             / RENDERER_PREPARED_MATERIAL_CACHE_WAYS
 };
 
-typedef struct RuntimeRendererPreparedMaterialEntry {
-    GePicaMaterial material;
-    Ge3dsMaterialResult result;
-    C3D_Tex *texture;
+/* Exact input dependency set of ge_pica_apply_compile/material_prepare.
+ * Texture identity, ST mapping, lights, and original mux words are consumed
+ * elsewhere, not by preparation. The actual texture is still bound per draw.
+ * Tests audit compiler field reads and compare cached results byte-for-byte. */
+typedef struct RuntimeRendererPreparedMaterialKey {
+    uint32_t fallback_flags;
+    GePicaColor primitive_color;
+    GePicaColor environment_color;
+    GePicaCullMode cull_mode;
+    GePicaTextureWrap wrap_s, wrap_t;
+    GePicaTextureFilter min_filter, mag_filter;
+    GePicaCombineMode color_combine;
+    GePicaAlphaMode alpha_combine;
+    GePicaAlphaTest alpha_test;
+    GePicaDepthMode depth_mode;
     Ge3dsMaterialTextureFallback fallback;
+    uint8_t fog_enabled, depth_test_enabled, depth_write_enabled;
+    uint8_t blend_enabled, alpha_threshold, texture_present;
+} RuntimeRendererPreparedMaterialKey;
+
+static void renderer_material_key(const GePicaMaterial *material,
+    const Ge3dsMaterialBinding *binding, RuntimeRendererPreparedMaterialKey *key)
+{
+    memset(key, 0, sizeof(*key));
+    key->fallback_flags = material->fallback_flags;
+    key->primitive_color = material->primitive_color;
+    key->environment_color = material->environment_color;
+    key->cull_mode = material->cull_mode;
+    key->wrap_s = material->wrap_s;
+    key->wrap_t = material->wrap_t;
+    key->min_filter = material->min_filter;
+    key->mag_filter = material->mag_filter;
+    key->color_combine = material->color_combine;
+    key->alpha_combine = material->alpha_combine;
+    key->alpha_test = material->alpha_test;
+    key->depth_mode = material->depth_mode;
+    key->fog_enabled = material->fog_enabled;
+    key->depth_test_enabled = material->depth_test_enabled;
+    key->depth_write_enabled = material->depth_write_enabled;
+    key->blend_enabled = material->blend_enabled;
+    key->alpha_threshold = material->alpha_threshold;
+    key->fallback = binding->missing_texture_fallback;
+    key->texture_present = binding->texture0 != NULL;
+}
+
+typedef struct RuntimeRendererPreparedMaterialEntry {
+    RuntimeRendererPreparedMaterialKey key;
+    Ge3dsMaterialResult result;
     bool valid;
 } RuntimeRendererPreparedMaterialEntry;
 
@@ -9284,33 +9348,27 @@ typedef struct RuntimeRendererPreparedMaterialCache {
 } RuntimeRendererPreparedMaterialCache;
 
 static size_t renderer_material_hash(
-    const GePicaMaterial *material, const Ge3dsMaterialBinding *binding)
+    const RuntimeRendererPreparedMaterialKey *key)
 {
-    const uint8_t *bytes = (const uint8_t *)material;
-    uintptr_t texture_bits = (uintptr_t)binding->texture0;
+    const uint8_t *bytes = (const uint8_t *)key;
     uint32_t hash = UINT32_C(2166136261);
     size_t index;
 
     /* Hash words using memcpy so unaligned material storage and strict
      * aliasing remain valid. Exact byte comparison still decides every hit. */
-    for (index = 0U; index + sizeof(uint32_t) <= sizeof(*material);
+    for (index = 0U; index + sizeof(uint32_t) <= sizeof(*key);
             index += sizeof(uint32_t)) {
         uint32_t word;
         memcpy(&word, bytes + index, sizeof(word));
         hash ^= word;
         hash *= UINT32_C(16777619);
     }
-    for (; index < sizeof(*material); ++index) {
+    for (; index < sizeof(*key); ++index) {
         hash ^= bytes[index];
         hash *= UINT32_C(16777619);
     }
-    hash ^= (uint32_t)texture_bits;
-    hash *= UINT32_C(16777619);
-    hash ^= (uint32_t)(texture_bits >> 16U);
-    hash *= UINT32_C(16777619);
-    hash ^= (uint32_t)binding->missing_texture_fallback;
-    /* Mix high bits into the set index: texture pointers and authored enum
-     * fields are commonly aligned and correlated in their low bits. */
+    /* Mix high bits into the set index; authored enum fields commonly have
+     * correlated low bits. */
     hash ^= hash >> 16U;
     hash *= UINT32_C(0x85ebca6b);
     hash ^= hash >> 13U;
@@ -9325,23 +9383,22 @@ static Ge3dsMaterialStatus renderer_prepare_material_cached(
     Ge3dsMaterialResult *result, uint64_t *hits, uint64_t *misses)
 {
     RuntimeRendererPreparedMaterialEntry *entry;
+    RuntimeRendererPreparedMaterialKey key;
     size_t set;
     size_t way;
     size_t victim = RENDERER_PREPARED_MATERIAL_CACHE_WAYS;
 
     if (cache == NULL || material == NULL || binding == NULL
             || result == NULL) return GE_3DS_MATERIAL_INVALID_ARGUMENT;
-    set = renderer_material_hash(material, binding);
+    renderer_material_key(material, binding, &key);
+    set = renderer_material_hash(&key);
     /* Two ways retain colliding authored materials without increasing the
      * entry budget. Hashes only select candidates: the entire key must match.
      * Recency belongs to this preparation cache, never to GPU draw ordering. */
     for (way = 0U; way < RENDERER_PREPARED_MATERIAL_CACHE_WAYS; ++way) {
         entry = &cache->entries[
             set * RENDERER_PREPARED_MATERIAL_CACHE_WAYS + way];
-        if (entry->valid && entry->texture == binding->texture0
-                && entry->fallback == binding->missing_texture_fallback
-                && memcmp(&entry->material, material,
-                          sizeof(entry->material)) == 0) {
+        if (entry->valid && memcmp(&entry->key, &key, sizeof(key)) == 0) {
             *result = entry->result;
             cache->least_recent[set] = (uint8_t)(way ^ 1U);
             if (hits != NULL) (*hits)++;
@@ -9359,10 +9416,8 @@ static Ge3dsMaterialStatus renderer_prepare_material_cached(
         entry->valid = false;
         return GE_3DS_MATERIAL_INVALID_ARGUMENT;
     }
-    entry->material = *material;
+    memcpy(&entry->key, &key, sizeof(key));
     entry->result = *result;
-    entry->texture = binding->texture0;
-    entry->fallback = binding->missing_texture_fallback;
     entry->valid = true;
     cache->least_recent[set] = (uint8_t)(victim ^ 1U);
     return GE_3DS_MATERIAL_OK;
@@ -17616,8 +17671,14 @@ start_stage_runtime:
         ge_original_door_runtime_bind(
             &door_runtime_providers, &dam_objects.door_runtime);
     }
-    if (dam_stage && !visual_probe_tour.enabled
+    if (!visual_probe_tour.enabled
             && load_input_probe(&input_probe)) {
+        /* Stick/button traces are stage-independent and use the same exact
+         * live input path. Existing coordinate routes name Dam-authored pads
+         * and guards, so never silently run those routes on another stage. */
+        if (!dam_stage && input_probe.target_count != 0U) {
+            input_probe.enabled = false;
+        } else {
         input_probe.move_tick_start =
             first_person_models.bond_live.move_tick_count;
         input_probe_capture_player(&input_probe, &dam_intro);
@@ -17625,6 +17686,7 @@ start_stage_runtime:
             &input_probe, &stage_ordinary_objects, false);
         printf("Input probe:  %lu exact-input frames\n",
                (unsigned long)input_probe.target_frames);
+        }
     }
     clip_stage_ready = verify_clip_stage();
     audio_abi_ready = verify_audio_abi_stage();
@@ -17697,17 +17759,6 @@ start_stage_runtime:
             memset(&input, 0, sizeof(input));
         }
 
-        {
-            const uint64_t frame_begin_start = svcGetSystemTick();
-
-            /* The queue wait still protects an occupied PICA command buffer,
-             * but an eager display sync serializes the prior presentation
-             * with this frame's canonical CPU work. The monotonic 60 Hz pacer
-             * after FrameEnd supplies the one-retrace cadence instead. */
-            C3D_FrameBegin(0);
-            fine_profile.frame_begin_ticks +=
-                svcGetSystemTick() - frame_begin_start;
-        }
         simulation_start = osGetTime();
 
         if (input_probe.enabled) {
@@ -17772,6 +17823,22 @@ start_stage_runtime:
             ge_3ds_audio_pump();
         }
         previous_time = current_time;
+
+        if (ticks == 0U && !original_frontend_runtime.ramrom_active) {
+            /* No original retrace is ready. Input edges are already latched
+             * by ge_port_advance_* and audio has been serviced above. Do not
+             * rebuild/submit the same scene or retick render-owned HUD state.
+             * This short idle yield never delays a ready gameplay pass and
+             * does not serialize a completed frame against display VBlank. */
+            ++fine_profile.idle_present_skips;
+            svcSleepThread(1000000LL);
+            continue;
+        }
+        {
+            const uint64_t frame_begin_start = svcGetSystemTick();
+            C3D_FrameBegin(0);
+            fine_profile.frame_begin_ticks += svcGetSystemTick() - frame_begin_start;
+        }
 
         {
             unsigned original_tick;

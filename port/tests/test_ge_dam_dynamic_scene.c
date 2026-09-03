@@ -733,6 +733,45 @@ int main(int argc, char **argv)
 
     ge_dam_dynamic_scene_close(&bounded);
     exercise_prop_segment_replacement(&cache);
+    {
+        GeDamRoomWorldVertex vertices[6] = {0};
+        GeDamRoomDrawBatch source[2] = {overlay_batches[0], overlay_batches[1]};
+        GeDamRoomDrawBatch expected_local[2], expected_published[2];
+        assert(ge_dam_dynamic_scene_set_overlay(&cache, vertices, 6U, source, 2U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        const size_t room_batches = cache.scene.batch_count - cache.overlay_batch_count;
+        const size_t triangles = cache.scene.triangle_count;
+        memcpy(expected_local, cache.overlay_batches, sizeof(expected_local));
+        memcpy(expected_published, cache.batches + room_batches, sizeof(expected_published));
+        const uint64_t generation = cache.generation;
+        const uint64_t successes = cache.overlay_update_successes;
+        /* Pose publication changes rooms only, with caller-local offsets and
+         * intentionally unrelated material bytes that must not be copied. */
+        memset(source, 0xa5, sizeof(source));
+        source[0].room_id = 133U;
+        source[1].room_id = 134U;
+        for (size_t i = 0U; i < 2U; ++i) {
+            expected_local[i].room_id = source[i].room_id;
+            expected_published[i].room_id = source[i].room_id;
+        }
+        assert(ge_dam_dynamic_scene_commit_overlay_rooms(&cache, 0U, source, 2U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        assert(cache.generation == generation + 1U
+            && cache.overlay_update_successes == successes + 1U);
+        assert(cache.scene.triangle_count == triangles);
+        assert(memcmp(expected_local, cache.overlay_batches, sizeof(expected_local)) == 0);
+        assert(memcmp(expected_published, cache.batches + room_batches,
+            sizeof(expected_published)) == 0);
+        const uint64_t failures = cache.overlay_update_failures;
+        assert(ge_dam_dynamic_scene_commit_overlay_rooms(&cache, 1U, source, 2U)
+            == GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT);
+        assert(ge_dam_dynamic_scene_commit_overlay_rooms(&cache, 0U, NULL, 2U)
+            == GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT);
+        assert(cache.generation == generation + 1U
+            && cache.overlay_update_failures == failures + 2U);
+        assert(memcmp(expected_published, cache.batches + room_batches,
+            sizeof(expected_published)) == 0);
+    }
     ge_dam_dynamic_scene_close(&cache);
     ge_asset_pack_close(&pack);
     free(background.bytes);

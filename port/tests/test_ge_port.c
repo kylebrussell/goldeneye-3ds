@@ -197,6 +197,28 @@ static void test_canonical_late_retrace_dispatch(void)
     assert(currentFrameCounter == 15);
 }
 
+static void test_idle_retrace_input_latch(void)
+{
+    GePortState state;
+    GePortInput input = {0};
+    ge_port_init(&state);
+    assert(ge_port_start_stage(&state, 33));
+    const uint64_t rng_before = g_randomSeed;
+    const int frame_before = currentFrameCounter;
+    for (size_t idle = 0U; idle < 1000U; ++idle) {
+        input.pressed = idle == 17U ? GE_PORT_ACTION_FIRE : 0U;
+        assert(ge_port_advance_retraces(&state, 0U, &input) == 0U);
+        assert(state.simulation_ticks == 0U && currentFrameCounter == frame_before);
+        assert(g_randomSeed == rng_before);
+    }
+    assert((state.input.pressed & GE_PORT_ACTION_FIRE) != 0U);
+    assert(ge_port_advance_retraces(&state, 1U, &input) == 1U);
+    assert(state.original_buttons_pressed == Z_TRIG);
+    assert(state.input.pressed == 0U && state.simulation_ticks == 1U);
+    assert(ge_port_advance_retraces(&state, 1U, &input) == 1U);
+    assert(state.original_buttons_pressed == 0U && state.simulation_ticks == 2U);
+}
+
 int main(int argc, char **argv)
 {
     GePortState state;
@@ -211,6 +233,7 @@ int main(int argc, char **argv)
     test_original_quaternion_math();
     test_bounded_tick_input_and_catchup();
     test_canonical_late_retrace_dispatch();
+    test_idle_retrace_input_latch();
     assert(argc == 2);
     test_asset_pack(argv[1]);
 

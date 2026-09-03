@@ -25,6 +25,16 @@ def main() -> None:
     assert "input_probe_route_frame(runtime)" in sample
     assert "runtime->displayed_frames % target->pulse_period" not in sample
     assert "input_probe_route_frame(&input_probe)" in SOURCE
+    assert '"level_id=%ld\\n"' in SOURCE
+    assert "if (dam_stage && !visual_probe_tour.enabled\n" not in SOURCE
+    assert "if (!dam_stage && input_probe.target_count != 0U)" in SOURCE
+    idle_gate = SOURCE.index("if (ticks == 0U && !original_frontend_runtime.ramrom_active)",
+        gameplay_loop)
+    gameplay_begin = SOURCE.index("C3D_FrameBegin(0);", gameplay_loop)
+    assert SOURCE.index("ge_port_advance_retraces(", gameplay_loop) < idle_gate
+    assert SOURCE.index("ge_3ds_audio_pump();", gameplay_loop) < idle_gate < gameplay_begin
+    assert "svcSleepThread(1000000LL);" in SOURCE[idle_gate:gameplay_begin]
+    assert "continue;" in SOURCE[idle_gate:gameplay_begin]
     print("3DS frame pacing: nonblocking presentation, canonical 60 Hz retraces")
 
 

@@ -190,6 +190,15 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit_overlay_batches(
     GeDamDynamicScene *cache, size_t overlay_batch_offset,
     size_t batch_count);
 
+/* A model cache has retained the exact topology/material publication and
+ * changed only pose and room IDs. Publish those IDs to both batch views and
+ * advance generation without recopying immutable material/texture payloads.
+ * Source batches must not overlap either cache-owned batch array. Their
+ * first_vertex values may be segment-local; only room_id is consumed. */
+GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit_overlay_rooms(
+    GeDamDynamicScene *cache, size_t overlay_batch_offset,
+    const GeDamRoomDrawBatch *source_batches, size_t batch_count);
+
 int ge_dam_dynamic_scene_is_resident(
     const GeDamDynamicScene *cache, uint8_t room);
 void ge_dam_dynamic_scene_close(GeDamDynamicScene *cache);

@@ -206,6 +206,15 @@ void ge_draw_batch_clip_context_init(
     context->finite = 1;
 }
 
+GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify_prepared(
+    const GeDrawBatchWorldBounds *bounds, const GeDrawBatchClipContext *context)
+{
+    if (context == NULL || !context->finite)
+        return GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+    return ge_draw_batch_world_bounds_classify_impl(
+        bounds, context->world_to_clip, 1);
+}
+
 GeDrawBatchVisibility ge_draw_batch_world_visibility_prepared(
     const GeDamRoomWorldVertex *vertices, size_t vertex_count,
     const GeDamRoomDrawBatch *batch, const GeDrawBatchWorldBounds *bounds,

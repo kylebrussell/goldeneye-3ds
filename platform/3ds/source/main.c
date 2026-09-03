@@ -627,6 +627,9 @@ typedef struct RuntimeFineProfile {
     uint64_t world_frustum_bounds_inside;
     uint64_t world_frustum_bounds_outside;
     uint64_t world_frustum_first_vertex_visible;
+    uint64_t world_room_frustum_tests;
+    uint64_t world_room_frustum_visible_batches;
+    uint64_t world_room_frustum_culled_batches;
     uint64_t first_person_phase_ticks[4];
     uint64_t first_person_peak_phase_ticks[4];
     uint64_t first_person_peak_ticks;
@@ -3639,6 +3642,10 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.world_frustum_bounds_outside);
         fprintf(stream, "draw_profile_first_vertex=%llu\n",
             (unsigned long long)fine_profile.world_frustum_first_vertex_visible);
+        fprintf(stream, "draw_profile_room_frustum=%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.world_room_frustum_tests,
+            (unsigned long long)fine_profile.world_room_frustum_visible_batches,
+            (unsigned long long)fine_profile.world_room_frustum_culled_batches);
         fprintf(stream, "renderer_phase_ticks=%llu,%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.renderer_phase_ticks[0],
             (unsigned long long)fine_profile.renderer_phase_ticks[1],
@@ -9633,10 +9640,55 @@ static bool renderer_room_visible(
         || (room <= UINT8_MAX && membership->rooms[room] != 0U);
 }
 
+/* Only prove entire immutable room geometry. These per-draw results never
+ * change the original portal/AI visibility list or cover dynamic overlays.
+ * The camera's own room normally intersects the frustum: leave it on the
+ * existing batch path rather than paying for a usually inconclusive bound. */
+static bool renderer_prepare_room_frustum(const RuntimeDamPreview *preview,
+    const RuntimeRendererRoomVisibility *membership,
+    const GeDrawBatchClipContext *context, uint8_t classifications[UINT8_MAX + 1U])
+{
+    bool proven = false;
+    memset(classifications, GE_DRAW_BATCH_BOUNDS_UNCERTAIN, UINT8_MAX + 1U);
+    if (preview == NULL || membership == NULL || context == NULL || !context->finite
+            || !preview->dynamic_scene.initialized
+            || preview->dynamic_scene.room_ranges == NULL
+            || preview->dynamic_scene.room_count > GE_DAM_WORLD_MAX_ROOMS
+            || preview->source_vertices != preview->dynamic_scene.vertices
+            || preview->batches != preview->dynamic_scene.batches
+            || preview->source_vertex_count != preview->dynamic_scene.scene.vertex_count
+            || preview->batch_count != preview->dynamic_scene.scene.batch_count
+            || preview->source_vertex_count < preview->dynamic_scene.overlay_vertex_count
+            || preview->batch_count < preview->dynamic_scene.overlay_batch_count)
+        return false;
+    const size_t room_vertices = preview->source_vertex_count
+        - preview->dynamic_scene.overlay_vertex_count;
+    const size_t room_batches = preview->batch_count
+        - preview->dynamic_scene.overlay_batch_count;
+    for (size_t i = 0U; i < preview->dynamic_scene.room_count; ++i) {
+        const uint8_t room = preview->dynamic_scene.room_ids[i];
+        const GeDamDynamicRoomRange *range = &preview->dynamic_scene.room_ranges[i];
+        if (room == preview->original_camera_room
+                || !renderer_room_visible(membership, room)
+                || !range->world_bounds.valid || range->scene.batch_count == 0U
+                || range->first_vertex > room_vertices
+                || range->scene.vertex_count > room_vertices - range->first_vertex
+                || range->first_batch > room_batches
+                || range->scene.batch_count > room_batches - range->first_batch)
+            continue;
+        classifications[room] = (uint8_t)ge_draw_batch_world_bounds_classify_prepared(
+            &range->world_bounds, context);
+        proven |= classifications[room] != GE_DRAW_BATCH_BOUNDS_UNCERTAIN;
+        ++fine_profile.world_room_frustum_tests;
+    }
+    return proven;
+}
+
 static bool renderer_world_batch_may_draw(
     const RuntimeDamPreview *preview, size_t source_index,
     uint8_t *visibility_cache, size_t visibility_cache_count,
-    const GeDrawBatchClipContext clip_contexts[3])
+    const GeDrawBatchClipContext clip_contexts[3],
+    const uint8_t room_classifications[UINT8_MAX + 1U])
 {
     const GeDamRoomDrawBatch *batch;
     size_t coordinate_space = GE_DAM_ROOM_COORDINATE_AUTHORED;
@@ -9657,6 +9709,23 @@ static bool renderer_world_batch_may_draw(
     else if (batch->coordinate_space == GE_DAM_ROOM_COORDINATE_EYE)
         coordinate_space = GE_DAM_ROOM_COORDINATE_EYE;
     fine_profile.world_frustum_tests++;
+    if (room_classifications != NULL
+            && batch->coordinate_space == GE_DAM_ROOM_COORDINATE_AUTHORED
+            && source_index < preview->batch_count
+                - preview->dynamic_scene.overlay_batch_count
+            && batch->room_id <= UINT8_MAX) {
+        const uint8_t classified = room_classifications[batch->room_id];
+        if (classified == GE_DRAW_BATCH_BOUNDS_INSIDE) {
+            ++fine_profile.world_room_frustum_visible_batches;
+            visible = true;
+            goto cache_visibility;
+        }
+        if (classified == GE_DRAW_BATCH_BOUNDS_OUTSIDE) {
+            ++fine_profile.world_room_frustum_culled_batches;
+            visible = false;
+            goto cache_visibility;
+        }
+    }
     visibility = ge_draw_batch_world_visibility_prepared(
         preview->source_vertices, preview->source_vertex_count, batch,
         preview->gpu_batch_bounds != NULL
@@ -9671,6 +9740,7 @@ static bool renderer_world_batch_may_draw(
         ++fine_profile.world_frustum_bounds_outside;
     visible = visibility != GE_DRAW_BATCH_BOUNDS_CULLED
         && visibility != GE_DRAW_BATCH_VERTICES_CULLED;
+cache_visibility:
     if (!visible) {
         fine_profile.world_frustum_culled_batches++;
         fine_profile.world_frustum_culled_vertices += batch->vertex_count;
@@ -16165,6 +16235,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         int coordinate_projection = -1;
         GeDrawBatchClipContext clip_contexts[3];
         RuntimeRendererRoomVisibility room_visibility;
+        uint8_t room_classifications[UINT8_MAX + 1U];
+        const uint8_t *room_frustum = NULL;
 
         if (gpu_world_render) {
             renderer_prepare_room_visibility(&room_visibility,
@@ -16178,6 +16250,9 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             ge_draw_batch_clip_context_init(
                 &clip_contexts[GE_DAM_ROOM_COORDINATE_EYE],
                 dam_preview->eye_to_clip);
+            if (renderer_prepare_room_frustum(dam_preview, &room_visibility,
+                    &clip_contexts[GE_DAM_ROOM_COORDINATE_AUTHORED], room_classifications))
+                room_frustum = room_classifications;
         }
 
         if (visibility_cache_count != 0U)
@@ -16222,7 +16297,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     && !renderer_world_batch_may_draw(
                         dam_preview, source_index,
                         world_batch_visibility_cache,
-                        visibility_cache_count, clip_contexts)) {
+                        visibility_cache_count, clip_contexts, room_frustum)) {
                 i = next;
                 continue;
             }
@@ -16245,7 +16320,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                 if (gpu_world_render && !renderer_world_batch_may_draw(
                         dam_preview, next_source,
                         world_batch_visibility_cache,
-                        visibility_cache_count, clip_contexts)) {
+                        visibility_cache_count, clip_contexts, room_frustum)) {
                     /* This exact authored range has a unanimous homogeneous
                      * clip outcode. It can sit inside a later merged range
                      * only under the SAME projection: it cannot produce a

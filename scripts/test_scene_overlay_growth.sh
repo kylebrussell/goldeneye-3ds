@@ -8,6 +8,7 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-empty-body \
     -DGE_PORT_BG_CONNECTIVITY_SLICE \
     -I"${repo_dir}/port/include" -I"${repo_dir}/src/game" \
     "${repo_dir}/port/tests/test_ge_dam_overlay_growth.c" \
+    "${repo_dir}/port/src/ge_draw_batch_visibility.c" \
     "${repo_dir}/port/src/ge_stage_assets.c" \
     "${repo_dir}/port/src/ge_dam_preload_queue.c" \
     "${repo_dir}/port/src/ge_asset_pack.c" \

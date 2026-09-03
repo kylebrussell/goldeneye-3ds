@@ -30,6 +30,8 @@ static void check_prepared(const GeDamRoomWorldVertex *vertices, size_t count,
 {
     GeDrawBatchClipContext context;
     ge_draw_batch_clip_context_init(&context, matrix);
+    assert(ge_draw_batch_world_bounds_classify_prepared(bounds, &context)
+        == ge_draw_batch_world_bounds_classify(bounds, matrix));
     assert(ge_draw_batch_world_visibility_prepared(vertices, count, batch, bounds,
         &context) == reference_visibility(vertices, count, batch, bounds, matrix));
     assert(ge_draw_batch_world_visibility_prepared(vertices, count, batch, NULL,
@@ -407,6 +409,46 @@ static void benchmark_prepared_visibility(void)
 }
 #endif
 
+static void test_group_bounds_prove_each_contained_batch(void)
+{
+    GeDamRoomWorldVertex vertices[24] = {0};
+    GeDamRoomDrawBatch entire = {.vertex_count = 24U};
+    uint32_t seed = 113U;
+    size_t proofs = 0U;
+    for (size_t sample = 0U; sample < 10000U; ++sample) {
+        float matrix[4][4], center[3];
+        GeDrawBatchWorldBounds bounds;
+        GeDrawBatchClipContext context;
+        for (size_t axis = 0U; axis < 3U; ++axis)
+            center[axis] = random_coordinate(&seed) * 100.0f;
+        for (size_t i = 0U; i < 24U; ++i)
+            for (size_t axis = 0U; axis < 3U; ++axis)
+                vertices[i].world[axis] = center[axis] + random_coordinate(&seed);
+        for (size_t row = 0U; row < 4U; ++row)
+            for (size_t col = 0U; col < 4U; ++col)
+                matrix[row][col] = random_coordinate(&seed);
+        assert(ge_draw_batch_world_bounds_build(vertices, 24U, &entire, &bounds));
+        ge_draw_batch_clip_context_init(&context, matrix);
+        GeDrawBatchBoundsVisibility proof =
+            ge_draw_batch_world_bounds_classify_prepared(&bounds, &context);
+        for (size_t i = 0U; i < 8U; ++i) {
+            GeDamRoomDrawBatch batch = {.first_vertex = i * 3U, .vertex_count = 3U};
+            GeDrawBatchVisibility exact = ge_draw_batch_world_visibility_prepared(
+                vertices, 24U, &batch, NULL, &context);
+            if (proof != GE_DRAW_BATCH_BOUNDS_UNCERTAIN) {
+                assert((proof == GE_DRAW_BATCH_BOUNDS_INSIDE)
+                    == (exact != GE_DRAW_BATCH_BOUNDS_CULLED
+                        && exact != GE_DRAW_BATCH_VERTICES_CULLED));
+                ++proofs;
+            }
+        }
+    }
+    assert(proofs > 0U);
+    assert(ge_draw_batch_world_bounds_classify_prepared(NULL, NULL)
+        == GE_DRAW_BATCH_BOUNDS_UNCERTAIN);
+    printf("group bounds: 80000 contained-batch decisions, %zu exact proofs\n", proofs);
+}
+
 int main(void)
 {
     test_invalid_ranges_fail_open();
@@ -419,6 +461,7 @@ int main(void)
     test_bounds_tangency_and_invalidation();
     test_prepared_invalid_inputs_and_snapshot_lifetime();
     test_prepared_clip_boundary_bits();
+    test_group_bounds_prove_each_contained_batch();
 #ifdef GE_DRAW_BATCH_VISIBILITY_BENCH
     benchmark_prepared_visibility();
 #endif

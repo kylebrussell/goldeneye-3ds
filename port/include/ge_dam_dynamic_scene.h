@@ -5,6 +5,7 @@
 #include "ge_dam_preload_queue.h"
 #include "ge_dam_room.h"
 #include "ge_dam_world.h"
+#include "ge_draw_batch_visibility.h"
 #include "ge_stage_assets.h"
 
 #include <stddef.h>
@@ -27,6 +28,9 @@ typedef struct GeDamDynamicRoomRange {
     GeDamRoomScene scene;
     size_t first_vertex;
     size_t first_batch;
+    /* Conservative renderer bound of the actual immutable emitted vertices,
+     * not the authored portal/AI volume. Invalid/empty data stays fail-open. */
+    GeDrawBatchWorldBounds world_bounds;
 } GeDamDynamicRoomRange;
 
 typedef struct GeDamDynamicScene {

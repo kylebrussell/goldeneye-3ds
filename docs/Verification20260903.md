@@ -764,3 +764,92 @@ diagnostics. Reliable 60 FPS across levels and faithful mission completion are
 still unverified. The first room upload is deliberately retained; coalescing it
 with later actor work would need a wider safe publication boundary, not merely
 removal of a call.
+
+## Follow-up: conservative whole-room frustum proofs
+
+Continued from `1401b0c7`. The recorded Dam profile above still identifies
+world-frustum work as a concrete optimization target; it is not a measurement
+of the new candidate. Static batches now share a conservative whole-room proof
+before falling back to the existing prepared per-batch test. This removes
+repeated transforms, without reducing simulation frequency or changing the
+original portal visibility list, renderer order, geometry, or material state.
+
+Each resident room range caches an AABB built from its actual decoded immutable
+vertices. It does not use the authored portal/AI volume as a geometry bound.
+Newly decoded rooms build this metadata once; reused rooms copy it through the
+existing prepare/abort/commit/eviction lifecycle. Nonfinite/empty bounds remain
+invalid. A room containing a batch with a different room ID or coordinate
+space cannot supply a proof.
+
+Each GPU-world draw uses the existing authored camera snapshot to classify
+original-visible resident rooms. A proof covers only the static room prefix;
+guards, doors and other overlays, including authored-space overlays with the
+same room ID, retain their existing batch tests. Inconclusive, invalid or stale
+scene metadata falls back as well. The camera's own room skips the usually
+inconclusive whole-room test. If no room yields a proof, the draw loop passes
+NULL to avoid a redundant per-batch room lookup. This last condition avoids
+the first prototype's unnecessary single-room overhead.
+
+Classification preserves the existing scalar floating-point grouping, finite
+checks and tangent-plane rules. It does not extract/reassociate frustum planes
+or approximate rejection. Proofs are scratch data rebuilt after the camera
+snapshot, never cached across frames. The only new draw-stack storage is a
+256-byte classification array; cached bounds live in resident-room metadata.
+
+The input report adds
+`draw_profile_room_frustum=room_tests,proven_visible_batches,proven_culled_batches`.
+The latter two count avoided per-batch clip calculations, not new visibility
+decisions or simulation ticks. Existing per-batch reason counters only cover
+the fallback path, while total tested/culled counts still include both paths.
+
+Verification:
+
+- The existing 20,000 randomized/boundary tests compare the prepared bounds
+  API to the old classifier. Another 10,000 groups exercise 80,000 contained
+  batches: all 78,088 conclusive group proofs match the exact per-batch result.
+  Strict ASan/UBSan and optimized `-O3 -fshort-enums` runs pass.
+- `scripts/tests/test_renderer_room_frustum.py` compiles the actual renderer
+  helpers with the portable visibility implementation under ASan/UBSan. It
+  checks original room membership, current-room/no-proof fallbacks, three
+  overlay coordinate spaces, cache hits, invalid bounds/ranges, stale scene
+  publication, and changed/nonfinite cameras, plus both live call sites.
+- Dynamic-scene cold/incremental comparisons now include bounds metadata and
+  independently rebuild each room's bound from the committed vertex slice.
+  The existing abort, eviction, no-I/O reuse and overlay tests still pass.
+- A private actual-pack driver compiles the extracted renderer helpers and
+  compares every sampled result against the old per-batch calculation across
+  all 21 stage records. Each uses 64 diagnostic headings at the authored spawn
+  STAN polygon centroid, with masks of the first 1, 4 and 10 connected rooms
+  where available. These masks are diagnostic subsets, not recorded portal
+  traces; the camera is not a live MoveBond camera or a level playthrough.
+  All sampled decisions and independently rebuilt room bounds match.
+- In the ten-room samples, Dam proves 25,882/55,936 batch decisions and Facility
+  17,770/35,008. Host timings for 512 passes of the actual helper were
+  8.566 → 4.795 ms (Dam) and 6.133 → 3.208 ms (Facility). Single-room cases use
+  no proofs; Egyptian measured 3.974 → 4.137 ms in this run. These short host
+  microbenchmarks include proof preparation but not GPU rendering, gameplay,
+  or frame pacing; they are not emulator/3DS FPS claims.
+
+Evidence under `build/host-tests/`: `room-frustum-full-bounds-20260903.log`,
+`room-frustum-short-enums-20260903.log`, and
+`room-frustum-adapter-pack-final-20260903.log`. The private driver and runner
+are `room_bounds_probe.c` and `run_room_bounds_probe.sh`; they read the local
+pack and do not redistribute assets. Complete host runs are
+`room-frustum-full-20260903.log` and `room-frustum-verified-20260903.log`.
+ARM/3DSX verification is `arm-room-frustum-verified-20260903.log`; the linked
+ELF retains original MoveBond, input, gun/active-prop dispatch, room and texture
+commits, and the new prepared bounds API.
+
+Candidate: `build/3ds-candidates/room-frustum-2d043492/goldeneye-3ds.3dsx`,
+SHA-256 `2d043492b8d31085c4017a45b991c31c915e6938ae4135fb0c2e3f6ea8c1a1cd`.
+Assets remain `938536d4...`; hardware staging and Azahar remain the verified
+`0797edaa...` pair. macOS is still locked. No save/config/emulator changes,
+lock bypass or public push occurred.
+
+Next: unlock-dependent comparison of the accumulated candidate against the
+verified build on Facility movement, Dam aim/combat and room-boundary traversal.
+Include the new room-frustum counters alongside renderer phase timing and
+room/overlay reuse counters. Check both views with many visible rooms and
+single-room views, dynamic guard/door occlusion and texture continuity. Keep
+the verified executable available until frame-time tails and images pass;
+sustained 60 FPS and high-fidelity mission completion remain unverified.

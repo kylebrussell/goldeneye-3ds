@@ -289,6 +289,7 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
                 ? candidate->batches + range->first_batch : NULL;
             storage.batch_capacity = range->scene.required_batch_count;
             if (prior != NULL) {
+                range->world_bounds = prior->world_bounds;
                 if (storage.vertex_capacity != 0U)
                     memcpy(storage.vertices, cache->vertices + prior->first_vertex,
                         storage.vertex_capacity * sizeof(*storage.vertices));
@@ -302,6 +303,10 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
                     status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
                     break;
                 }
+                GeDamRoomDrawBatch span = {0};
+                span.vertex_count = range->scene.vertex_count;
+                (void)ge_draw_batch_world_bounds_build(storage.vertices,
+                    storage.vertex_capacity, &span, &range->world_bounds);
             }
             for (batch_index = 0U; batch_index < storage.batch_capacity; ++batch_index) {
                 GeDamRoomDrawBatch *batch = &storage.batches[batch_index];
@@ -313,6 +318,9 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
                     break;
                 }
                 batch->first_vertex = range->first_vertex + (batch->first_vertex - source_base);
+                if (batch->room_id != room_ids[index]
+                        || batch->coordinate_space != GE_DAM_ROOM_COORDINATE_AUTHORED)
+                    range->world_bounds.valid = 0;
             }
             if (status != GE_DAM_DYNAMIC_SCENE_OK) break;
         }

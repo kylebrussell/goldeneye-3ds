@@ -17,6 +17,7 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-empty-body \
     "${repo_dir}/port/src/ge_stage_assets.c" \
     "${repo_dir}/port/src/ge_stage_asset_resolver.c" \
     "${repo_dir}/port/src/ge_dam_dynamic_scene.c" \
+    "${repo_dir}/port/src/ge_draw_batch_visibility.c" \
     "${repo_dir}/port/src/ge_dam_preload_queue.c" \
     "${repo_dir}/port/src/ge_asset_pack.c" \
     "${repo_dir}/port/src/ge_dam_world.c" \

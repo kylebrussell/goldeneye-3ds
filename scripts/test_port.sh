@@ -22,6 +22,8 @@ bash "${repo_dir}/scripts/test_3ds_scene_texture_reconcile.sh"
 python3 "${repo_dir}/scripts/tests/test_room_stream_publication.py"
 python3 "${repo_dir}/scripts/tests/test_renderer_overlay_room_reuse.py"
 python3 "${repo_dir}/scripts/tests/test_renderer_room_membership.py"
+python3 "${repo_dir}/scripts/tests/test_renderer_room_frustum.py"
+bash "${repo_dir}/scripts/test_draw_batch_visibility.sh" "${repo_dir}"
 python3 "${repo_dir}/scripts/tests/test_renderer_vertex_colors.py" "${test_dir}/renderer-vertex-colors"
 "${repo_dir}/scripts/test_original_gunbarrel.sh" "${repo_dir}"
 "${repo_dir}/scripts/test_original_frontend_cast.sh" "${repo_dir}"
@@ -1316,6 +1318,7 @@ if [[ -f "${repo_dir}/build/u/assets/obseg/bg/bg_dam_all_p.bin" \
             -I"${repo_dir}/src/game" \
             "${repo_dir}/port/tests/test_ge_dam_dynamic_scene.c" \
             "${repo_dir}/port/src/ge_dam_dynamic_scene.c" \
+            "${repo_dir}/port/src/ge_draw_batch_visibility.c" \
             "${repo_dir}/port/src/ge_scene_part_replace.c" \
             "${repo_dir}/port/src/ge_stage_assets.c" \
             "${repo_dir}/port/src/ge_dam_preload_queue.c" \

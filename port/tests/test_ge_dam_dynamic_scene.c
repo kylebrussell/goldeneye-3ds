@@ -387,6 +387,17 @@ static void assert_matches_cold_room_build(const GeDamDynamicScene *scene)
     }
     assert(memcmp(cold.room_ranges, scene->room_ranges,
         scene->room_count * sizeof(*scene->room_ranges)) == 0);
+    for (size_t room = 0U; room < scene->room_count; ++room) {
+        const GeDamDynamicRoomRange *range = &scene->room_ranges[room];
+        const GeDamRoomDrawBatch span = {
+            .first_vertex = range->first_vertex,
+            .vertex_count = range->scene.vertex_count,
+        };
+        GeDrawBatchWorldBounds fresh = {0};
+        (void)ge_draw_batch_world_bounds_build(scene->vertices,
+            scene->scene.vertex_count, &span, &fresh);
+        assert(memcmp(&fresh, &range->world_bounds, sizeof(fresh)) == 0);
+    }
     ge_dam_dynamic_scene_close(&cold);
 }
 

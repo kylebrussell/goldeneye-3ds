@@ -78,6 +78,11 @@ typedef enum GeDrawBatchVisibility {
 void ge_draw_batch_clip_context_init(
     GeDrawBatchClipContext *context, const float world_to_clip[4][4]);
 
+/* Conservative whole-range proof using the same per-pass camera snapshot.
+ * UNCERTAIN requires the existing per-batch path; never means invisible. */
+GeDrawBatchBoundsVisibility ge_draw_batch_world_bounds_classify_prepared(
+    const GeDrawBatchWorldBounds *bounds, const GeDrawBatchClipContext *context);
+
 /* Exact composition of first-vertex acceptance, optional bounds, and scalar
  * outcode intersection. Reuses matrix validation and the first outcode; no
  * plane extraction/reassociation, approximate rejection, or altered order.

@@ -90,6 +90,7 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
     -I "${repo_dir}/src/game" \
     "${repo_dir}/port/tools/ge_dam_route_capacity_probe.c" \
     "${repo_dir}/port/src/ge_dam_dynamic_scene.c" \
+    "${repo_dir}/port/src/ge_draw_batch_visibility.c" \
     "${repo_dir}/port/src/ge_dam_preload_queue.c" \
     "${repo_dir}/port/src/ge_asset_pack.c" \
     "${repo_dir}/port/src/ge_stage_assets.c" \

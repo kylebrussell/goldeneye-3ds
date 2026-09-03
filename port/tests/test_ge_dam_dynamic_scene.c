@@ -175,9 +175,22 @@ static void exercise_prop_segment_replacement(GeDamDynamicScene *cache)
      * Other props, both trailing segments and room data retain exact bytes. */
     for (cycle = 0U; cycle < 16U; ++cycle) {
         const size_t count = (cycle + 2U) % 4U;
+        const GeDamDynamicScene before = *cache;
+        const int fits = room_v + 12U + count * 3U <= before.vertex_storage_capacity
+            && room_b + 4U + count <= before.batch_storage_capacity
+            && 4U + count <= before.overlay_batch_storage_capacity;
         assert(ge_scene_part_replace(cache, &parts, &part_count, tails, 2U,
             20U, changed_parts, count, replacement, count * 3U,
             changed_batches, count, &changed) == GE_DAM_DYNAMIC_SCENE_OK);
+        if (fits) {
+            assert(cache->vertices == before.vertices && cache->batches == before.batches
+                && cache->overlay_batches == before.overlay_batches);
+            assert(cache->vertex_storage_capacity == before.vertex_storage_capacity
+                && cache->batch_storage_capacity == before.batch_storage_capacity
+                && cache->overlay_batch_storage_capacity == before.overlay_batch_storage_capacity);
+            assert(cache->overlay_inplace_replacements == before.overlay_inplace_replacements + 1U);
+            assert(cache->overlay_allocating_replacements == before.overlay_allocating_replacements);
+        }
         assert(part_count == 2U + count);
         assert(cache->overlay_vertex_count == 12U + count * 3U);
         assert(changed.vertex_offset == 3U && changed.vertex_count == 9U + count * 3U);
@@ -253,6 +266,86 @@ static void exercise_prop_segment_replacement(GeDamDynamicScene *cache)
     free(room_copy);
     free(room_batches);
     puts("prop segment replacement: 16 insert/grow/shrink/clear cycles; exact room/peer/door/guard preservation and atomic failure");
+}
+
+static void exercise_middle_source_aliases_and_rollback(GeDamDynamicScene *cache)
+{
+    GeDamRoomWorldVertex vertices[18] = {0};
+    GeDamRoomDrawBatch batches[6] = {0};
+    GeDamRoomWorldVertex expected[18];
+    GeDamRoomDrawBatch expected_batches[6];
+    const size_t room_v = cache->scene.vertex_count - cache->overlay_vertex_count;
+    const size_t room_b = cache->scene.batch_count - cache->overlay_batch_count;
+    for (size_t i = 0U; i < 18U; ++i) vertices[i].world[0] = (float)i + 10.0f;
+    for (size_t i = 0U; i < 6U; ++i) {
+        batches[i].first_vertex = i * 3U;
+        batches[i].vertex_count = 3U;
+        batches[i].triangle_count = 1U;
+        batches[i].room_id = (uint32_t)i + 1U;
+        batches[i].material.alpha_threshold = (uint8_t)(i * 7U);
+    }
+    assert(ge_dam_dynamic_scene_set_overlay(cache, vertices, 18U, batches, 6U)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    for (size_t mode = 0U; mode < 3U; ++mode) {
+        assert(ge_dam_dynamic_scene_set_overlay(cache, vertices, 12U, batches, 4U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        const GeDamDynamicScene before = *cache;
+        assert(room_v + 15U <= before.vertex_storage_capacity
+            && room_b + 5U <= before.batch_storage_capacity
+            && 5U <= before.overlay_batch_storage_capacity);
+        const GeDamRoomWorldVertex *source_vertices = mode == 1U ? vertices
+            : cache->overlay_vertices + 6U;
+        const GeDamRoomDrawBatch *source_batches = mode == 0U ? batches
+            : cache->overlay_batches;
+        memcpy(expected, vertices, 3U * sizeof(*vertices));
+        memcpy(expected + 3U, source_vertices, 6U * sizeof(*vertices));
+        memcpy(expected + 9U, vertices + 6U, 6U * sizeof(*vertices));
+        expected_batches[0] = batches[0];
+        for (size_t i = 0U; i < 2U; ++i) {
+            expected_batches[i + 1U] = source_batches[i];
+            expected_batches[i + 1U].first_vertex += 3U;
+            expected_batches[i + 3U] = batches[i + 2U];
+            expected_batches[i + 3U].first_vertex += 3U;
+        }
+        assert(ge_dam_dynamic_scene_replace_overlay_segment(cache,
+            3U, 3U, source_vertices, 6U, 1U, 1U, source_batches, 2U)
+            == GE_DAM_DYNAMIC_SCENE_OK);
+        /* Middle aliases must use the original allocate-before-free path. */
+        assert(cache->vertices != before.vertices && cache->batches != before.batches);
+        assert(cache->overlay_allocating_replacements == before.overlay_allocating_replacements + 1U);
+        assert(cache->overlay_inplace_replacements == before.overlay_inplace_replacements);
+        assert(cache->generation == before.generation + 1U);
+        assert(memcmp(cache->overlay_vertices, expected, 15U * sizeof(*vertices)) == 0);
+        assert(memcmp(cache->overlay_batches, expected_batches,
+            5U * sizeof(*batches)) == 0);
+        for (size_t i = 0U; i < 5U; ++i) {
+            GeDamRoomDrawBatch published = expected_batches[i];
+            published.first_vertex += room_v;
+            assert(memcmp(&cache->batches[room_b + i], &published, sizeof(published)) == 0);
+        }
+    }
+    assert(ge_dam_dynamic_scene_set_overlay(cache, vertices, 12U, batches, 4U)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    for (size_t mode = 0U; mode < 2U; ++mode) {
+        GeDamRoomDrawBatch replacement[2] = {batches[0], batches[1]};
+        if (mode == 0U) replacement[1].triangle_count = SIZE_MAX;
+        else cache->overlay_batches[3].triangle_count = SIZE_MAX;
+        GeDamDynamicScene before = *cache;
+        memcpy(expected, cache->overlay_vertices, 12U * sizeof(*vertices));
+        memcpy(expected_batches, cache->overlay_batches, 4U * sizeof(*batches));
+        assert(ge_dam_dynamic_scene_replace_overlay_segment(cache,
+            3U, 3U, vertices, 6U, 1U, 1U, replacement, 2U)
+            == GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT);
+        ++before.overlay_update_attempts;
+        ++before.overlay_update_failures;
+        assert(memcmp(cache, &before, sizeof(before)) == 0);
+        assert(memcmp(cache->overlay_vertices, expected, 12U * sizeof(*vertices)) == 0);
+        assert(memcmp(cache->overlay_batches, expected_batches, 4U * sizeof(*batches)) == 0);
+    }
+    cache->overlay_batches[3].triangle_count = 1U;
+    assert(ge_dam_dynamic_scene_set_overlay(cache, NULL, 0U, NULL, 0U)
+        == GE_DAM_DYNAMIC_SCENE_OK);
+    puts("middle overlay: retained-capacity publication, aliased sources and preflight rollback passed");
 }
 
 int main(int argc, char **argv)
@@ -733,6 +826,7 @@ int main(int argc, char **argv)
 
     ge_dam_dynamic_scene_close(&bounded);
     exercise_prop_segment_replacement(&cache);
+    exercise_middle_source_aliases_and_rollback(&cache);
     {
         GeDamRoomWorldVertex vertices[6] = {0};
         GeDamRoomDrawBatch source[2] = {overlay_batches[0], overlay_batches[1]};

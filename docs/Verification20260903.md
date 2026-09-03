@@ -98,3 +98,77 @@ simulation interval as well as presentation count, because the idle gate
 changes that denominator. Check movement, HUD/menus, audio, clipping,
 scene-publication peaks, and the new renderer phase breakdown. Do not promote
 the candidate or infer reliable 60 FPS from these host microbenchmarks alone.
+
+## Follow-up: in-place middle-overlay topology publication
+
+Source checkpoint `ce0f9e99` was followed by an optimization of articulated
+prop publication. Previously only the final guard segment could reuse scene
+capacity. A middle prop change allocated all three scene buffers and recopied
+the resident room prefix even when the existing allocations were large enough.
+
+Disjoint replacement inputs now reuse that capacity. Only the retained
+overlay suffix moves; replacement batches keep their authored order, and
+local/global vertex offsets are rebased exactly. Equal-sized changes do not
+move or republish an unchanged suffix. The resident room prefix and unrelated
+prefix props remain byte-identical. Allocation limits and existing headroom
+policy are unchanged; previously allocated capacity is retained across these
+changes, as it already was for guard-tail updates.
+
+All range, capacity and triangle-overflow validation completes before mutation.
+Overlapping middle inputs use the old allocate-before-publish path so suffix
+movement cannot overwrite their source. The existing alias-safe guard-tail
+path remains supported. Geometry growth beyond retained capacity still uses
+the allocating path; this change does **not** eliminate cold guard-growth
+copies or claim to remove every scene-publication hitch.
+
+The live input report adds `overlay_publication_paths`: successful in-place
+replacements, successful allocating replacements, and vertices moved in
+overlay suffixes. These include startup publications and are not gameplay
+tick counts. The small part-record table may still allocate independently;
+this optimization removes scene-buffer allocations, not every allocation in
+the articulated-prop workflow.
+
+Verification:
+
+- Focused ASan/UBSan: insertion, growth, shrinkage, deletion, retained pointer
+  identity when capacity fits, exact room/peer/door/guard data, middle vertex
+  and batch source aliasing, triangle-overflow rollback, and existing tail
+  alias behavior (`middle-overlay-sanitizer-20260903.log`).
+- An additional ASan/UBSan stress run covers the initial authored room sets
+  of all 21 stage descriptors, with 300 synthetic middle-topology changes per
+  stage after warmup. All 6,300 changes preserve room/prefix/suffix data and
+  use zero new vertex-buffer allocations
+  (`middle-overlay-all-stages-sanitizer-20260903.log`). These are renderer
+  transactions, not AI/gameplay replays or completed missions.
+- Full host suite passed (`middle-overlay-full-20260903.log`). ARM/3DSX passed
+  (`arm-middle-overlay-20260903.log`). Original gameplay bodies are unchanged.
+
+Host-only `-O2` comparison of the actual `ce0f9e99` implementation and the final
+new implementation, each with identical authored room data and synthetic
+replacement inputs (totals for 300 changes, **not frame times**):
+
+| Stage room prefix | Previous | In-place | Vertex-buffer replacements |
+| --- | ---: | ---: | ---: |
+| Dam | 7.548 ms | 0.375 ms | 300 → 0 |
+| Facility | 3.907 ms | 0.321 ms | 300 → 0 |
+| Control | 6.506 ms | 0.350 ms | 300 → 0 |
+| Egyptian | 9.511 ms | 0.388 ms | 300 → 0 |
+
+All 21 stages showed the same 300-to-zero allocation reduction. Private
+evidence: `middle-overlay-baseline-final-20260903.log`,
+`middle-overlay-optimized-final-20260903.log`, and the driver
+`build/host-tests/middle_overlay_bench.c`.
+
+New candidate executable SHA-256:
+`0f305d530343c1b7cdd8d6bbaaacaa51fc8c653a3fc3dbbc582330b979b4eccd`.
+Saved separately at
+`build/3ds-candidates/middle-overlay-0f305d53/goldeneye-3ds.3dsx`, with the same
+`938536d4...` assets. macOS remained locked, so the verified hardware stage
+and Azahar virtual SD still contain `0797edaa...`. No stage/input config,
+save, DSP setting, or emulator instance was changed.
+
+Next unlocked verification should use this latest candidate, including all
+preceding pending optimizations. Repeat Facility movement and Dam aim/combat,
+check exact prop/guard suffix publication and allocation-path counters, then
+use renderer phase timing to select the next measured bottleneck. Reliable
+60 FPS and high-fidelity gameplay remain unverified in this candidate.

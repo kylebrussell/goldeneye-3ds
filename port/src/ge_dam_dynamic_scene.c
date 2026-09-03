@@ -573,6 +573,28 @@ static void *ge_dam_allocate_overlay_capacity(
     return allocation;
 }
 
+static int ge_dam_memory_overlaps(
+    const void *left, size_t left_bytes, const void *right, size_t right_bytes)
+{
+    const uintptr_t left_start = (uintptr_t)left;
+    const uintptr_t right_start = (uintptr_t)right;
+    if (left_bytes == 0U || right_bytes == 0U) return 0;
+    /* Subtraction avoids overflowing an address + size interval endpoint. */
+    return left_start >= right_start ? left_start - right_start < right_bytes
+        : right_start - left_start < left_bytes;
+}
+
+static int ge_dam_replacement_source_overlaps(
+    const GeDamDynamicScene *cache, const void *source, size_t source_bytes)
+{
+    return ge_dam_memory_overlaps(source, source_bytes, cache->vertices,
+               cache->vertex_storage_capacity * sizeof(*cache->vertices))
+        || ge_dam_memory_overlaps(source, source_bytes, cache->batches,
+               cache->batch_storage_capacity * sizeof(*cache->batches))
+        || ge_dam_memory_overlaps(source, source_bytes, cache->overlay_batches,
+               cache->overlay_batch_storage_capacity * sizeof(*cache->overlay_batches));
+}
+
 static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     GeDamDynamicScene *cache,
     size_t overlay_vertex_offset, size_t old_vertex_count,
@@ -713,6 +735,7 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     size_t overlay_batch_allocation;
     size_t index;
     size_t triangle_count = 0U;
+    int replaces_tail;
 
     if (cache == NULL || cache->initialized == 0U
             || (vertex_count != 0U && vertices == NULL)
@@ -783,15 +806,20 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
             || new_overlay_batch_count > SIZE_MAX / sizeof(*new_overlay_batches))
         return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
 
-    /* A guard visibility/LOD change replaces the final overlay segment. All
-     * input and count checks precede mutation; no allocation or failing work
-     * follows this preflight. memmove also supports callers publishing from
-     * our own retained arrays. Prefix vertices/batches stay byte-identical. */
-    if (old_vertex_end == cache->overlay_vertex_count
-            && old_batch_end == cache->overlay_batch_count
-            && total_vertex_count <= cache->vertex_storage_capacity
+    replaces_tail = old_vertex_end == cache->overlay_vertex_count
+        && old_batch_end == cache->overlay_batch_count;
+    /* Reuse capacity for both guard-tail and articulated-prop changes. A
+     * middle replacement shifts only its overlay suffix, never the resident
+     * room prefix. Aliased middle inputs retain the transactional allocation
+     * path below, since shifting that suffix could overwrite their source.
+     * Tail inputs retain the existing alias-safe memmove behavior. */
+    if (total_vertex_count <= cache->vertex_storage_capacity
             && total_batch_count <= cache->batch_storage_capacity
-            && new_overlay_batch_count <= cache->overlay_batch_storage_capacity) {
+            && new_overlay_batch_count <= cache->overlay_batch_storage_capacity
+            && (replaces_tail || (!ge_dam_replacement_source_overlaps(cache,
+                    vertices, vertex_count * sizeof(*vertices))
+                && !ge_dam_replacement_source_overlaps(cache,
+                    batches, batch_count * sizeof(*batches))))) {
         for (index = 0U; index < room_batch_count + overlay_batch_offset; ++index) {
             if (cache->batches[index].triangle_count > SIZE_MAX - triangle_count)
                 return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
@@ -802,20 +830,55 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
                 return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
             triangle_count += batches[index].triangle_count;
         }
+        for (index = old_batch_end; index < cache->overlay_batch_count; ++index) {
+            if (cache->overlay_batches[index].triangle_count > SIZE_MAX - triangle_count)
+                return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
+            triangle_count += cache->overlay_batches[index].triangle_count;
+        }
+        /* All validation/failing work is complete before the first mutation.
+         * Each suffix moves as one overlapping block; materials and vertex
+         * attributes retain their bytes and authored ordering. */
+        if (!replaces_tail) {
+            const size_t vertex_suffix = cache->overlay_vertex_count - old_vertex_end;
+            const size_t batch_suffix = cache->overlay_batch_count - old_batch_end;
+            if (vertex_suffix != 0U && vertex_count != old_vertex_count)
+                memmove(cache->vertices + room_vertex_count + overlay_vertex_offset
+                        + vertex_count,
+                    cache->vertices + room_vertex_count + old_vertex_end,
+                    vertex_suffix * sizeof(*cache->vertices));
+            if (batch_suffix != 0U && batch_count != old_batch_count)
+                memmove(cache->overlay_batches + overlay_batch_offset + batch_count,
+                    cache->overlay_batches + old_batch_end,
+                    batch_suffix * sizeof(*cache->overlay_batches));
+            if (vertex_count != old_vertex_count) {
+                for (index = overlay_batch_offset + batch_count;
+                        index < new_overlay_batch_count; ++index)
+                    cache->overlay_batches[index].first_vertex =
+                        cache->overlay_batches[index].first_vertex - old_vertex_end
+                            + overlay_vertex_offset + vertex_count;
+                cache->overlay_shifted_vertices += vertex_suffix;
+            }
+        }
         if (vertex_count != 0U)
             memmove(cache->vertices + room_vertex_count + overlay_vertex_offset,
                 vertices, vertex_count * sizeof(*vertices));
         if (batch_count != 0U)
             memmove(cache->overlay_batches + overlay_batch_offset,
                 batches, batch_count * sizeof(*batches));
-        for (index = 0U; index < batch_count; ++index) {
+        for (index = 0U; index < batch_count; ++index)
+            cache->overlay_batches[overlay_batch_offset + index].first_vertex
+                += overlay_vertex_offset;
+        const size_t publish_end = vertex_count == old_vertex_count
+                && batch_count == old_batch_count
+            ? overlay_batch_offset + batch_count : new_overlay_batch_count;
+        for (index = overlay_batch_offset; index < publish_end; ++index) {
             GeDamRoomDrawBatch *local =
-                &cache->overlay_batches[overlay_batch_offset + index];
-            local->first_vertex += overlay_vertex_offset;
-            cache->batches[room_batch_count + overlay_batch_offset + index] = *local;
-            cache->batches[room_batch_count + overlay_batch_offset + index]
+                &cache->overlay_batches[index];
+            cache->batches[room_batch_count + index] = *local;
+            cache->batches[room_batch_count + index]
                 .first_vertex += room_vertex_count;
         }
+        ++cache->overlay_inplace_replacements;
         goto publish_counts;
     }
 
@@ -907,6 +970,7 @@ static GeDamDynamicSceneStatus ge_dam_replace_overlay_segment(
     cache->vertex_storage_capacity = vertex_allocation;
     cache->batch_storage_capacity = batch_allocation;
     cache->overlay_batch_storage_capacity = overlay_batch_allocation;
+    ++cache->overlay_allocating_replacements;
 publish_counts:
     cache->overlay_vertex_count = new_overlay_vertex_count;
     cache->overlay_batch_count = new_overlay_batch_count;

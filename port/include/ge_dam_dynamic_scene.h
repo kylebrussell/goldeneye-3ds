@@ -54,6 +54,10 @@ typedef struct GeDamDynamicScene {
     uint64_t overlay_update_attempts;
     uint64_t overlay_update_successes;
     uint64_t overlay_update_failures;
+    /* Successful topology publications, not model/gameplay ticks. */
+    uint64_t overlay_inplace_replacements;
+    uint64_t overlay_allocating_replacements;
+    uint64_t overlay_shifted_vertices;
     uint64_t eviction_attempts;
     uint64_t eviction_successes;
     uint64_t eviction_failures;
@@ -170,7 +174,10 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_update_overlay_segment(
 /* Transactionally replaces one overlay segment whose authored topology has
  * changed. This preserves the already-decoded room and every other overlay
  * segment, shifting retained suffix offsets as needed.
- * Input batches are local to the replacement vertices. */
+ * Input batches are local to the replacement vertices. Disjoint inputs can
+ * reuse retained capacity by shifting only the overlay suffix; overlapping
+ * middle inputs and capacity growth retain allocate-before-publish behavior.
+ * Every input/count check completes before any in-place mutation. */
 GeDamDynamicSceneStatus ge_dam_dynamic_scene_replace_overlay_segment(
     GeDamDynamicScene *cache,
     size_t overlay_vertex_offset,

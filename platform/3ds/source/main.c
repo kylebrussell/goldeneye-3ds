@@ -3476,6 +3476,13 @@ static bool write_input_probe_result(
             ? fine_profile.guard_scene_ticks - cache_ticks : 0U;
         fprintf(stream, "runtime_profile_tick_hz=%lu\n",
             (unsigned long)SYSCLOCK_ARM11);
+        if (objects->preview != NULL) {
+            const GeDamDynamicScene *scene = &objects->preview->dynamic_scene;
+            fprintf(stream, "overlay_publication_paths=%llu,%llu,%llu\n",
+                (unsigned long long)scene->overlay_inplace_replacements,
+                (unsigned long long)scene->overlay_allocating_replacements,
+                (unsigned long long)scene->overlay_shifted_vertices);
+        }
         fprintf(stream,
             "guard_profile_ticks=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.guard_matrix_ticks,

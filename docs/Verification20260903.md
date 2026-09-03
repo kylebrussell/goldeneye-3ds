@@ -482,3 +482,93 @@ phase counters and slow-frame tails to select the next substantial bottleneck;
 do not spend another locked turn retuning the rejected hashes or stacking
 unmeasured micro-optimizations. Sustained 60 FPS and end-to-end high-fidelity
 mission completion remain unverified.
+
+## Follow-up: incremental resident-room geometry preparation
+
+Continued from `1de6c80c`. The room-streaming transaction still reread all
+retained room blobs and ran their sizing/emission GBI passes every time one
+new room was requested (or an old room was evicted). This is movement/room
+transition work, separate from the earlier per-draw micro-optimizations.
+
+The dynamic scene now owns a small range/statistics record per resident room.
+A prepared transaction copies the immutable decoded slices of retained rooms
+and reads/decodes only new rooms. Original room/primary/secondary list order,
+all vertex fields, material state, commands/triangle counts and overlay order
+are preserved. Surviving batches are rebased by the exact old/new room offsets.
+The original queue, room ages, eviction decision and generation/commit boundary
+are unchanged. No original gameplay system was replaced or reticked.
+
+Range metadata follows the same ownership as candidate geometry: allocated
+off to the side, freed on failure/abort, transferred on commit, and released
+when the scene closes. No extra copy of resident geometry is retained between
+transactions. Existing combined buffers still allocate/copy at prepare time;
+this removes redundant blob I/O/GBI decoding, not all allocation or upload cost.
+The input report adds `room_geometry_work=decodes,reuses`, counting room work
+in successful publications, including startup. Failed/aborted attempts do not
+inflate these committed-work counts.
+
+Validation:
+
+- Dam sanitizer tests compare fresh and incremental scene metadata, all
+  defined vertex fields and batch/material fields. Fresh C alignment padding
+  after vertex cache slots and command-address fields is unspecified; it is
+  not treated as authored data. Retained room slices are copied byte-for-byte.
+- A noninitial room survives deletion of its old prefix with the asset-pack
+  file deliberately unavailable; rebased geometry matches a cold build after
+  I/O is restored. This proves eviction-only reuse performs no asset reads.
+- Missing new assets, vertex/batch/room limits, abort/retry, missing transaction
+  metadata, invalid retained ranges and overflowing statistics preserve the
+  published scene. Existing alias-safe overlay/growth tests still pass.
+- Private old/new comparison uses the actual `1de6c80c` implementation. All 21
+  stage samples match geometry/materials, scene statistics, generation, room
+  ages/residency and queue state. Eighteen connected samples exercise 12
+  install/evict cycles (1,944 room installs total); Frigate, Cradle and Cuba's
+  sampled connected sets contain one room and exercise initialization only.
+  ASan/UBSan passes for both implementations. These synthetic residency
+  transactions are not player movement replays or level completions.
+- Complete host suite and ARM/3DSX pass. The ARM ELF retains original MoveBond,
+  input, gun and active-prop dispatch alongside prepare/commit. Evidence under
+  `build/host-tests/`: `dynamic-room-reuse{,-o0}-20260903.log`,
+  `room-reuse-sanitizer-20260903.log`, `room-reuse-verified-20260903.log`, and
+  `arm-room-reuse-20260903.log`.
+
+The repeated full-suite run also exposed a preexisting wildcard-link problem
+in `scripts/test_port.sh`: stale `player-gait/chain_*.o` files from a previous
+run entered the standalone gait link before its movement dependencies existed.
+The runner now links the explicit standalone object list. Verification uses
+the already-populated directory, not a cleanup that would mask the problem.
+The failed repeat remains recorded in `room-reuse-final-20260903.log`; this was
+a test-link failure, not a regression in original movement code.
+
+Each multi-room sample performed 661 room decodes with the old implementation
+versus 109 with the new implementation, reusing 552 retained slices. Host-only
+`-O2` timing totals for 108 installs (excluding initial load and eviction-only
+ticks; **not gameplay frame times**):
+
+| Stage sample | Previous | Reused room slices |
+| --- | ---: | ---: |
+| Dam | 58.456 ms | 10.711 ms |
+| Facility | 40.524 ms | 7.175 ms |
+| Control | 49.927 ms | 9.044 ms |
+| Egyptian | 79.265 ms | 13.516 ms |
+
+Private driver: `room_reuse_bench.c`; final timings:
+`room-reuse-bench-final-20260903.log`. Host load varied between runs; work-count
+reductions and exact outputs are stronger evidence than these timing totals.
+
+Candidate saved separately at
+`build/3ds-candidates/room-reuse-6f190388/goldeneye-3ds.3dsx`, SHA-256
+`6f190388cc85d4e95717f70492b868e7cf081134cba13fee2cc8415d9d0c8e2b`.
+Assets remain `938536d4...`; hardware staging and Azahar remain at verified
+`0797edaa...`. macOS was still locked, so no live FPS/visual claim is made and
+no saves, stage/input configs, DSP settings or emulator instances changed.
+
+Next: measure this candidate in unlocked Azahar on the existing Facility
+movement and Dam aim/combat traces, including room transitions and the new
+work counters. Another concrete streaming cost remains in
+`update_original_dam_camera`: its candidate texture setup still calls the
+full scene texture loader. Evaluate using the existing transactional texture
+reconciliation API there, with correct borrowed ownership, hidden character
+dependencies and geometry/texture rollback; do not replace the call without
+closing that transaction boundary. Reliable 60 FPS across levels and
+end-to-end high-fidelity gameplay remain unverified.

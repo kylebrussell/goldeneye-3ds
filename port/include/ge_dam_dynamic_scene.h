@@ -20,6 +20,15 @@ typedef struct GeDamDynamicSceneLimits {
     size_t batch_capacity;
 } GeDamDynamicSceneLimits;
 
+/* Immutable decoded room slices in publication order. Overlay updates never
+ * alter these vertices or batches; room transactions can copy retained slices
+ * without reopening their ROM-backed lists. Owned with the scene buffers. */
+typedef struct GeDamDynamicRoomRange {
+    GeDamRoomScene scene;
+    size_t first_vertex;
+    size_t first_batch;
+} GeDamDynamicRoomRange;
+
 typedef struct GeDamDynamicScene {
     GeAssetPack *pack;
     const GeStageAssetDescriptor *stage_assets;
@@ -34,6 +43,7 @@ typedef struct GeDamDynamicScene {
     size_t room_count;
     GeDamRoomWorldVertex *vertices;
     GeDamRoomDrawBatch *batches;
+    GeDamDynamicRoomRange *room_ranges;
     /* CPU allocation extents, distinct from authored/published counts. Small
      * overlay growth reserves let the final actor segment change topology
      * without copying immutable resident rooms. Never exceed scene limits. */
@@ -66,6 +76,9 @@ typedef struct GeDamDynamicScene {
     uint64_t eviction_successes;
     uint64_t eviction_failures;
     uint64_t rooms_evicted;
+    /* Room work in successfully published transactions, including startup. */
+    uint64_t room_geometry_decodes;
+    uint64_t room_geometry_reuses;
     uint8_t last_requested_room;
     uint8_t initialized;
 } GeDamDynamicScene;
@@ -73,11 +86,14 @@ typedef struct GeDamDynamicScene {
 typedef struct GeDamDynamicSceneTransaction {
     GeDamRoomWorldVertex *vertices;
     GeDamRoomDrawBatch *batches;
+    GeDamDynamicRoomRange *room_ranges;
     GeDamRoomScene scene;
     uint8_t room_ids[GE_DAM_WORLD_MAX_ROOMS];
     uint8_t evicted_rooms[GE_DAM_WORLD_MAX_ROOMS];
     size_t room_count;
     size_t evicted_count;
+    size_t room_geometry_decodes;
+    size_t room_geometry_reuses;
     uint8_t room;
     uint8_t includes_request;
     uint8_t prepared;

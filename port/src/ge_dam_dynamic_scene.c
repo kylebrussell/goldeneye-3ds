@@ -15,6 +15,7 @@ static void ge_dam_candidate_close(GeDamDynamicSceneTransaction *candidate)
     if (candidate == NULL) return;
     free(candidate->batches);
     free(candidate->vertices);
+    free(candidate->room_ranges);
     memset(candidate, 0, sizeof(*candidate));
 }
 
@@ -73,6 +74,49 @@ static GeDamDynamicSceneStatus ge_dam_read_asset(
     return GE_DAM_DYNAMIC_SCENE_OK;
 }
 
+static int ge_dam_room_range_valid(const GeDamDynamicScene *cache,
+    const GeDamDynamicRoomRange *range)
+{
+    size_t vertices, batches;
+    if (cache->overlay_vertex_count > cache->scene.vertex_count
+            || cache->overlay_batch_count > cache->scene.batch_count)
+        return 0;
+    vertices = cache->scene.vertex_count - cache->overlay_vertex_count;
+    batches = cache->scene.batch_count - cache->overlay_batch_count;
+    return range->scene.status == GE_DAM_ROOM_OK
+        && range->scene.vertex_count == range->scene.required_vertex_count
+        && range->scene.batch_count == range->scene.required_batch_count
+        && range->first_vertex <= vertices
+        && range->scene.vertex_count <= vertices - range->first_vertex
+        && range->first_batch <= batches
+        && range->scene.batch_count <= batches - range->first_batch
+        && (range->scene.vertex_count == 0U || cache->vertices != NULL)
+        && (range->scene.batch_count == 0U || cache->batches != NULL);
+}
+
+static int ge_dam_accumulate_room_scene(GeDamRoomScene *total,
+    const GeDamRoomScene *room)
+{
+    if (room->required_vertex_count > SIZE_MAX - total->required_vertex_count
+            || room->required_batch_count > SIZE_MAX - total->required_batch_count
+            || room->triangle_count > SIZE_MAX - total->triangle_count
+            || room->list_count > SIZE_MAX - total->list_count
+            || room->commands_visited > SIZE_MAX - total->commands_visited
+            || room->unsupported_commands > SIZE_MAX - total->unsupported_commands)
+        return 0;
+    total->required_vertex_count += room->required_vertex_count;
+    total->required_batch_count += room->required_batch_count;
+    total->triangle_count += room->triangle_count;
+    total->list_count += room->list_count;
+    total->commands_visited += room->commands_visited;
+    total->unsupported_commands += room->unsupported_commands;
+    return 1;
+}
+
+/* Each authored room starts independent primary/secondary GBI contexts.
+ * Preserve their exact descriptor order, but reuse immutable resident slices
+ * rather than reread and traverse those lists on every streaming transaction.
+ * No geometry buffer or room lifetime is changed until the usual commit. */
 static GeDamDynamicSceneStatus ge_dam_build_candidate(
     const GeDamDynamicScene *cache, const uint8_t *room_ids,
     size_t room_count, GeDamDynamicSceneTransaction *candidate)
@@ -87,14 +131,21 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
     size_t total_vertex_count = 0U;
     size_t total_batch_count = 0U;
     size_t index;
+    const GeDamDynamicRoomRange *retained[GE_DAM_WORLD_MAX_ROOMS] = {0};
 
     memset(candidate, 0, sizeof(*candidate));
+    if (room_count > GE_DAM_WORLD_MAX_ROOMS)
+        return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
     owned = room_count != 0U ? calloc(room_count, sizeof(*owned)) : NULL;
     descriptors = room_count != 0U
         ? calloc(room_count, sizeof(*descriptors)) : NULL;
-    if (room_count != 0U && (owned == NULL || descriptors == NULL)) {
+    candidate->room_ranges = room_count != 0U
+        ? calloc(room_count, sizeof(*candidate->room_ranges)) : NULL;
+    if (room_count != 0U && (owned == NULL || descriptors == NULL
+            || candidate->room_ranges == NULL)) {
         free(descriptors);
         ge_dam_owned_rooms_close(owned, room_count);
+        ge_dam_candidate_close(candidate);
         return GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
     }
     for (index = 0U; index < room_count; ++index) {
@@ -108,6 +159,23 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
         if (world_room == NULL) {
             status = GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
             break;
+        }
+        if (cache->initialized && cache->room_ranges != NULL) {
+            size_t prior;
+            for (prior = 0U; prior < cache->room_count; ++prior) {
+                if (cache->room_ids[prior] == room_id) {
+                    const GeDamDynamicRoomRange *range =
+                        &cache->room_ranges[prior];
+                    if (!ge_dam_room_range_valid(cache, range)) {
+                        status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
+                    } else {
+                        retained[index] = range;
+                    }
+                    break;
+                }
+            }
+            if (status != GE_DAM_DYNAMIC_SCENE_OK) break;
+            if (retained[index] != NULL) continue;
         }
         if (ge_stage_asset_room_path(cache->stage_assets, room_id,
                 GE_STAGE_ROOM_POINTS, path, sizeof(path))
@@ -151,17 +219,35 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
         descriptor->secondary_gdl = owned[index].secondary;
     }
     if (status == GE_DAM_DYNAMIC_SCENE_OK) {
-        build_status = ge_dam_rooms_build(descriptors, room_count, NULL, NULL,
-                                          &candidate->scene);
-        if (build_status != GE_DAM_ROOM_CAPACITY_EXCEEDED
-                && build_status != GE_DAM_ROOM_OK) {
-            status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
-        } else if (cache->overlay_vertex_count
+        candidate->scene.room_count = room_count;
+        for (index = 0U; index < room_count; ++index) {
+            GeDamDynamicRoomRange *range = &candidate->room_ranges[index];
+            if (retained[index] != NULL) {
+                range->scene = retained[index]->scene;
+                ++candidate->room_geometry_reuses;
+            } else {
+                build_status = ge_dam_rooms_build(&descriptors[index], 1U,
+                    NULL, NULL, &range->scene);
+                if (build_status != GE_DAM_ROOM_CAPACITY_EXCEEDED
+                        && build_status != GE_DAM_ROOM_OK) {
+                    status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
+                    break;
+                }
+                ++candidate->room_geometry_decodes;
+            }
+            range->first_vertex = candidate->scene.required_vertex_count;
+            range->first_batch = candidate->scene.required_batch_count;
+            if (!ge_dam_accumulate_room_scene(&candidate->scene, &range->scene)) {
+                status = GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
+                break;
+            }
+        }
+        if (status == GE_DAM_DYNAMIC_SCENE_OK && (cache->overlay_vertex_count
                     > SIZE_MAX - candidate->scene.required_vertex_count
                 || cache->overlay_batch_count
-                    > SIZE_MAX - candidate->scene.required_batch_count) {
+                    > SIZE_MAX - candidate->scene.required_batch_count)) {
             status = GE_DAM_DYNAMIC_SCENE_NO_MEMORY;
-        } else {
+        } else if (status == GE_DAM_DYNAMIC_SCENE_OK) {
             room_vertex_count = candidate->scene.required_vertex_count;
             room_batch_count = candidate->scene.required_batch_count;
             total_vertex_count = room_vertex_count
@@ -192,22 +278,56 @@ static GeDamDynamicSceneStatus ge_dam_build_candidate(
         }
     }
     if (status == GE_DAM_DYNAMIC_SCENE_OK) {
-        storage.vertices = candidate->vertices;
-        storage.vertex_capacity = room_vertex_count;
-        storage.batches = candidate->batches;
-        storage.batch_capacity = room_batch_count;
-        build_status = ge_dam_rooms_build(descriptors, room_count, NULL,
-                                          &storage, &candidate->scene);
-        if (build_status != GE_DAM_ROOM_OK) {
-            status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
-        } else if (cache->overlay_vertex_count != 0U
-                || cache->overlay_batch_count != 0U) {
+        for (index = 0U; index < room_count; ++index) {
+            GeDamDynamicRoomRange *range = &candidate->room_ranges[index];
+            const GeDamDynamicRoomRange *prior = retained[index];
             size_t batch_index;
-            memcpy(candidate->vertices + room_vertex_count,
+            storage.vertices = candidate->vertices != NULL
+                ? candidate->vertices + range->first_vertex : NULL;
+            storage.vertex_capacity = range->scene.required_vertex_count;
+            storage.batches = candidate->batches != NULL
+                ? candidate->batches + range->first_batch : NULL;
+            storage.batch_capacity = range->scene.required_batch_count;
+            if (prior != NULL) {
+                if (storage.vertex_capacity != 0U)
+                    memcpy(storage.vertices, cache->vertices + prior->first_vertex,
+                        storage.vertex_capacity * sizeof(*storage.vertices));
+                if (storage.batch_capacity != 0U)
+                    memcpy(storage.batches, cache->batches + prior->first_batch,
+                        storage.batch_capacity * sizeof(*storage.batches));
+            } else {
+                build_status = ge_dam_rooms_build(&descriptors[index], 1U, NULL,
+                    &storage, &range->scene);
+                if (build_status != GE_DAM_ROOM_OK) {
+                    status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
+                    break;
+                }
+            }
+            for (batch_index = 0U; batch_index < storage.batch_capacity; ++batch_index) {
+                GeDamRoomDrawBatch *batch = &storage.batches[batch_index];
+                const size_t source_base = prior != NULL ? prior->first_vertex : 0U;
+                if (batch->first_vertex < source_base
+                        || batch->first_vertex - source_base > storage.vertex_capacity
+                        || batch->vertex_count > storage.vertex_capacity - (batch->first_vertex - source_base)) {
+                    status = GE_DAM_DYNAMIC_SCENE_BUILD_FAILED;
+                    break;
+                }
+                batch->first_vertex = range->first_vertex + (batch->first_vertex - source_base);
+            }
+            if (status != GE_DAM_DYNAMIC_SCENE_OK) break;
+        }
+        candidate->scene.vertex_count = room_vertex_count;
+        candidate->scene.batch_count = room_batch_count;
+        if (status == GE_DAM_DYNAMIC_SCENE_OK && (cache->overlay_vertex_count != 0U
+                || cache->overlay_batch_count != 0U)) {
+            size_t batch_index;
+            if (cache->overlay_vertex_count != 0U)
+                memcpy(candidate->vertices + room_vertex_count,
                    cache->overlay_vertices,
                    cache->overlay_vertex_count
                        * sizeof(*candidate->vertices));
-            memcpy(candidate->batches + room_batch_count,
+            if (cache->overlay_batch_count != 0U)
+                memcpy(candidate->batches + room_batch_count,
                    cache->overlay_batches,
                    cache->overlay_batch_count
                        * sizeof(*candidate->batches));
@@ -299,6 +419,9 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_init_for_stage(
     next.room_count = initial_room_count;
     next.vertices = candidate.vertices;
     next.batches = candidate.batches;
+    next.room_ranges = candidate.room_ranges;
+    next.room_geometry_decodes = candidate.room_geometry_decodes;
+    next.room_geometry_reuses = candidate.room_geometry_reuses;
     next.scene = candidate.scene;
     next.vertex_storage_capacity = next.scene.vertex_count;
     next.batch_storage_capacity = next.scene.batch_count;
@@ -367,6 +490,9 @@ static GeDamDynamicSceneStatus ge_dam_dynamic_scene_prepare_replacement(
     }
     transaction->vertices = built.vertices;
     transaction->batches = built.batches;
+    transaction->room_ranges = built.room_ranges;
+    transaction->room_geometry_decodes = built.room_geometry_decodes;
+    transaction->room_geometry_reuses = built.room_geometry_reuses;
     transaction->scene = built.scene;
     memcpy(transaction->room_ids, candidate_rooms, candidate_count);
     transaction->room_count = candidate_count;
@@ -403,6 +529,8 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit(
                 && transaction->vertices == NULL)
             || (transaction->scene.batch_count != 0U
                 && transaction->batches == NULL)
+            || (transaction->room_count != 0U
+                && transaction->room_ranges == NULL)
             || transaction->room_count > cache->limits.room_capacity) {
         return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
     }
@@ -439,6 +567,10 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit(
     memcpy(old_age, cache->room_age, sizeof(old_age));
     cache->vertices = transaction->vertices;
     cache->batches = transaction->batches;
+    free(cache->room_ranges);
+    cache->room_ranges = transaction->room_ranges;
+    cache->room_geometry_decodes += transaction->room_geometry_decodes;
+    cache->room_geometry_reuses += transaction->room_geometry_reuses;
     cache->scene = transaction->scene;
     cache->vertex_storage_capacity = cache->scene.vertex_count;
     cache->batch_storage_capacity = cache->scene.batch_count;
@@ -1149,6 +1281,7 @@ void ge_dam_dynamic_scene_close(GeDamDynamicScene *cache)
     free(cache->overlay_batches);
     free(cache->batches);
     free(cache->vertices);
+    free(cache->room_ranges);
     memset(cache, 0, sizeof(*cache));
 }
 

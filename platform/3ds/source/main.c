@@ -3541,6 +3541,9 @@ static bool write_input_probe_result(
             (unsigned long)SYSCLOCK_ARM11);
         if (objects->preview != NULL) {
             const GeDamDynamicScene *scene = &objects->preview->dynamic_scene;
+            fprintf(stream, "room_geometry_work=%llu,%llu\n",
+                (unsigned long long)scene->room_geometry_decodes,
+                (unsigned long long)scene->room_geometry_reuses);
             fprintf(stream, "overlay_publication_paths=%llu,%llu,%llu\n",
                 (unsigned long long)scene->overlay_inplace_replacements,
                 (unsigned long long)scene->overlay_allocating_replacements,

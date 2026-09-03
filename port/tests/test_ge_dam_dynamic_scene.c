@@ -348,6 +348,48 @@ static void exercise_middle_source_aliases_and_rollback(GeDamDynamicScene *cache
     puts("middle overlay: retained-capacity publication, aliased sources and preflight rollback passed");
 }
 
+static void assert_matches_cold_room_build(const GeDamDynamicScene *scene)
+{
+    GeDamDynamicScene cold;
+    assert(scene->room_count != 0U);
+    assert(ge_dam_dynamic_scene_init_for_stage(&cold, scene->pack,
+        scene->stage_assets, &scene->world, scene->room_ids, scene->room_count,
+        &scene->limits) == GE_DAM_DYNAMIC_SCENE_OK);
+    assert(ge_dam_dynamic_scene_set_overlay(&cold, scene->overlay_vertices,
+        scene->overlay_vertex_count, scene->overlay_batches,
+        scene->overlay_batch_count) == GE_DAM_DYNAMIC_SCENE_OK);
+    assert(memcmp(&cold.scene, &scene->scene, sizeof(cold.scene)) == 0);
+    for (size_t vertex = 0U; vertex < scene->scene.vertex_count; ++vertex) {
+        /* A fresh decode leaves C alignment padding after cache_slot
+         * unspecified. Compare every authored/published field, not that
+         * padding; retained slices themselves are copied byte-for-byte. */
+        const GeDamRoomWorldVertex *a = &cold.vertices[vertex];
+        const GeDamRoomWorldVertex *b = &scene->vertices[vertex];
+        assert(memcmp(&a->source, &b->source,
+            offsetof(GeGbiVertex, cache_slot) + sizeof(a->source.cache_slot)) == 0);
+        assert(memcmp(&a->processed, &b->processed, sizeof(a->processed)) == 0);
+        assert(memcmp(a->world, b->world, sizeof(a->world)) == 0);
+    }
+    for (size_t batch = 0U; batch < scene->scene.batch_count; ++batch) {
+        const GeDamRoomDrawBatch *a = &cold.batches[batch];
+        const GeDamRoomDrawBatch *b = &scene->batches[batch];
+        assert(a->room_id == b->room_id && a->list_kind == b->list_kind);
+        assert(a->command_address.raw == b->command_address.raw
+            && a->command_address.offset == b->command_address.offset
+            && a->command_address.segment == b->command_address.segment);
+        assert(memcmp(&a->texture, &b->texture,
+            offsetof(GeGbiRareTextureState, shift_t) + sizeof(a->texture.shift_t)) == 0);
+        assert(memcmp(&a->material, &b->material, sizeof(a->material)) == 0);
+        assert(a->first_vertex == b->first_vertex && a->vertex_count == b->vertex_count
+            && a->triangle_count == b->triangle_count
+            && a->texture_valid == b->texture_valid
+            && a->coordinate_space == b->coordinate_space);
+    }
+    assert(memcmp(cold.room_ranges, scene->room_ranges,
+        scene->room_count * sizeof(*scene->room_ranges)) == 0);
+    ge_dam_dynamic_scene_close(&cold);
+}
+
 int main(int argc, char **argv)
 {
     static const uint8_t initial[] = {
@@ -381,6 +423,8 @@ int main(int argc, char **argv)
     assert(cache.room_count == sizeof(initial));
     assert(cache.scene.room_count == sizeof(initial));
     assert(cache.scene.vertex_count == 9129U);
+    assert(cache.room_geometry_decodes == sizeof(initial)
+        && cache.room_geometry_reuses == 0U);
     assert(ge_dam_dynamic_scene_is_resident(&cache, 135U));
     assert(!ge_dam_dynamic_scene_is_resident(&cache, 1U));
     overlay_batches[0].room_id = 135U;
@@ -646,6 +690,9 @@ int main(int argc, char **argv)
     assert(cache.generation == old_generation + 1U
            && cache.room_count == 11U);
     assert(cache.scene.room_count == 11U);
+    assert(cache.room_geometry_decodes == 11U
+        && cache.room_geometry_reuses == 10U);
+    assert_matches_cold_room_build(&cache);
     assert(cache.scene.vertex_count == 9210U);
     assert(cache.overlay_vertices
            == cache.vertices + cache.scene.vertex_count
@@ -668,16 +715,46 @@ int main(int argc, char **argv)
         == GE_DAM_DYNAMIC_SCENE_OK);
     assert(transaction.prepared != 0U && transaction.room == 2U);
     assert(transaction.scene.room_count == 12U);
+    assert(transaction.room_geometry_decodes == 1U
+        && transaction.room_geometry_reuses == 11U);
     assert(cache.vertices == old_vertices && cache.batches == old_batches);
     assert(cache.generation == old_generation && cache.room_count == 11U);
     assert(ge_dam_preload_queue_room_state(&queue, 2U)
         == GE_DAM_PRELOAD_ROOM_QUEUED);
+    {
+        GeDamDynamicRoomRange *ranges = transaction.room_ranges;
+        transaction.room_ranges = NULL;
+        assert(ge_dam_dynamic_scene_commit(&cache, &queue, &transaction)
+            == GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT);
+        transaction.room_ranges = ranges;
+        assert(cache.vertices == old_vertices && cache.batches == old_batches);
+        assert(ge_dam_preload_queue_room_state(&queue, 2U)
+            == GE_DAM_PRELOAD_ROOM_QUEUED);
+    }
     ge_dam_dynamic_scene_abort(&cache, &transaction);
     assert(transaction.prepared == 0U);
+    assert(transaction.room_ranges == NULL);
+    assert(cache.room_geometry_decodes == 11U
+        && cache.room_geometry_reuses == 10U);
     assert(cache.vertices == old_vertices && cache.batches == old_batches);
     assert(cache.generation == old_generation && cache.room_count == 11U);
     assert(ge_dam_preload_queue_room_state(&queue, 2U)
         == GE_DAM_PRELOAD_ROOM_QUEUED);
+
+    for (size_t corruption = 0U; corruption < 2U; ++corruption) {
+        const GeDamDynamicRoomRange saved = cache.room_ranges[0];
+        if (corruption == 0U) cache.room_ranges[0].first_vertex = SIZE_MAX;
+        else cache.room_ranges[0].scene.commands_visited = SIZE_MAX;
+        assert(ge_dam_preload_queue_request(&queue, 2U) != 0U);
+        assert(ge_dam_dynamic_scene_prepare_next(&cache, &queue, &transaction)
+            == (corruption == 0U ? GE_DAM_DYNAMIC_SCENE_BUILD_FAILED
+                                 : GE_DAM_DYNAMIC_SCENE_NO_MEMORY));
+        cache.room_ranges[0] = saved;
+        assert(cache.vertices == old_vertices && cache.batches == old_batches
+            && cache.generation == old_generation);
+        assert(transaction.prepared == 0U && transaction.room_ranges == NULL);
+        assert(cache.room_geometry_decodes == 11U && cache.room_geometry_reuses == 10U);
+    }
 
     assert(ge_dam_preload_queue_init(&queue, 137U, 137U,
         resident_after_install, sizeof(resident_after_install))
@@ -771,6 +848,9 @@ int main(int argc, char **argv)
             == GE_DAM_DYNAMIC_SCENE_OK);
         assert(bounded.generation == old_generation + 1U);
         assert(bounded.room_count == 2U && bounded.scene.room_count == 2U);
+        assert(bounded.room_geometry_decodes == 11U
+            && bounded.room_geometry_reuses == 1U);
+        assert_matches_cold_room_build(&bounded);
         assert(ge_dam_dynamic_scene_is_resident(&bounded, 135U));
         assert(ge_dam_dynamic_scene_is_resident(&bounded, 1U));
         assert(!ge_dam_dynamic_scene_is_resident(&bounded, 133U));
@@ -824,6 +904,35 @@ int main(int argc, char **argv)
                && bounded.room_age[1U] == 1U);
     }
 
+    {
+        const uint8_t rendered[] = {1U};
+        FILE *file = pack.file;
+        /* Retain a noninitial slice while deleting its old prefix, with
+         * asset I/O deliberately unavailable. Its decoded bytes suffice. */
+        pack.file = NULL;
+        for (size_t tick = 0U; tick < 4U; ++tick)
+            assert(ge_dam_dynamic_scene_tick_visibility(&bounded, &queue,
+                rendered, sizeof(rendered)) == GE_DAM_DYNAMIC_SCENE_OK);
+        pack.file = file;
+        assert(bounded.room_count == 1U && bounded.room_ids[0] == 1U);
+        assert(bounded.room_ranges[0].first_vertex == 0U
+            && bounded.room_ranges[0].first_batch == 0U);
+        assert(bounded.room_geometry_decodes == 11U
+            && bounded.room_geometry_reuses == 2U);
+        assert_matches_cold_room_build(&bounded);
+        assert(ge_dam_dynamic_scene_set_overlay(&bounded, overlay_vertices, 6U,
+            overlay_batches, 2U) == GE_DAM_DYNAMIC_SCENE_OK);
+        pack.file = NULL;
+        for (size_t tick = 0U; tick < 4U; ++tick)
+            assert(ge_dam_dynamic_scene_tick_visibility(&bounded, &queue,
+                NULL, 0U) == GE_DAM_DYNAMIC_SCENE_OK);
+        pack.file = file;
+        assert(bounded.room_count == 0U && bounded.room_ranges == NULL);
+        assert(bounded.scene.vertex_count == 6U && bounded.scene.batch_count == 2U);
+        assert(bounded.overlay_vertices == bounded.vertices);
+        assert(memcmp(bounded.vertices, overlay_vertices, sizeof(overlay_vertices)) == 0);
+        assert(memcmp(bounded.batches, overlay_batches, sizeof(overlay_batches)) == 0);
+    }
     ge_dam_dynamic_scene_close(&bounded);
     exercise_prop_segment_replacement(&cache);
     exercise_middle_source_aliases_and_rollback(&cache);

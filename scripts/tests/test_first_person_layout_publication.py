@@ -15,7 +15,9 @@ def main() -> None:
     changed = body.index("runtime->cache.topology_publications != topology_publications_before")
     invalidate = body.index("runtime->uv_ready = false;", changed)
     ensure = body.index("ge_original_model_scene_visit_textures(", changed)
-    remap = body.index("ge_3ds_scene_texture_map_uv(", ensure)
+    remap = body.index("ge_3ds_scene_texture_map_uv_prepared(", ensure)
+    prepare = body.index("ge_3ds_scene_texture_uv_prepare(", ensure)
+    assert prepare < body.index("for (vertex_index = batch->first_vertex;", prepare) < remap
     assert before < build < changed < invalidate < ensure < remap
     assert "ensure_first_person_scene_texture" in body[ensure:remap]
     assert "ge_original_first_person_assets_visit_texture_ids(" in body[ensure:remap]

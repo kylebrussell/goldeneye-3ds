@@ -144,6 +144,21 @@ const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     const Ge3dsSceneTextures *scene,
     uint16_t image_id);
 
+/* Per-batch snapshot of normalization and Tex3DS atlas orientation. No GPU
+ * handle or material pointer is retained; recreate after either changes. */
+typedef struct Ge3dsSceneTextureUvContext {
+    GeTextureUvContext normalization;
+    float top_left_u, top_left_v, bottom_left_u, bottom_left_v;
+    float top_delta_u, top_delta_v, bottom_delta_u, bottom_delta_v;
+} Ge3dsSceneTextureUvContext;
+
+GeTextureUvStatus ge_3ds_scene_texture_uv_prepare(
+    const Ge3dsSceneTextureSlot *slot, const GePicaMaterial *material,
+    Ge3dsSceneTextureUvContext *context);
+GeTextureUvStatus ge_3ds_scene_texture_map_uv_prepared(
+    const Ge3dsSceneTextureUvContext *context,
+    int16_t texture_s, int16_t texture_t, GeTextureUv *result);
+
 /* Converts an authored N64 vertex ST pair and maps it through tex3ds' actual
  * subtexture orientation/padding. */
 GeTextureUvStatus ge_3ds_scene_texture_map_uv(

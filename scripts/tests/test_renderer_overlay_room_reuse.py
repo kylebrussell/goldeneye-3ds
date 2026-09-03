@@ -43,6 +43,12 @@ for name in ("refresh_stage_ordinary_object_scenes", "refresh_stage_live_overlay
         "install_stage_ordinary_object_scenes(")
     assert "upload_dam_gpu_scene_after_overlay(" in body
 
+upload = function("upload_dam_gpu_world_scene_range")
+prepare_uv = upload.index("ge_3ds_scene_texture_uv_prepare(")
+assert upload.index("if (!map_texture_uv) continue;") < prepare_uv
+assert prepare_uv < upload.index("for (vertex_index = batch->first_vertex;", prepare_uv)
+assert upload.index("ge_3ds_scene_texture_map_uv_prepared(") > prepare_uv
+
 vertex = re.search(r"typedef struct Vertex\s*\{.*?\} Vertex;", source, re.S).group(0)
 colors = re.search(r"static const float renderer_normalized_color\[.*?\};", source, re.S).group(0)
 test = r'''
@@ -71,6 +77,7 @@ typedef struct RuntimeDamPreview {
     uint64_t gpu_overlay_only_uploads, gpu_room_vertices_reused;
 } RuntimeDamPreview;
 static size_t writes;
+static struct { uint64_t texture_uv_work[4]; } fine_profile;
 const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     const Ge3dsSceneTextures *scene, uint16_t id)
 {
@@ -80,12 +87,20 @@ const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     return NULL;
 }
 /* A deterministic map seam; the same map is used by full and partial paths. */
-GeTextureUvStatus ge_3ds_scene_texture_map_uv(const Ge3dsSceneTextureSlot *slot,
-    int16_t s, int16_t t, const GePicaMaterial *material, GeTextureUv *uv)
+GeTextureUvStatus ge_3ds_scene_texture_uv_prepare(const Ge3dsSceneTextureSlot *slot,
+    const GePicaMaterial *material, Ge3dsSceneTextureUvContext *context)
 {
     (void)material;
-    uv->u=(float)s / (float)slot->width;
-    uv->v=(float)t / (float)slot->height;
+    if (slot==NULL) return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    context->normalization.width=(float)slot->width;
+    context->normalization.height=(float)slot->height;
+    return GE_TEXTURE_UV_OK;
+}
+GeTextureUvStatus ge_3ds_scene_texture_map_uv_prepared(
+    const Ge3dsSceneTextureUvContext *context, int16_t s, int16_t t, GeTextureUv *uv)
+{
+    uv->u=(float)s / context->normalization.width;
+    uv->v=(float)t / context->normalization.height;
     return GE_TEXTURE_UV_OK;
 }
 ''' + function("renderer_upload_world_vertices").replace(

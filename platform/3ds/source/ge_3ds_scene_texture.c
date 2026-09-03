@@ -400,6 +400,49 @@ const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     return slot != NULL && slot->loaded != 0U ? slot : NULL;
 }
 
+GeTextureUvStatus ge_3ds_scene_texture_uv_prepare(
+    const Ge3dsSceneTextureSlot *slot, const GePicaMaterial *material,
+    Ge3dsSceneTextureUvContext *context)
+{
+    float top_right_u, top_right_v, bottom_right_u, bottom_right_v;
+    if (context == NULL) return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    context->normalization.valid = 0U;
+    if (slot == NULL || slot->loaded == 0U
+            || ge_texture_uv_prepare(material, slot->width, slot->height,
+                &context->normalization) != GE_TEXTURE_UV_OK)
+        return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    Tex3DS_SubTextureTopLeft(&slot->subtexture,
+        &context->top_left_u, &context->top_left_v);
+    Tex3DS_SubTextureTopRight(&slot->subtexture, &top_right_u, &top_right_v);
+    Tex3DS_SubTextureBottomLeft(&slot->subtexture,
+        &context->bottom_left_u, &context->bottom_left_v);
+    Tex3DS_SubTextureBottomRight(&slot->subtexture, &bottom_right_u, &bottom_right_v);
+    context->top_delta_u = top_right_u - context->top_left_u;
+    context->top_delta_v = top_right_v - context->top_left_v;
+    context->bottom_delta_u = bottom_right_u - context->bottom_left_u;
+    context->bottom_delta_v = bottom_right_v - context->bottom_left_v;
+    return GE_TEXTURE_UV_OK;
+}
+
+GeTextureUvStatus ge_3ds_scene_texture_map_uv_prepared(
+    const Ge3dsSceneTextureUvContext *context,
+    int16_t texture_s, int16_t texture_t, GeTextureUv *result)
+{
+    GeTextureUv normalized;
+    float top_u, top_v, bottom_u, bottom_v;
+    if (context == NULL || result == NULL
+            || ge_texture_uv_normalize_prepared(texture_s, texture_t,
+                &context->normalization, &normalized) != GE_TEXTURE_UV_OK)
+        return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    top_u = context->top_left_u + context->top_delta_u * normalized.u;
+    top_v = context->top_left_v + context->top_delta_v * normalized.u;
+    bottom_u = context->bottom_left_u + context->bottom_delta_u * normalized.u;
+    bottom_v = context->bottom_left_v + context->bottom_delta_v * normalized.u;
+    result->u = top_u + (bottom_u - top_u) * normalized.v;
+    result->v = top_v + (bottom_v - top_v) * normalized.v;
+    return GE_TEXTURE_UV_OK;
+}
+
 GeTextureUvStatus ge_3ds_scene_texture_map_uv(
     const Ge3dsSceneTextureSlot *slot,
     int16_t texture_s,

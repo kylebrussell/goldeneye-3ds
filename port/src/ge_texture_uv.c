@@ -2,6 +2,43 @@
 
 #include <stddef.h>
 
+GeTextureUvStatus ge_texture_uv_prepare(const GePicaMaterial *material,
+    uint32_t texture_width, uint32_t texture_height, GeTextureUvContext *context)
+{
+    if (context == NULL) return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    context->valid = 0U;
+    if (material == NULL || texture_width == 0U || texture_height == 0U
+            || material->texture_shift_s > 15U || material->texture_shift_t > 15U)
+        return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    context->scale_s = (float)material->texture_scale_s;
+    context->scale_t = (float)material->texture_scale_t;
+    context->width = (float)texture_width;
+    context->height = (float)texture_height;
+    context->valid = 1U;
+    return GE_TEXTURE_UV_OK;
+}
+
+static void ge_texture_uv_normalize_values(int16_t texture_s, int16_t texture_t,
+    float scale_s, float scale_t, float width, float height, GeTextureUv *result)
+{
+    /* Preserve scalar grouping and division. Combining scales or replacing
+     * arbitrary image dimensions with reciprocals can change UV bits. */
+    result->u = (float)texture_s * (1.0f / 32.0f)
+        * scale_s * (1.0f / 65536.0f) / width;
+    result->v = (float)texture_t * (1.0f / 32.0f)
+        * scale_t * (1.0f / 65536.0f) / height;
+}
+
+GeTextureUvStatus ge_texture_uv_normalize_prepared(int16_t texture_s,
+    int16_t texture_t, const GeTextureUvContext *context, GeTextureUv *result)
+{
+    if (context == NULL || !context->valid || result == NULL)
+        return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    ge_texture_uv_normalize_values(texture_s, texture_t,
+        context->scale_s, context->scale_t, context->width, context->height, result);
+    return GE_TEXTURE_UV_OK;
+}
+
 GeTextureUvStatus ge_texture_uv_normalize(int16_t texture_s,
                                           int16_t texture_t,
                                           const GePicaMaterial *material,
@@ -9,9 +46,6 @@ GeTextureUvStatus ge_texture_uv_normalize(int16_t texture_s,
                                           uint32_t texture_height,
                                           GeTextureUv *result)
 {
-    const float n64_subtexel = 1.0f / 32.0f;
-    const float rsp_scale = 1.0f / 65536.0f;
-
     if (material == NULL || result == NULL || texture_width == 0U
             || texture_height == 0U || material->texture_shift_s > 15U
             || material->texture_shift_t > 15U) {
@@ -24,11 +58,8 @@ GeTextureUvStatus ge_texture_uv_normalize(int16_t texture_s,
      * binds that primary/base image. Applying tile 0's detail shift here made
      * Dam's shift-15 canyon rock sample at twice its authored base frequency
      * over the entire view instead of only in the N64 detail blend. */
-    result->u = (float)texture_s * n64_subtexel
-        * (float)material->texture_scale_s * rsp_scale
-        / (float)texture_width;
-    result->v = (float)texture_t * n64_subtexel
-        * (float)material->texture_scale_t * rsp_scale
-        / (float)texture_height;
+    ge_texture_uv_normalize_values(texture_s, texture_t,
+        (float)material->texture_scale_s, (float)material->texture_scale_t,
+        (float)texture_width, (float)texture_height, result);
     return GE_TEXTURE_UV_OK;
 }

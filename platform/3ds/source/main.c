@@ -599,6 +599,8 @@ typedef struct RuntimeFineProfile {
     uint64_t world_gpu_flush_ticks;
     uint64_t world_gpu_flush_calls;
     uint64_t world_gpu_flush_vertices;
+    /* World batch preparations/vertices, then first-person preparations/vertices. */
+    uint64_t texture_uv_work[4];
     uint64_t frame_begin_ticks;
     uint64_t renderer_draw_ticks;
     /* CPU preparation; sky/world draws; effects/hands; final HUD draws. */
@@ -3610,6 +3612,11 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.rendered_frames,
             (unsigned long long)fine_profile.world_gpu_flush_calls,
             (unsigned long long)fine_profile.world_gpu_flush_vertices);
+        fprintf(stream, "texture_uv_work=%llu,%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.texture_uv_work[0],
+            (unsigned long long)fine_profile.texture_uv_work[1],
+            (unsigned long long)fine_profile.texture_uv_work[2],
+            (unsigned long long)fine_profile.texture_uv_work[3]);
         fprintf(stream, "guard_gpu_range_vertices=%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.guard_gpu_upload_vertices,
             (unsigned long long)fine_profile.guard_gpu_full_upload_vertices,
@@ -3877,18 +3884,22 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
             const GeDamRoomDrawBatch *batch = &runtime->batches[batch_index];
             const Ge3dsSceneTextureSlot *slot = ge_3ds_scene_textures_find(
                 &first_person_scene_textures, batch->texture.texture_id);
-            if (slot == NULL) continue;
+            Ge3dsSceneTextureUvContext uv_context;
+            if (ge_3ds_scene_texture_uv_prepare(slot, &batch->material,
+                    &uv_context) != GE_TEXTURE_UV_OK) continue;
+            ++fine_profile.texture_uv_work[2];
+            fine_profile.texture_uv_work[3] += batch->vertex_count;
             for (vertex_index = batch->first_vertex;
                     vertex_index < batch->first_vertex + batch->vertex_count;
                     ++vertex_index) {
                 GeTextureUv uv;
-                if (ge_3ds_scene_texture_map_uv(
-                        slot,
+                if (ge_3ds_scene_texture_map_uv_prepared(
+                        &uv_context,
                         runtime->source_vertices[vertex_index]
                             .source.texture_s,
                         runtime->source_vertices[vertex_index]
                             .source.texture_t,
-                        &batch->material, &uv) == GE_TEXTURE_UV_OK) {
+                        &uv) == GE_TEXTURE_UV_OK) {
                     destination[vertex_index].u = uv.u;
                     destination[vertex_index].v = uv.v;
                 }
@@ -11045,16 +11056,20 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
         slot = ge_3ds_scene_textures_find(
             preview->scene_textures, batch->texture.texture_id);
 
-        if (slot == NULL) continue;
+        Ge3dsSceneTextureUvContext uv_context;
+        if (ge_3ds_scene_texture_uv_prepare(slot, &batch->material,
+                &uv_context) != GE_TEXTURE_UV_OK) continue;
+        ++fine_profile.texture_uv_work[0];
+        fine_profile.texture_uv_work[1] += batch->vertex_count;
         for (vertex_index = batch->first_vertex;
                 vertex_index < batch->first_vertex + batch->vertex_count;
                 ++vertex_index) {
             GeTextureUv uv;
-            if (ge_3ds_scene_texture_map_uv(
-                    slot,
+            if (ge_3ds_scene_texture_map_uv_prepared(
+                    &uv_context,
                     preview->source_vertices[vertex_index].source.texture_s,
                     preview->source_vertices[vertex_index].source.texture_t,
-                    &batch->material, &uv) == GE_TEXTURE_UV_OK) {
+                    &uv) == GE_TEXTURE_UV_OK) {
                 destination[vertex_index].u = uv.u;
                 destination[vertex_index].v = uv.v;
             }

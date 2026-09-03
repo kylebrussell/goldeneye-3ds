@@ -853,3 +853,76 @@ room/overlay reuse counters. Check both views with many visible rooms and
 single-room views, dynamic guard/door occlusion and texture continuity. Keep
 the verified executable available until frame-time tails and images pass;
 sustained 60 FPS and high-fidelity mission completion remain unverified.
+
+## Follow-up: prepare texture coordinates once per publication batch
+
+Continued from `b2afcb7a`. UV remapping in world/overlay and first-person
+publication repeated material validation, integer-to-float scale/dimension
+conversions, four Tex3DS atlas-corner queries and corner differences for every
+vertex. These values are constant for each batch. The new prepared contexts
+snapshot them once, with no retained material, slot or texture-handle pointer.
+Contexts are stack-local and recreated for every remapped batch, so room
+transactions, recovered textures, monitor/weapon switches and material changes
+cannot reuse a stale atlas transform.
+
+Per-vertex normalization preserves the original scalar grouping and division;
+it does not combine scales, replace non-power-of-two divisions with
+reciprocals, change the tile/detail interpretation, or approximate UVs.
+Interpolation still uses all four corners supplied by Tex3DS, including rotated
+and padded atlas layouts. Invalid/missing textures skip mapping just as before,
+without changing destination UVs. Existing single-coordinate APIs remain
+available for other callers. The outdated public normalization comment about
+applying detail-tile shifts was corrected to match the already-existing
+unshifted base-image behavior; the behavior itself was not changed.
+
+The live world-range uploader and first-person UV-invalidated path now use
+prepared contexts. Pose-only uploads still avoid UV remapping entirely. Color,
+position, topology, dirty ranges, texture residency and canonical game state
+are unchanged. Input reports add
+`texture_uv_work=world_batch_preparations,world_vertices,first_person_batch_preparations,first_person_vertices`.
+These count only remapped batches/vertices, not frames or GPU transfers.
+
+Verification:
+
+- `scripts/test_3ds_texture_uv.sh` checks 4,194,304 exact mappings: exhaustive
+  signed-16-bit ST domains over 64 scale/dimension/atlas combinations, zero
+  and maximum scales, all valid shifts, one-ULP atlas edges, padded/rotated
+  corner fixtures, non-power-of-two dimensions, and `UINT32_MAX` dimensions.
+  Normalization matches an independent copy of the original scalar formula;
+  full atlas results match the existing single-coordinate implementation
+  byte-for-byte. Invalid arguments, failure invalidation and snapshot lifetime
+  after the source slot/material change are covered. ASan/UBSan passes.
+- The optimized `-O3 -fshort-enums -flto` run also passes. LTO permits the mock
+  corner accessors to inline like the SDK, avoiding an artificial four-call
+  penalty in the baseline. Across 50,000 batches, host timings including
+  preparation were 0.313 → 0.195 ms for 3 vertices, 1.180 → 0.601 ms for 12,
+  4.890 → 2.390 ms for 48, and 18.877 → 9.615 ms for 192. These are short host
+  mapping microbenchmarks, not game frame times or target FPS.
+- The actual-pack residency driver compares UVs for every batch/vertex in its
+  existing incremental/eviction sequences across all 21 stage records. It uses
+  real decoded ST/material data and catalog dimensions, with a mock unit atlas
+  and mock GPU imports. Every sampled UV matches. Dam's 41 sets replace
+  241,191 per-vertex preparations with 22,787 per-batch preparations; Facility
+  replaces 160,599 with 15,034. Image IDs, dimensions, payload hashes and exact
+  ownership tests still pass with no missing images. This is not traversal or
+  GPU texture-rendering verification.
+- The actual upload-helper test still matches entire world/overlay buffers,
+  bounds, colors, counts and fallback publication across 240 transitions.
+  Source checks require preparation outside the vertex loop, respect the
+  no-UV-remap path, and retain first-person topology invalidation ordering.
+
+Evidence: `build/host-tests/prepared-uv-verified-20260903.log`,
+`prepared-uv-stage-pack-20260903.log`, and the complete host-suite pass
+`prepared-uv-full-20260903.log`. ARM/3DSX passes in
+`arm-prepared-uv-20260903.log`; the ELF retains the new prepared APIs and
+original MoveBond, input, gun and active-prop dispatch. Disassembly of the
+prepared atlas mapper is `arm-prepared-uv-disassembly-20260903.log`.
+
+Candidate: `build/3ds-candidates/prepared-uv-3ae75757/goldeneye-3ds.3dsx`,
+SHA-256 `3ae757578c19f7d167a0e1d360b33ec20d5b70aac45c0aa2e12081c7f677d40e`.
+Asset pack remains `938536d4...`; verified hardware staging and Azahar remain
+`0797edaa...`. macOS is still locked. No public push, save/config change or
+lock bypass occurred. Next remains an unlocked accumulated-candidate A/B on
+Facility movement, Dam combat and streaming beyond initial residency, checking
+texture continuity, room proofs and UV counters alongside frame-time tails.
+This cycle does not establish reliable 60 FPS or complete level playability.

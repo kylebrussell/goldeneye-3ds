@@ -2202,6 +2202,8 @@ typedef struct RuntimeStageOrdinaryObjects {
      * can move the door segment without invalidating its material owners. */
     RuntimeStageScenePartRange *door_scene_parts;
     size_t door_scene_part_count;
+    uint16_t *door_scene_matrix_indices;
+    size_t door_scene_matrix_index_count;
     size_t ordinary_scene_part_count;
     uint64_t monitor_surface_update_count;
     uint64_t monitor_surface_unchanged_count;
@@ -7384,6 +7386,8 @@ static bool install_stage_ordinary_object_scenes(
     GeOriginalModelScene *queries = NULL;
     RuntimeStageScenePartRange *candidate_scene_parts = NULL;
     RuntimeStageScenePartRange *candidate_door_scene_parts = NULL;
+    uint16_t *candidate_door_matrix_indices = NULL;
+    size_t door_matrix_index_count = 0U;
     GeOriginalDoorRuntimePublication *door_publications = NULL;
     uint32_t *door_generations = NULL;
     GeDamRoomWorldVertex *vertices = NULL;
@@ -7492,6 +7496,9 @@ static bool install_stage_ordinary_object_scenes(
         free(objects->door_scene_parts);
         objects->door_scene_parts = NULL;
         objects->door_scene_part_count = 0U;
+        free(objects->door_scene_matrix_indices);
+        objects->door_scene_matrix_indices = NULL;
+        objects->door_scene_matrix_index_count = 0U;
         dam_overlay_segment_close(&objects->door_overlay);
         dam_overlay_segment_close(&objects->guard_overlay);
         memset(&objects->guard_scene, 0, sizeof(objects->guard_scene));
@@ -7708,6 +7715,15 @@ static bool install_stage_ordinary_object_scenes(
             ++input_index;
         }
     }
+    for (input_index = ordinary_input_count; input_index < input_count; ++input_index)
+        door_matrix_index_count += queries[input_index].required_vertex_count;
+    if (door_matrix_index_count != 0U) {
+        if (door_matrix_index_count > SIZE_MAX / sizeof(*candidate_door_matrix_indices))
+            goto fail_stage_scene;
+        candidate_door_matrix_indices = malloc(
+            door_matrix_index_count * sizeof(*candidate_door_matrix_indices));
+        if (candidate_door_matrix_indices == NULL) goto fail_stage_scene;
+    }
     if (guard_query.required_vertex_count > SIZE_MAX - vertex_count
             || guard_query.required_batch_count > SIZE_MAX - batch_count
             || guard_query.triangle_count > SIZE_MAX - triangle_count)
@@ -7744,8 +7760,17 @@ static bool install_stage_ordinary_object_scenes(
             door_vertex_offset = vertex_count;
             door_batch_offset = batch_count;
         }
-        objects->scene_status = ge_original_model_scene_build_preflighted(
-            &inputs[input_index], &queries[input_index], &storage, &built);
+        /* Index capture observes the same traversal and real matrices; it
+         * does not substitute identity geometry, even on the first frame. */
+        if (input_index >= ordinary_input_count) {
+            objects->scene_status = ge_original_model_scene_build_matrix_template_preflighted(
+                &inputs[input_index], &queries[input_index], &storage,
+                candidate_door_matrix_indices + vertex_count - door_vertex_offset,
+                queries[input_index].required_vertex_count, &built);
+        } else {
+            objects->scene_status = ge_original_model_scene_build_preflighted(
+                &inputs[input_index], &queries[input_index], &storage, &built);
+        }
         if (objects->scene_status != GE_ORIGINAL_MODEL_SCENE_OK)
             goto fail_stage_scene;
         if (input_index < ordinary_input_count) {
@@ -7871,6 +7896,10 @@ static bool install_stage_ordinary_object_scenes(
     objects->door_scene_parts = candidate_door_scene_parts;
     objects->door_scene_part_count = input_count - ordinary_input_count;
     candidate_door_scene_parts = NULL;
+    free(objects->door_scene_matrix_indices);
+    objects->door_scene_matrix_indices = candidate_door_matrix_indices;
+    objects->door_scene_matrix_index_count = door_matrix_index_count;
+    candidate_door_matrix_indices = NULL;
     for (entry_index = 0U; entry_index < objects->entry_count; ++entry_index)
         if (objects->entries[entry_index].articulated != NULL)
             objects->entries[entry_index].articulated->force_copy = true;
@@ -7890,6 +7919,7 @@ static bool install_stage_ordinary_object_scenes(
     free(candidate_slots); free(batches); free(vertices);
     free(door_generations); free(door_publications);
     free(candidate_door_scene_parts);
+    free(candidate_door_matrix_indices);
     free(candidate_scene_parts); free(queries); free(inputs);
     return true;
 
@@ -7907,6 +7937,7 @@ fail_stage_scene:
     free(candidate_slots); free(batches); free(vertices);
     free(door_generations); free(door_publications);
     free(candidate_door_scene_parts);
+    free(candidate_door_matrix_indices);
     free(candidate_scene_parts); free(queries); free(inputs);
     return false;
 }
@@ -8057,6 +8088,23 @@ static bool refresh_stage_door_overlay(
             &storage, &built) != GE_ORIGINAL_MODEL_SCENE_OK
             || built.vertex_count != segment->vertex_count
             || built.batch_count != segment->batch_count) goto fail;
+    /* A retained topology may change without changing total scene size.
+     * Refresh index ownership from the same cache that published geometry,
+     * and reject per-part layout changes instead of shading the wrong door. */
+    if (input_count != objects->door_scene_part_count) goto fail;
+    for (input_index = 0U; input_index < input_count; ++input_index) {
+        GeOriginalModelSceneTemplateView view;
+        const RuntimeStageScenePartRange *range = &objects->door_scene_parts[input_index];
+        if (!ge_original_model_scene_cache_template_view(
+                &objects->door_scene_cache, input_index, &view)
+                || objects->door_scene_cache.queries[input_index].required_vertex_count != range->vertex_count
+                || objects->door_scene_cache.queries[input_index].required_batch_count != range->batch_count
+                || range->vertex_offset > objects->door_scene_matrix_index_count
+                || range->vertex_count > objects->door_scene_matrix_index_count - range->vertex_offset)
+            goto fail;
+        memcpy(objects->door_scene_matrix_indices + range->vertex_offset,
+            view.matrix_indices, range->vertex_count * sizeof(*view.matrix_indices));
+    }
     if (dam_overlay_segment_matches_published(objects->preview, segment)) {
         memcpy(objects->installed_door_scene_generations,
                candidate_generations,
@@ -8856,6 +8904,87 @@ static bool refresh_stage_windowed_door_materials(RuntimeStageOrdinaryObjects *o
     return true;
 }
 
+static bool refresh_stage_windowed_door_shading(
+    RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination)
+{
+    RuntimeDamPreview *preview = objects->preview;
+    GeDamDynamicScene *scene = &preview->dynamic_scene;
+    RuntimeDamOverlaySegment *segment = &objects->door_overlay;
+    const size_t room_vertices = scene->scene.vertex_count - scene->overlay_vertex_count;
+    const size_t room_batches = scene->scene.batch_count - scene->overlay_batch_count;
+    for (size_t part = 0U; part < objects->door_scene_part_count; ++part) {
+        const RuntimeStageScenePartRange *range = &objects->door_scene_parts[part];
+        const GeOriginalStageInteractiveEntry *entry = ge_original_stage_interactive_entry(
+            &objects->interactive, range->entry_index);
+        uint8_t opacity;
+        if (entry == NULL || !entry->constructed) return false;
+        if (!ge_original_stage_model_publication_glass_opacity(entry->definition, &opacity)
+                || !dam_visibility_contains_room(preview, entry->room)) continue;
+        if (range->batch_offset > segment->batch_count
+                || range->batch_count > segment->batch_count - range->batch_offset
+                || range->vertex_offset > segment->vertex_count
+                || range->vertex_count > segment->vertex_count - range->vertex_offset
+                || range->vertex_offset > objects->door_scene_matrix_index_count
+                || range->vertex_count > objects->door_scene_matrix_index_count - range->vertex_offset)
+            return false;
+        GeOriginalDoorRuntimePublication publication;
+        bool snapshot_ready = false;
+        for (size_t index = 0U; index < range->batch_count; ++index) {
+            const size_t local_batch = range->batch_offset + index;
+            const size_t overlay_batch = segment->batch_offset + local_batch;
+            if (overlay_batch >= scene->overlay_batch_count) return false;
+            const GeDamRoomDrawBatch *batch = &segment->batches[local_batch];
+            if (!batch->material.lighting_enabled || !batch->material.texture_gen_enabled)
+                continue;
+            if (!snapshot_ready) {
+                if (!ge_original_door_runtime_snapshot(entry->definition, &publication)) return false;
+                snapshot_ready = true;
+            }
+            if (batch->first_vertex < range->vertex_offset
+                    || batch->first_vertex - range->vertex_offset > range->vertex_count
+                    || batch->vertex_count > range->vertex_count - (batch->first_vertex - range->vertex_offset)
+                    || segment->vertex_offset > scene->overlay_vertex_count
+                    || batch->first_vertex > scene->overlay_vertex_count - segment->vertex_offset
+                    || batch->vertex_count > scene->overlay_vertex_count - segment->vertex_offset - batch->first_vertex)
+                return false;
+            GeGbiRenderState shading;
+            size_t active_matrix = SIZE_MAX;
+            bool changed = false;
+            ++fine_profile.glass_shading_work[0];
+            fine_profile.glass_shading_work[1] += batch->vertex_count;
+            for (size_t local = batch->first_vertex;
+                    local < batch->first_vertex + batch->vertex_count; ++local) {
+                const size_t matrix = objects->door_scene_matrix_indices[local];
+                if (matrix != active_matrix) {
+                    if (!ge_original_stage_model_publication_door_glass_shading(
+                            entry->definition, &publication, matrix,
+                            preview->original_camera_view, preview->original_camera_look_at,
+                            &batch->material, &shading)) return false;
+                    active_matrix = matrix;
+                }
+                const size_t overlay = segment->vertex_offset + local;
+                GeDamRoomWorldVertex *source = &scene->overlay_vertices[overlay];
+                GeGbiProcessedVertex shaded = source->processed;
+                if (ge_gbi_vertex_shade(&shading, &source->source, &shaded)
+                        != GE_GBI_VERTEX_PROCESS_OK) return false;
+                /* Keep the retained moving-door publication coherent as well
+                 * as both scene copies; only shade/ST changes, never XYZ. */
+                segment->vertices[local].processed = shaded;
+                if (memcmp(&source->processed, &shaded, sizeof(shaded)) != 0) {
+                    source->processed = shaded;
+                    scene->vertices[room_vertices + overlay].processed = shaded;
+                    changed = true;
+                }
+            }
+            if (changed && !upload_dam_gpu_world_scene_range(preview, gpu_destination,
+                    room_vertices + segment->vertex_offset + batch->first_vertex,
+                    batch->vertex_count, room_batches + overlay_batch, 1U, 3U)) return false;
+            if (changed) ++fine_profile.glass_shading_work[2];
+        }
+    }
+    return true;
+}
+
 static bool refresh_stage_glass_shading(
     RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination)
 {
@@ -8864,6 +8993,7 @@ static bool refresh_stage_glass_shading(
     RuntimeDamPreview *preview = objects->preview;
     if (!refresh_stage_windowed_door_materials(objects)) return false;
     if (!preview->original_camera_ready) return true;
+    if (!refresh_stage_windowed_door_shading(objects, gpu_destination)) return false;
     GeDamDynamicScene *scene = &preview->dynamic_scene;
     const size_t room_vertices = scene->scene.vertex_count - scene->overlay_vertex_count;
     const size_t room_batches = scene->scene.batch_count - scene->overlay_batch_count;
@@ -9180,6 +9310,7 @@ static void close_stage_ordinary_objects(
     free(objects->active_prop_inputs);
     free(objects->ordinary_scene_parts);
     free(objects->door_scene_parts);
+    free(objects->door_scene_matrix_indices);
     dam_overlay_segment_close(&objects->door_overlay);
     dam_overlay_segment_close(&objects->guard_overlay);
     ge_original_model_scene_cache_close(&objects->door_scene_cache);

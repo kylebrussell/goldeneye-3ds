@@ -19,26 +19,22 @@
      | (uint32_t)(c) << 22 | (uint32_t)(d) << 18)
 #include "ge_original_model_render_setup.inc"
 
-int ge_original_stage_model_publication_glass_shading(
-    const void *definition, const float view[4][4],
+static int ge_model_glass_shading_matrix(
+    const float world[4][4], const float view[4][4],
     const uint8_t look_at[32], const GePicaMaterial *material,
     GeGbiRenderState *state)
 {
-    const ObjectRecord *object = definition;
     Mtxf camera, local, eye;
     uint8_t ambient[16] = {0};
     size_t row, column;
-    if (object == NULL || view == NULL || look_at == NULL
+    if (world == NULL || view == NULL || look_at == NULL
             || material == NULL || state == NULL
-            || (object->type != PROPDEF_GLASS
-                && object->type != PROPDEF_TINTED_GLASS)
             || !material->lighting_enabled || !material->texture_gen_enabled)
         return 0;
-    /* Same normal matrix as objTick's non-door branch; no position is needed
-     * by lighting. Do not use the world-space geometry upload's identity
-     * segment-3 substitute or replace the camera's original LookAt axes. */
+    /* objTick composes the original model matrix with the camera before
+     * N64 fixed-point publication. World geometry remains untouched. */
     memcpy(camera.m, view, sizeof(camera.m));
-    memcpy(&local, &object->mtx, sizeof(local));
+    memcpy(&local, world, sizeof(local));
     matrix_4x4_multiply_homogeneous(&camera, &local, &eye);
     ge_gbi_state_init(state);
     for (row = 0U; row < 3U; ++row) {
@@ -66,6 +62,33 @@ int ge_original_stage_model_publication_glass_shading(
     state->valid_lights = 3U;
     state->valid_look_at = 3U;
     return 1;
+}
+
+int ge_original_stage_model_publication_glass_shading(
+    const void *definition, const float view[4][4],
+    const uint8_t look_at[32], const GePicaMaterial *material,
+    GeGbiRenderState *state)
+{
+    const ObjectRecord *object = definition;
+    if (object == NULL || (object->type != PROPDEF_GLASS
+            && object->type != PROPDEF_TINTED_GLASS)) return 0;
+    return ge_model_glass_shading_matrix(object->mtx.m, view, look_at, material, state);
+}
+
+int ge_original_stage_model_publication_door_glass_shading(
+    const void *definition, const GeOriginalDoorRuntimePublication *publication,
+    size_t matrix_index, const float view[4][4], const uint8_t look_at[32],
+    const GePicaMaterial *material, GeGbiRenderState *state)
+{
+    const struct DoorRecord *door = definition;
+    if (door == NULL || door->type != PROPDEF_DOOR
+            || !(door->doorFlags & DOORFLAG_WINDOWED) || publication == NULL
+            || publication->matrix_count > GE_ORIGINAL_DOOR_MATRIX_CAPACITY
+            || matrix_index >= publication->matrix_count) return 0;
+    /* These are the canonical displaced/flipped/articulated matrices in
+     * segment-3 order, not the static object matrix or an assumed index 0. */
+    return ge_model_glass_shading_matrix(publication->matrices[matrix_index],
+        view, look_at, material, state);
 }
 
 int ge_original_stage_model_publication_glass_opacity(

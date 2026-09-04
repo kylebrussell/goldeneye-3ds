@@ -3,6 +3,7 @@
 
 #include "ge_original_model_scene.h"
 #include "ge_original_pitem_models.h"
+#include "ge_original_door_runtime.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -36,6 +37,13 @@ int ge_original_stage_model_publication_glass_shading(
     const void *definition, const float view[4][4],
     const uint8_t look_at[32], const GePicaMaterial *material,
     GeGbiRenderState *state);
+
+/* Windowed doors use the actual segment-3 index captured at the vertex load,
+ * including articulated children; no matrix-zero fallback is permitted. */
+int ge_original_stage_model_publication_door_glass_shading(
+    const void *definition, const GeOriginalDoorRuntimePublication *publication,
+    size_t matrix_index, const float view[4][4], const uint8_t look_at[32],
+    const GePicaMaterial *material, GeGbiRenderState *state);
 
 /* Binds one currently visible native object's exact Model.render_pos matrix
  * bank to the model-scene input. The bank remains eye-space, exactly as

@@ -25,6 +25,45 @@ static void set_identity(float matrix[4][4])
     matrix[0][0] = matrix[1][1] = matrix[2][2] = matrix[3][3] = 1.0f;
 }
 
+static void exercise_live_matrix_capture(const GeOriginalModelSceneInput *input,
+    int require_nonzero)
+{
+    GeOriginalModelScene query, built;
+    GeOriginalModelSceneCache cache = {0};
+    assert(ge_original_model_scene_build(input, NULL, &query)
+        == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    size_t count = query.required_vertex_count;
+    GeDamRoomWorldVertex *reference = calloc(count, sizeof(*reference));
+    GeDamRoomWorldVertex *indexed = calloc(count, sizeof(*indexed));
+    GeDamRoomDrawBatch *reference_batches = calloc(query.required_batch_count, sizeof(*reference_batches));
+    GeDamRoomDrawBatch *indexed_batches = calloc(query.required_batch_count, sizeof(*indexed_batches));
+    uint16_t *indices = calloc(count, sizeof(*indices));
+    assert(reference && indexed && reference_batches && indexed_batches && indices);
+    GeDamRoomSceneStorage regular = {reference, count, reference_batches, query.required_batch_count};
+    GeDamRoomSceneStorage captured = {indexed, count, indexed_batches, query.required_batch_count};
+    assert(ge_original_model_scene_build_preflighted(input, &query, &regular, &built)
+        == GE_ORIGINAL_MODEL_SCENE_OK);
+    assert(ge_original_model_scene_build_matrix_template_preflighted(input, &query,
+        &captured, indices, count, &built) == GE_ORIGINAL_MODEL_SCENE_OK);
+    /* Real bank and outer transform are preserved, not an identity template. */
+    assert(memcmp(reference, indexed, count * sizeof(*reference)) == 0);
+    assert(memcmp(reference_batches, indexed_batches,
+        query.required_batch_count * sizeof(*reference_batches)) == 0);
+    int nonzero = 0;
+    for (size_t vertex = 0U; vertex < count; ++vertex) {
+        assert(indices[vertex] < input->segment3_matrix_count);
+        nonzero |= indices[vertex] != 0U;
+    }
+    if (require_nonzero) assert(nonzero);
+    assert(ge_original_model_scene_cache_build(&cache, input, 1U, &captured, &built)
+        == GE_ORIGINAL_MODEL_SCENE_OK);
+    GeOriginalModelSceneTemplateView template_view;
+    assert(ge_original_model_scene_cache_template_view(&cache, 0U, &template_view));
+    assert(memcmp(indices, template_view.matrix_indices, count * sizeof(*indices)) == 0);
+    ge_original_model_scene_cache_close(&cache);
+    free(indices); free(indexed_batches); free(reference_batches); free(indexed); free(reference);
+}
+
 static int exercise_model(GeOriginalPitemModelProvider *models,
     int32_t model_id, size_t minimum_matrix_count, int articulated)
 {
@@ -146,6 +185,7 @@ static int exercise_model(GeOriginalPitemModelProvider *models,
         assert(input.segment3_matrices
             == (const float (*)[4][4])
                 (const void *)&model->render_pos[0].pos);
+        exercise_live_matrix_capture(&input, resident_part.matrix_index != 0U);
         if (resident_part.matrix_index != 0U) {
             GeOriginalModelSceneInput missing_bank = input;
             GeOriginalModelScene missing_query;
@@ -286,6 +326,60 @@ static void exercise_glass(GeOriginalPitemModelProvider *models)
             && applied.constant_color.alpha == opacity);
     }
     assert(cache.unchanged_builds == 255U);
+    /* The publication boundary accepts every canonical door matrix slot,
+     * not just the base. Use rotating/scaled fixture matrices and original
+     * LookAt/GBI shading; authored vertex normals still come from PwindowZ. */
+    GeOriginalDoorRuntimePublication publication = {0};
+    publication.matrix_count = GE_ORIGINAL_DOOR_MATRIX_CAPACITY;
+    for (unsigned frame = 0U; frame < 32U; ++frame) {
+        float view[4][4];
+        LookAt look_at = {0};
+        guLookAtReflectF(view, &look_at, 10.0f, 20.0f, 30.0f,
+            10.0f + sinf(frame * 0.2f), 20.0f, 30.0f + cosf(frame * 0.2f),
+            0.0f, 1.0f, 0.0f);
+        for (size_t matrix = 0U; matrix < publication.matrix_count; ++matrix) {
+            float (*world)[4] = publication.matrices[matrix];
+            float rotation = frame * 0.13f + matrix * 0.3f;
+            set_identity(world);
+            world[0][0] = world[2][2] = cosf(rotation) * 0.5f;
+            world[0][2] = sinf(rotation) * 0.5f;
+            world[2][0] = -world[0][2];
+            world[1][1] = 0.5f;
+            world[3][0] = (float)matrix * 17.0f;
+            GeGbiRenderState shading;
+            Mtxf camera, local, expected;
+            assert(ge_original_stage_model_publication_door_glass_shading(
+                &door, &publication, matrix, view, (const uint8_t *)&look_at,
+                &batches[0].material, &shading));
+            memcpy(camera.m, view, sizeof(camera.m));
+            memcpy(local.m, world, sizeof(local.m));
+            matrix_4x4_multiply_homogeneous(&camera, &local, &expected);
+            for (size_t row = 0U; row < 3U; ++row)
+                for (size_t column = 0U; column < 3U; ++column)
+                    assert(shading.modelview_stack.entries[0].elements[row][column]
+                        == (float)(int32_t)(expected.m[row][column] * 65536.0f) / 65536.0f);
+            for (size_t vertex = 0U; vertex < 6U; ++vertex) {
+                GeGbiProcessedVertex full, retained = vertices[vertex].processed;
+                assert(ge_gbi_vertex_process(&shading, &vertices[vertex].source, &full)
+                    == GE_GBI_VERTEX_PROCESS_OK);
+                assert(ge_gbi_vertex_shade(&shading, &vertices[vertex].source, &retained)
+                    == GE_GBI_VERTEX_PROCESS_OK);
+                assert(memcmp(full.texture, retained.texture, sizeof(full.texture)) == 0);
+                assert(memcmp(full.rgba, retained.rgba, sizeof(full.rgba)) == 0);
+                assert(memcmp(retained.eye, vertices[vertex].processed.eye, sizeof(retained.eye)) == 0);
+                assert(memcmp(retained.clip, vertices[vertex].processed.clip, sizeof(retained.clip)) == 0);
+            }
+        }
+        GeGbiRenderState rejected;
+        assert(!ge_original_stage_model_publication_door_glass_shading(
+            &door, &publication, publication.matrix_count, view, (const uint8_t *)&look_at,
+            &batches[0].material, &rejected));
+        door.doorFlags = 0U;
+        assert(!ge_original_stage_model_publication_door_glass_shading(
+            &door, &publication, 0U, view, (const uint8_t *)&look_at,
+            &batches[0].material, &rejected));
+        door.doorFlags = DOORFLAG_WINDOWED;
+    }
     GePicaMaterial opaque = batches[0].material;
     opaque.alpha_combine = GE_PICA_ALPHA_TEXTURE0;
     opaque.primitive_color.alpha = 71U;

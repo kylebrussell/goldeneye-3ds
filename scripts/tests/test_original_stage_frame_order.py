@@ -9,6 +9,14 @@ REPO = Path(__file__).resolve().parents[2]
 
 def main() -> None:
     source = (REPO / "platform/3ds/source/main.c").read_text()
+    setup_start = source.index("static bool load_original_stage_setup(")
+    setup_end = source.index("static void close_dam_collision(", setup_start)
+    setup = source[setup_start:setup_end]
+    assert setup.index("ge_original_stage_setup_prepare_original_pad_load(runtime)") < setup.index(
+        "ge_original_stage_setup_normal_spawn(runtime, spawn)")
+    assert "*setup = ge_original_stage_setup_get(runtime);" in setup
+    assert "ge_original_dam_setup_get(" not in setup
+    assert "stage_assets->stage == GE_STAGE_DAM" not in setup
     loop = source.index("for (original_tick = 0U;")
     pre = source.index(
         "ge_original_stage_active_props_pre_tick_exact(", loop)

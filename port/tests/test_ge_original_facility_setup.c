@@ -1,4 +1,5 @@
 #include "ge_original_stage_setup.h"
+#include "ge_original_dam_intro.h"
 #include "ge_original_stage_prop_materializer.h"
 #include "ge_stage_assets.h"
 
@@ -157,6 +158,50 @@ static int construct_nondefault_request(
     return 1;
 }
 
+static stagesetup *original_pad_load_setup(void *context, int32_t stage_id)
+{
+    GeOriginalStageSetupRuntime *setup = context;
+    assert(stage_id == setup->descriptor->level_id);
+    return setup->setup;
+}
+
+static float original_pad_scale(void *context)
+{
+    return 1.0f / ((GeOriginalStageSetupRuntime *)context)->descriptor->level_scale;
+}
+
+static void exercise_original_pad_bootstrap(GeAssetPack *pack)
+{
+    for (int stage = 0; stage < GE_STAGE_COUNT; ++stage) {
+        GeOriginalStageSetupRuntime setup = {0};
+        GeOriginalSetupPadState state;
+        assert(ge_original_stage_setup_load(pack, ge_stage_asset_descriptor(stage), &setup)
+            == GE_ORIGINAL_STAGE_SETUP_OK);
+        const size_t pad_bytes = (setup.pad_count + 1U) * sizeof(PadRecord);
+        const size_t bound_bytes = (setup.boundpad_count + 1U) * sizeof(BoundPadRecord);
+        void *pads = malloc(pad_bytes), *boundpads = malloc(bound_bytes);
+        assert(pads && boundpads);
+        memcpy(pads, setup.pads_storage, pad_bytes);
+        memcpy(boundpads, setup.boundpads_storage, bound_bytes);
+        GeOriginalSetupPadProviders providers = {
+            .context = &setup, .load_setup = original_pad_load_setup,
+            .get_room_scale_reciprocal = original_pad_scale,
+        };
+        for (unsigned restart = 0U; restart < 3U; ++restart) {
+            assert(ge_original_stage_setup_prepare_original_pad_load(&setup));
+            ge_original_setup_pad_bind(&providers, &state);
+            ge_original_setup_pad_load(setup.descriptor->level_id);
+            assert(state.loaded && state.pad_count == setup.pad_count);
+            assert(memcmp(pads, setup.pads_storage, pad_bytes) == 0);
+            assert(memcmp(boundpads, setup.boundpads_storage, bound_bytes) == 0);
+        }
+        ge_original_setup_pad_bind(NULL, NULL);
+        free(boundpads); free(pads);
+        ge_original_stage_setup_close(&setup);
+    }
+    puts("all-stage original pad bootstrap: exact once-only scaling and restart round trips");
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -186,6 +231,7 @@ int main(int argc, char **argv)
 
     assert(argc == 2);
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
+    exercise_original_pad_bootstrap(&pack);
     assert(ge_original_stage_setup_load(&pack, ge_stage_asset_dam(), &dam_setup)
         == GE_ORIGINAL_STAGE_SETUP_OK);
     assert(dam_setup.pad_count == 367U && dam_setup.boundpad_count == 95U);

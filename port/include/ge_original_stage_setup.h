@@ -119,6 +119,14 @@ GeOriginalStageSetupStatus ge_original_stage_setup_load(
     GeAssetPack *pack, const GeStageAssetDescriptor *descriptor,
     GeOriginalStageSetupRuntime *runtime);
 
+/* load() exposes normalized runtime pads to standalone consumers. Before
+ * handing this setup to proplvreset2PadSlice, restore the immutable authored
+ * coordinates so that the original loader owns normalization exactly once.
+ * Also makes normal_spawn() return authored coordinates for the boot camera.
+ * Call only at stage startup, before any live object or player construction. */
+int ge_original_stage_setup_prepare_original_pad_load(
+    GeOriginalStageSetupRuntime *runtime);
+
 GeOriginalStageSetupStatus ge_original_stage_setup_bind_stan(
     GeOriginalStageSetupRuntime *runtime, const GeStanNativeMap *stan);
 

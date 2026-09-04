@@ -150,11 +150,13 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
     -ffunction-sections -fdata-sections \
     -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE \
     -DGE_PORT_SETUP_DATA -DGE_PORT_STAN_GEOMETRY_SLICE \
+    -DGE_PORT_PROP_SETUP_PAD_SLICE -Wno-empty-body \
     -DGE_PORT_MS_INHERITS -fms-extensions \
     -I"${repo_dir}/port/include" -idirafter "${repo_dir}/include" \
     -idirafter "${repo_dir}/include/PR" -idirafter "${repo_dir}/src" \
     -iquote "${repo_dir}" \
     "${repo_dir}/port/tests/test_ge_original_facility_setup.c" \
+    "${repo_dir}/src/game/prop.c" \
     "${repo_dir}/port/src/ge_original_stage_setup.c" \
     "${repo_dir}/port/src/ge_original_stage_prop_materializer.c" \
     "${repo_dir}/port/src/ge_original_stage_prop_native.c" \

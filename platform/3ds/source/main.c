@@ -2281,6 +2281,12 @@ typedef struct RuntimeStageOrdinaryObjects {
     uint64_t scene_install_attempts;
     uint64_t scene_install_successes;
     uint32_t scene_install_failure_phase;
+    uint32_t scene_query_failure_command;
+    int32_t scene_query_failure_model;
+    uint32_t scene_query_failure_part;
+    /* Scalar diagnostics only: never retain freed query/blob/matrix pointers. */
+    uint32_t scene_query_failure_layout[6];
+    float scene_query_failure_matrix[4][4];
     size_t scene_install_input_count;
     size_t scene_install_ordinary_input_count;
     size_t scene_install_required_vertices;
@@ -3154,6 +3160,29 @@ static bool write_input_probe_result(
         (unsigned long long)objects->scene_install_phase_ticks[2],
         (unsigned long long)objects->scene_install_phase_ticks[3],
         (unsigned long long)objects->scene_install_phase_ticks[4]);
+    const uint32_t *failed_input = objects->scene_query_failure_layout;
+    fprintf(stream, "scene_query_failure=%lu,%ld,%lu,%lu,%lu,%lu,%lu,%lu,%u\n",
+        (unsigned long)objects->scene_query_failure_command,
+        (long)objects->scene_query_failure_model,
+        (unsigned long)objects->scene_query_failure_part,
+        (unsigned long)failed_input[0],
+        (unsigned long)failed_input[1],
+        (unsigned long)failed_input[2],
+        (unsigned long)failed_input[3],
+        (unsigned long)failed_input[4],
+        (unsigned)failed_input[5]);
+    fprintf(stream, "scene_query_matrix=");
+    for (size_t element = 0U; element < 16U; ++element)
+        fprintf(stream, "%s%.9g", element != 0U ? "," : "",
+            objects->scene_query_failure_matrix[element / 4U][element % 4U]);
+    fprintf(stream, "\n");
+    fprintf(stream, "visibility_input=%ld,%lu,%lu,%lu,%lu,%u\n",
+        (long)objects->preview->visibility_runtime.level_index,
+        (unsigned long)objects->preview->visibility_result.room_count,
+        (unsigned long)objects->preview->visibility_result.global_command_count,
+        (unsigned long)objects->preview->visibility_result.portal_count,
+        (unsigned long)objects->preview->visibility_result.preload_request_count,
+        (unsigned)objects->preview->visibility_result.global_visibility_used);
     fprintf(stream, "articulated_publication=%llu,%llu,%llu,%llu\n",
         (unsigned long long)objects->articulated_scene_update_count,
         (unsigned long long)objects->articulated_scene_unchanged_count,
@@ -7635,6 +7664,15 @@ static bool install_stage_ordinary_object_scenes(
                 entry->definition, part.model_type, input);
             objects->scene_status = ge_original_model_scene_build(
                 input, NULL, &queries[input_index]);
+            if (objects->scene_status != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED) {
+                objects->scene_query_failure_command = entry->command_index;
+                objects->scene_query_failure_model = entry->model_id;
+                objects->scene_query_failure_part = part_index;
+                memcpy(objects->scene_query_failure_layout, (uint32_t[]){
+                    input->blob_size, input->primary_offset, input->secondary_offset,
+                    input->segment4_offset, input->segment3_matrix_count,
+                    input->parent_setup_enabled}, sizeof(objects->scene_query_failure_layout));
+            }
             if (objects->scene_status
                     != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
                     || queries[input_index].required_vertex_count
@@ -7708,6 +7746,17 @@ static bool install_stage_ordinary_object_scenes(
             memcpy(input->position, position, sizeof(input->position));
             objects->scene_status = ge_original_model_scene_build(
                 input, NULL, &queries[input_index]);
+            if (objects->scene_status != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED) {
+                objects->scene_query_failure_command = entry->command_index;
+                objects->scene_query_failure_model = entry->model_id;
+                objects->scene_query_failure_part = part_index;
+                memcpy(objects->scene_query_failure_layout, (uint32_t[]){
+                    input->blob_size, input->primary_offset, input->secondary_offset,
+                    input->segment4_offset, input->segment3_matrix_count,
+                    input->parent_setup_enabled}, sizeof(objects->scene_query_failure_layout));
+                memcpy(objects->scene_query_failure_matrix, input->segment3_matrices[0],
+                    sizeof(objects->scene_query_failure_matrix));
+            }
             if (objects->scene_status
                     != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
                     || queries[input_index].required_vertex_count
@@ -10876,36 +10925,22 @@ static bool load_original_stage_setup(
         ge_original_stage_setup_close(runtime);
         return false;
     }
-    if (stage_assets->stage == GE_STAGE_DAM) {
-        GeOriginalDamSpawn dam_spawn;
-        /* Dam's dedicated bootstrap still owns its canonical setup pointer
-         * and intro selection. Also parse the same packaged authored setup so
-         * later native systems (objectives, alarms, and subsequent complete
-         * prop materialization) consume the common command/relationship ABI
-         * used by every other stage. */
-        stage_setup_spawn_audit =
-            ge_original_dam_setup_normal_spawn(&dam_spawn) != 0;
-        if (!stage_setup_spawn_audit) {
-            ge_original_stage_setup_close(runtime);
-            return false;
-        }
-        spawn->pad_id = dam_spawn.pad_id;
-        memcpy(spawn->position, dam_spawn.position, sizeof(spawn->position));
-        memcpy(spawn->up, dam_spawn.up, sizeof(spawn->up));
-        memcpy(spawn->look, dam_spawn.look, sizeof(spawn->look));
-        spawn->plink = dam_spawn.plink;
-        spawn->stan = ge_original_stan_match_tile_name(
-            &collision->native, spawn->plink);
-        *setup = ge_original_dam_setup_get();
-    } else {
-        stage_setup_spawn_audit =
-            ge_original_stage_setup_normal_spawn(runtime, spawn) != 0;
-        if (!stage_setup_spawn_audit) {
-            ge_original_stage_setup_close(runtime);
-            return false;
-        }
-        *setup = ge_original_stage_setup_get(runtime);
+    /* The packaged parser normally exposes runtime-space pads. Restore exact
+     * source floats before proplvreset2PadSlice below normalizes them once.
+     * Dam uses this same fresh stage-owned allocation: the linked bootstrap's
+     * static pad arrays would otherwise be rescaled on every mission restart.
+     * The early spawn/camera path consistently consumes authored coordinates. */
+    if (!ge_original_stage_setup_prepare_original_pad_load(runtime)) {
+        ge_original_stage_setup_close(runtime);
+        return false;
     }
+    stage_setup_spawn_audit =
+        ge_original_stage_setup_normal_spawn(runtime, spawn) != 0;
+    if (!stage_setup_spawn_audit) {
+        ge_original_stage_setup_close(runtime);
+        return false;
+    }
+    *setup = ge_original_stage_setup_get(runtime);
     validate_stage_spawn(collision, spawn);
     return *setup != NULL && spawn->stan != NULL;
 }

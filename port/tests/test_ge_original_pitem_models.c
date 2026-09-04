@@ -296,6 +296,30 @@ static int canonical_door_construct(
     assert(((ObjectRecord *)definition)->model != NULL);
     assert(ge_original_door_runtime_snapshot(
         definition, &closed_publication));
+    for (size_t part_index = 0U; part_index <
+            ge_original_pitem_model_scene_part_count(harness->models, request->model_id);
+            ++part_index) {
+        GeOriginalPitemModelScenePart part;
+        GeOriginalModelSceneInput input = {0};
+        GeOriginalModelScene scene;
+        assert(ge_original_pitem_model_scene_part(harness->models,
+            request->model_id, part_index, &part));
+        input.blob = part.blob;
+        input.blob_size = part.blob_size;
+        input.primary_offset = part.primary_offset;
+        input.secondary_offset = part.secondary_offset;
+        input.segment4_offset = part.segment4_offset;
+        input.segment3_matrices = closed_publication.matrices;
+        input.segment3_matrix_count = closed_publication.matrix_count;
+        input.matrix[0][0] = input.matrix[1][1] = input.matrix[2][2] = input.matrix[3][3] = 1.0f;
+        GeOriginalModelSceneStatus query_status = ge_original_model_scene_build(&input, NULL, &scene);
+        if (query_status != GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED)
+            fprintf(stderr, "DOOR_QUERY command=%zu model=%d part=%zu status=%d translation=%f,%f,%f matrices=%zu\n",
+                request->command_index, request->model_id, part_index, query_status,
+                closed_publication.matrices[0][3][0], closed_publication.matrices[0][3][1],
+                closed_publication.matrices[0][3][2], (size_t)closed_publication.matrix_count);
+        assert(query_status == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+    }
     for (row = 0U; row < 4U; ++row)
         for (column = 0U; column < 4U; ++column)
             assert(isfinite(closed_publication.matrix[row][column]));
@@ -2243,6 +2267,8 @@ static void audit_interactive_stages(GeAssetPack *pack)
                pack, ge_stage_asset_dam(), models) == 18U);
     assert(audit_canonical_door_stage(
                pack, ge_stage_asset_facility(), models) == 46U);
+    assert(audit_canonical_door_stage(
+               pack, ge_stage_asset_descriptor(GE_STAGE_RUNWAY), models) > 0U);
     assert(audit_canonical_door_stage(
                pack, ge_stage_asset_descriptor(GE_STAGE_BUNKER1), models)
            == 17U);

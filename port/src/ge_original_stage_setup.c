@@ -806,6 +806,44 @@ GeOriginalStageSetupStatus ge_original_stage_setup_bind_stan(
     return GE_ORIGINAL_STAGE_SETUP_OK;
 }
 
+int ge_original_stage_setup_prepare_original_pad_load(
+    GeOriginalStageSetupRuntime *runtime)
+{
+    uint32_t pads, boundpads;
+    if (runtime == NULL || !runtime->loaded || runtime->source_blob == NULL
+            || runtime->source_size < GE_SETUP_HEADER_SIZE) return 0;
+    pads = ge_setup_be32(runtime->source_blob + 6U * 4U);
+    boundpads = ge_setup_be32(runtime->source_blob + 7U * 4U);
+    if (runtime->pad_count > runtime->source_size / GE_SETUP_PAD_SIZE
+            || runtime->boundpad_count > runtime->source_size / GE_SETUP_BOUNDPAD_SIZE
+            || (size_t)pads > runtime->source_size
+            || runtime->pad_count * GE_SETUP_PAD_SIZE > runtime->source_size - pads
+            || (size_t)boundpads > runtime->source_size
+            || runtime->boundpad_count * GE_SETUP_BOUNDPAD_SIZE > runtime->source_size - boundpads)
+        return 0;
+    /* Do not undo scaling by multiplying rounded runtime coordinates. Restore
+     * exact source floats, keeping all relocated pointers and sentinels. */
+    for (size_t index = 0U; index < runtime->pad_count; ++index) {
+        PadRecord *pad = &((PadRecord *)runtime->pads_storage)[index];
+        const uint8_t *raw = runtime->source_blob + pads + index * GE_SETUP_PAD_SIZE;
+        for (size_t axis = 0U; axis < 3U; ++axis)
+            pad->pos.f[axis] = ge_setup_float(raw + axis * 4U);
+    }
+    for (size_t index = 0U; index < runtime->boundpad_count; ++index) {
+        BoundPadRecord *pad = &((BoundPadRecord *)runtime->boundpads_storage)[index];
+        const uint8_t *raw = runtime->source_blob + boundpads + index * GE_SETUP_BOUNDPAD_SIZE;
+        for (size_t axis = 0U; axis < 3U; ++axis)
+            pad->pos.f[axis] = ge_setup_float(raw + axis * 4U);
+        pad->bbox.xmin = ge_setup_float(raw + 44U);
+        pad->bbox.xmax = ge_setup_float(raw + 48U);
+        pad->bbox.ymin = ge_setup_float(raw + 52U);
+        pad->bbox.ymax = ge_setup_float(raw + 56U);
+        pad->bbox.zmin = ge_setup_float(raw + 60U);
+        pad->bbox.zmax = ge_setup_float(raw + 64U);
+    }
+    return 1;
+}
+
 int ge_original_stage_setup_normal_spawn(
     GeOriginalStageSetupRuntime *runtime, GeOriginalStageSpawn *spawn)
 {

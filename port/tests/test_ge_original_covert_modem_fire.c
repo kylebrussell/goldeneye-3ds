@@ -686,6 +686,48 @@ int main(int argc, char **argv)
             == GE_ORIGINAL_FIRST_PERSON_SCENE_OK);
         assert_first_person_cached_transform_byte_exact(
             &exact_hand_scene_cache, exact_hand_vertices);
+        /* Exercise changed runs, unchanged runs and cross-input duplicates
+         * together. The renderer must preserve all scalar output bytes and
+         * the old per-vertex accounting after hoisting work to matrix runs. */
+        float (*saved_matrices)[4][4] = malloc(
+            exact_live_hand.matrix_count * sizeof(*saved_matrices));
+        assert(saved_matrices != NULL);
+        memcpy(saved_matrices, live_matrices,
+            exact_live_hand.matrix_count * sizeof(*saved_matrices));
+        for (size_t frame = 0U; frame < 96U; ++frame) {
+            const uint64_t copies_before = exact_hand_scene_cache.static_vertex_copies_avoided;
+            const uint64_t duplicates_before = exact_hand_scene_cache.duplicate_vertex_transforms_avoided;
+            const uint64_t cross_before = exact_hand_scene_cache.cross_input_duplicate_transforms_avoided;
+            size_t copies = 0U, duplicates = 0U, cross = 0U;
+            for (size_t matrix = 0U; matrix < exact_live_hand.matrix_count; ++matrix)
+                live_matrices[matrix][3][0] = saved_matrices[matrix][3][0]
+                    + ((frame + matrix) % 3U == 0U ? 0.25f : 0.0f);
+            assert(ge_original_first_person_scene_build_cached(
+                &exact_hand_scene_cache, &exact_assets, GUNRIGHT,
+                eye_space_identity, &exact_hand_storage, &exact_hand_scene)
+                == GE_ORIGINAL_FIRST_PERSON_SCENE_OK);
+            assert_first_person_cached_transform_byte_exact(
+                &exact_hand_scene_cache, exact_hand_vertices);
+            for (size_t input = 0U; input < exact_hand_scene_cache.input_count; ++input) {
+                size_t base = exact_hand_scene_cache.input_vertex_offsets[input];
+                for (size_t v = 0U; v < exact_hand_scene_cache.queries[input].required_vertex_count; ++v) {
+                    size_t index = base + v;
+                    size_t matrix = exact_hand_scene_cache.input_quantized_matrix_offsets[input]
+                        + exact_hand_scene_cache.template_matrix_indices[index];
+                    if (!exact_hand_scene_cache.quantized_matrix_changed[matrix]) continue;
+                    ++copies;
+                    if (exact_hand_scene_cache.template_transform_sources[index] < index) ++duplicates;
+                    if (exact_hand_scene_cache.template_transform_sources[index] < base) ++cross;
+                }
+            }
+            assert(exact_hand_scene_cache.static_vertex_copies_avoided - copies_before == copies);
+            assert(exact_hand_scene_cache.duplicate_vertex_transforms_avoided - duplicates_before == duplicates);
+            assert(exact_hand_scene_cache.cross_input_duplicate_transforms_avoided - cross_before == cross);
+        }
+        memcpy(live_matrices, saved_matrices,
+            exact_live_hand.matrix_count * sizeof(*saved_matrices));
+        free(saved_matrices);
+        puts("first-person changed matrix runs: 96 mixed-bone frames match scalar bytes and counters");
         /* Restore the world publication consumed by the legacy CPU camera
          * projection assertions below. The 3DS renderer instead keeps the
          * eye-space publication and binds its projection-only matrix. */

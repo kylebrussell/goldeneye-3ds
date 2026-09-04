@@ -1051,6 +1051,9 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
             && input->position[0] == 0.0f
             && input->position[1] == 0.0f
             && input->position[2] == 0.0f;
+        const int reuse_unchanged_matrix = reuse_publication_storage
+            && publish_eye_space && cache->publication_eye_space != 0U;
+        size_t duplicate_vertices = 0U, cross_input_duplicates = 0U;
 
         if (!publish_eye_space) all_publish_eye_space = 0;
 
@@ -1068,72 +1071,75 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
             memcpy(storage->vertices + vertex_cursor,
                 cache->template_vertices + template_vertex_base,
                 query->required_vertex_count * sizeof(*storage->vertices));
-        for (local_vertex = 0U;
-                local_vertex < query->required_vertex_count; ++local_vertex) {
-            const size_t template_index = template_vertex_base + local_vertex;
-            const GeDamRoomWorldVertex *source =
-                &cache->template_vertices[template_index];
-            GeDamRoomWorldVertex *destination =
-                &storage->vertices[vertex_cursor + local_vertex];
+        for (local_vertex = 0U; local_vertex < query->required_vertex_count;) {
+            const size_t run_index = template_vertex_base + local_vertex;
             const uint16_t matrix_index =
-                cache->template_matrix_indices[template_index];
-            const uint32_t transform_source =
-                cache->template_transform_sources[template_index];
-            float eye[4];
-            size_t axis;
-            size_t row;
-
-            if ((size_t)matrix_index >= input->segment3_matrix_count) {
+                cache->template_matrix_indices[run_index];
+            const size_t end = cache->template_matrix_run_ends[run_index];
+            if ((size_t)matrix_index >= input->segment3_matrix_count
+                    || end <= local_vertex || end > query->required_vertex_count) {
                 cache->topology_ready = 0U;
                 status = GE_ORIGINAL_FIRST_PERSON_SCENE_MODEL_LAYOUT_ERROR;
                 goto done;
             }
-            if (reuse_publication_storage && publish_eye_space
-                    && cache->publication_eye_space != 0U
+            if (reuse_unchanged_matrix
                     && cache->quantized_matrix_changed[
                         cache->input_quantized_matrix_offsets[input_index]
                             + matrix_index] == 0U) {
-                const size_t end = cache->template_matrix_run_ends[template_index];
                 cache->unchanged_matrix_vertices_reused += end - local_vertex;
                 cache->unchanged_matrix_runs_reused++;
-                local_vertex = end - 1U;
+                local_vertex = end;
                 continue;
             }
-            if (reuse_publication_storage) {
-                cache->static_vertex_copies_avoided++;
-            }
-            if ((size_t)transform_source < template_index) {
-                /* Template and publication inputs retain the same cumulative
-                 * vertex ordering.  A prior source from another display-list
-                 * input is therefore addressed by its global template index,
-                 * just like a prior source inside this input. */
-                const GeDamRoomWorldVertex *prior =
-                    &storage->vertices[transform_source];
-                memcpy(destination->processed.eye, prior->processed.eye,
-                       sizeof(destination->processed.eye));
-                memcpy(destination->world, prior->world,
-                       sizeof(destination->world));
-                cache->duplicate_vertex_transforms_avoided++;
-                if ((size_t)transform_source < template_vertex_base)
-                    cache->cross_input_duplicate_transforms_avoided++;
-            } else {
-                ge_first_person_transform_vertex(
-                    input_matrices[matrix_index], &source->source, eye);
-                memcpy(destination->processed.eye, eye, sizeof(eye));
-                for (axis = 0U; axis < 3U; ++axis) {
-                    if (publish_eye_space) {
-                        /* hand->mtxlist is already the canonical N64
-                         * eye-space publication. */
-                        destination->world[axis] = eye[axis];
-                    } else {
-                        destination->world[axis] = input->position[axis];
-                        for (row = 0U; row < 4U; ++row)
-                            destination->world[axis] +=
-                                eye[row] * input->matrix[row][axis];
+            if (reuse_publication_storage)
+                cache->static_vertex_copies_avoided += end - local_vertex;
+            /* The immutable run proves matrix ownership for every vertex.
+             * Validate/select once, including when that bone has moved.
+             * Keep vertex order for cross-input duplicate dependencies. */
+            for (; local_vertex < end; ++local_vertex) {
+                const size_t template_index = template_vertex_base + local_vertex;
+                const GeDamRoomWorldVertex *source =
+                    &cache->template_vertices[template_index];
+                GeDamRoomWorldVertex *destination =
+                    &storage->vertices[vertex_cursor + local_vertex];
+                const uint32_t transform_source =
+                    cache->template_transform_sources[template_index];
+                float eye[4];
+                size_t axis, row;
+                if ((size_t)transform_source < template_index) {
+                    /* Template and publication inputs retain the same cumulative
+                     * vertex ordering. A prior source from another display-list
+                     * input is addressed by its global template index. */
+                    const GeDamRoomWorldVertex *prior =
+                        &storage->vertices[transform_source];
+                    memcpy(destination->processed.eye, prior->processed.eye,
+                           sizeof(destination->processed.eye));
+                    memcpy(destination->world, prior->world,
+                           sizeof(destination->world));
+                    duplicate_vertices++;
+                    if ((size_t)transform_source < template_vertex_base)
+                        cross_input_duplicates++;
+                } else {
+                    ge_first_person_transform_vertex(
+                        input_matrices[matrix_index], &source->source, eye);
+                    memcpy(destination->processed.eye, eye, sizeof(eye));
+                    for (axis = 0U; axis < 3U; ++axis) {
+                        if (publish_eye_space) {
+                            /* hand->mtxlist is already the canonical N64
+                             * eye-space publication. */
+                            destination->world[axis] = eye[axis];
+                        } else {
+                            destination->world[axis] = input->position[axis];
+                            for (row = 0U; row < 4U; ++row)
+                                destination->world[axis] +=
+                                    eye[row] * input->matrix[row][axis];
+                        }
                     }
                 }
             }
         }
+        cache->duplicate_vertex_transforms_avoided += duplicate_vertices;
+        cache->cross_input_duplicate_transforms_avoided += cross_input_duplicates;
         if (cache->profile_clock != NULL) {
             const uint64_t finished = ge_first_person_profile_now(cache);
             ge_first_person_profile_add(
@@ -1158,10 +1164,10 @@ GeOriginalFirstPersonSceneStatus ge_original_first_person_scene_build_cached(
             if (!reuse_publication_storage) {
                 storage->batches[batch_cursor + local_batch].first_vertex =
                     vertex_cursor + first_vertex - template_vertex_base;
-            } else {
-                cache->static_batch_copies_avoided++;
             }
         }
+        if (reuse_publication_storage)
+            cache->static_batch_copies_avoided += query->required_batch_count;
         if (cache->profile_clock != NULL) {
             const uint64_t finished = ge_first_person_profile_now(cache);
             ge_first_person_profile_add(

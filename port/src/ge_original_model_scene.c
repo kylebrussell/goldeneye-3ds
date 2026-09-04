@@ -1525,6 +1525,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
                 [cache->input_component_indices[input_index]];
         size_t local_vertex;
         size_t local_batch;
+        size_t duplicate_vertices = 0U;
         const GeModelPublishedInput *previous = input_index < previous_input_count
             ? &((const GeModelPublishedInput *)cache->publication_layout_scratch)[input_index]
             : NULL;
@@ -1602,7 +1603,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
                        sizeof(destination->processed.eye));
                 memcpy(destination->world, prior->world,
                        sizeof(destination->world));
-                cache->duplicate_vertex_transforms_avoided++;
+                duplicate_vertices++;
             } else {
                 cache_transform_vertex(
                     input_matrices[source_matrix], &source->source,
@@ -1629,6 +1630,10 @@ static GeOriginalModelSceneStatus cache_build_impl(
                 }
             }
         }
+        /* Count in a native-width local while walking vertices. Publishing
+         * the same total once avoids a 64-bit cache-field read/write on ARM
+         * for every reused triangle corner. This never controls geometry. */
+        cache->duplicate_vertex_transforms_avoided += duplicate_vertices;
         cache_profile_add(&cache->profile_vertex_transform_ticks,
                           phase_start, cache_profile_now(cache));
         phase_start = cache_profile_now(cache);
@@ -1642,8 +1647,8 @@ static GeOriginalModelSceneStatus cache_build_impl(
                     ++local_batch) {
                 storage->batches[batch_cursor + local_batch].room_id =
                     input->room_id;
-                cache->static_batch_copies_avoided++;
             }
+            cache->static_batch_copies_avoided += query->required_batch_count;
         } else {
             if (query->required_batch_count != 0U)
                 memcpy(storage->batches + batch_cursor, component->batches,

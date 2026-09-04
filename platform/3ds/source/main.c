@@ -607,6 +607,9 @@ typedef struct RuntimeFineProfile {
     uint64_t renderer_draw_ticks;
     /* CPU preparation; sky/world draws; effects/hands; final HUD draws. */
     uint64_t renderer_phase_ticks[4];
+    uint64_t music_render_ticks;
+    uint64_t music_render_calls;
+    uint64_t music_render_peak_ticks;
     uint64_t renderer_peak_phase_ticks[4];
     uint64_t renderer_peak_ticks;
     uint64_t frame_end_ticks;
@@ -3684,6 +3687,11 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.world_room_frustum_tests,
             (unsigned long long)fine_profile.world_room_frustum_visible_batches,
             (unsigned long long)fine_profile.world_room_frustum_culled_batches);
+        fprintf(stream, "simulation_wait_audio_ticks=%llu,%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.frame_begin_ticks,
+            (unsigned long long)fine_profile.music_render_ticks,
+            (unsigned long long)fine_profile.music_render_calls,
+            (unsigned long long)fine_profile.music_render_peak_ticks);
         fprintf(stream, "renderer_phase_ticks=%llu,%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.renderer_phase_ticks[0],
             (unsigned long long)fine_profile.renderer_phase_ticks[1],
@@ -18566,9 +18574,18 @@ start_stage_runtime:
                             &original_music_sync)) {
                     printf("Original music layer sync failed.\n");
                 }
-                if (audio_active && original_music != NULL
-                        && ge_original_music_runtime_tick_60hz(
-                            original_music) != GE_AUDIO_ABI_OK) {
+                const uint64_t music_start = svcGetSystemTick();
+                const bool render_music = audio_active && original_music != NULL;
+                const GeAudioAbiResult music_status = render_music
+                    ? ge_original_music_runtime_tick_60hz(original_music) : GE_AUDIO_ABI_OK;
+                if (render_music) {
+                    const uint64_t music_ticks = svcGetSystemTick() - music_start;
+                    fine_profile.music_render_ticks += music_ticks;
+                    ++fine_profile.music_render_calls;
+                    if (music_ticks > fine_profile.music_render_peak_ticks)
+                        fine_profile.music_render_peak_ticks = music_ticks;
+                }
+                if (music_status != GE_AUDIO_ABI_OK) {
                     printf("Original music render failed.\n");
                     (void)ge_3ds_audio_bind_secondary(NULL);
                     ge_original_music_runtime_close(original_music);

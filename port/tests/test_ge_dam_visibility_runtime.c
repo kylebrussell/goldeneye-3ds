@@ -82,6 +82,24 @@ int main(int argc, char **argv)
     for (index = 0U; index < sizeof(expected); ++index) {
         assert(result.rooms[index].room == expected[index]);
     }
+    /* Relocate the immutable original global-vis stream once, but continue
+     * executing the original interpreter every frame. Compare every result
+     * byte against raw decoding across camera changes and alternating calls. */
+    GeOriginalBgVisibilityProgram *program = runtime.program;
+    assert(program != NULL);
+    const float original_tx = camera.view[3][0];
+    for (unsigned frame = 0U; frame < 96U; ++frame) {
+        GeOriginalBgVisibilityResult raw, cached;
+        camera.view[3][0] = original_tx + (float)frame * 0.25f;
+        runtime.program = NULL;
+        assert(ge_dam_visibility_runtime_run(&runtime, &camera, position, &raw)
+            == GE_DAM_VISIBILITY_RUNTIME_OK);
+        runtime.program = program;
+        assert(ge_dam_visibility_runtime_run(&runtime, &camera, position, &cached)
+            == GE_DAM_VISIBILITY_RUNTIME_OK);
+        assert(memcmp(&raw, &cached, sizeof(raw)) == 0);
+    }
+    camera.view[3][0] = original_tx;
     for (index = 0U; index < sizeof(portal_controls); ++index) {
         const size_t portal_table = read_be32(background.bytes + 8U)
             - UINT32_C(0x0f000000);
@@ -95,7 +113,7 @@ int main(int argc, char **argv)
         == GE_DAM_VISIBILITY_RUNTIME_OK);
     assert(result.room_count == sizeof(expected));
     ge_dam_visibility_runtime_close(&runtime);
-    assert(runtime.loaded == 0U && runtime.background == NULL);
+    assert(runtime.loaded == 0U && runtime.background == NULL && runtime.program == NULL);
 
     if (argc == 5) {
         GeAssetPack pack;

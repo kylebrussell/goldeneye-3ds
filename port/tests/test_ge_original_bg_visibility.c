@@ -443,6 +443,49 @@ int main(int argc, char **argv)
     assert(forward.portal_descents == 2U);
     assert(backward.portal_descents == 2U);
     {
+        GeOriginalBgVisibilityStatus status;
+        GeOriginalBgVisibilityProgram *program = ge_original_bg_visibility_program_create(
+            input.background, input.background_size, input.room_count, &status);
+        assert(program != NULL && status == GE_ORIGINAL_BG_VISIBILITY_OK);
+        uint8_t alternate_background[FIXTURE_SIZE];
+        memcpy(alternate_background, background, sizeof(background));
+        put_portal(alternate_background, 0U, 2U, 1U, -20.0f, 0);
+        GeOriginalBgVisibilityProgram *alternate = ge_original_bg_visibility_program_create(
+            alternate_background, sizeof(alternate_background), input.room_count, &status);
+        assert(alternate != NULL && status == GE_ORIGINAL_BG_VISIBILITY_OK);
+        uint8_t controls[2] = {0U, 0U};
+        GeOriginalBgVisibilityProviders providers = {
+            .portal_controls = controls, .portal_control_count = 2U,
+        };
+        input.providers = &providers;
+        for (unsigned frame = 0U; frame < 32U; ++frame) {
+            GeOriginalBgVisibilityResult raw, cached;
+            /* Interleave a distinct stage's immutable geometry; cached portal
+             * pointers must be rebound to the matching execution storage. */
+            GeOriginalBgVisibilityInput other = input;
+            other.background = alternate_background;
+            other.program = alternate;
+            assert(ge_original_bg_set_portal_open(0, (frame & 1U) == 0U, controls, 2U));
+            assert(ge_original_bg_set_portal_open(1, (frame & 2U) == 0U, controls, 2U));
+            input.program = NULL;
+            assert(ge_original_bg_visibility_run(&input, &raw) == GE_ORIGINAL_BG_VISIBILITY_OK);
+            assert(ge_original_bg_visibility_run(&other, &cached) == GE_ORIGINAL_BG_VISIBILITY_OK);
+            input.program = program;
+            assert(ge_original_bg_visibility_run(&input, &cached) == GE_ORIGINAL_BG_VISIBILITY_OK);
+            assert(memcmp(&raw, &cached, sizeof(raw)) == 0);
+        }
+        input.background_size--;
+        assert(ge_original_bg_visibility_run(&input, &forward)
+            == GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+        input.background_size++;
+        input.program = NULL;
+        input.providers = NULL;
+        ge_original_bg_visibility_program_close(program);
+        ge_original_bg_visibility_program_close(alternate);
+        assert(ge_original_bg_visibility_program_create(NULL, 0U, 0U, &status) == NULL
+            && status == GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+    }
+    {
         const float through_near[3] = {0.0f, 0.0f, -20.0f};
         const float centre[3] = {0.0f, 0.0f, 0.0f};
         const float through_far[3] = {0.0f, 0.0f, 20.0f};
@@ -478,6 +521,34 @@ int main(int argc, char **argv)
             == GE_ORIGINAL_BG_VISIBILITY_OK);
         assert(cradle.portal_count == 0U);
         assert(contains_room(&cradle, 9U));
+        GeOriginalBgVisibilityStatus status;
+        GeOriginalBgVisibilityProgram *empty = ge_original_bg_visibility_program_create(
+            background, sizeof(background), input.room_count, &status);
+        assert(empty != NULL && status == GE_ORIGINAL_BG_VISIBILITY_OK);
+        /* Leave live geometry from a larger stage in execution storage. The
+         * prepared empty stage must restore its sentinel before both original
+         * room traversal and original line/portal lookup can run. */
+        uint8_t populated_background[FIXTURE_SIZE];
+        memcpy(populated_background, background, sizeof(background));
+        put_portal(populated_background, 0U, 2U, 1U, -10.0f, 0);
+        GeOriginalBgVisibilityInput populated = input;
+        populated.background = populated_background;
+        populated.room_bounds = bounds;
+        populated.room_count = 4U;
+        populated.current_room = 1U;
+        populated.level_index = 0;
+        assert(ge_original_bg_visibility_run(&populated, &forward)
+            == GE_ORIGINAL_BG_VISIBILITY_OK);
+        assert(forward.portal_count == 1U);
+        input.program = empty;
+        assert(ge_original_bg_visibility_run(&input, &backward)
+            == GE_ORIGINAL_BG_VISIBILITY_OK);
+        assert(memcmp(&cradle, &backward, sizeof(cradle)) == 0);
+        const float through[3] = {0.0f, 0.0f, -20.0f};
+        const float centre[3] = {0.0f, 0.0f, 0.0f};
+        assert(ge_original_bg_find_portal_on_line(through, centre) == -1);
+        input.program = NULL;
+        ge_original_bg_visibility_program_close(empty);
     }
     puts("original bg portal visibility: authored zero-portal Cradle path ok");
 

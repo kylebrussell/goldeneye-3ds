@@ -23,6 +23,7 @@ extern "C" {
 
 typedef struct GeDamVisibilityRuntime {
     uint8_t *background;
+    GeOriginalBgVisibilityProgram *program;
     size_t background_size;
     GeOriginalBgRoomBounds room_bounds[
         GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS];

@@ -50,6 +50,7 @@ static uint64_t ge_fnv1a64(const uint8_t *data, size_t size)
 void ge_dam_visibility_runtime_close(GeDamVisibilityRuntime *runtime)
 {
     if (runtime == NULL) return;
+    ge_original_bg_visibility_program_close(runtime->program);
     free(runtime->background);
     memset(runtime, 0, sizeof(*runtime));
 }
@@ -134,6 +135,15 @@ GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_init(
         return GE_DAM_VISIBILITY_RUNTIME_NO_MEMORY;
     }
     memcpy(runtime->background, background, background_size);
+    runtime->program = ge_original_bg_visibility_program_create(
+        runtime->background, background_size, room_count, &runtime->last_original_status);
+    if (runtime->program == NULL) {
+        GeDamVisibilityRuntimeStatus status = runtime->last_original_status
+                == GE_ORIGINAL_BG_VISIBILITY_NO_MEMORY
+            ? GE_DAM_VISIBILITY_RUNTIME_NO_MEMORY : GE_DAM_VISIBILITY_RUNTIME_INVALID_ASSET;
+        ge_dam_visibility_runtime_close(runtime);
+        return status;
+    }
     runtime->background_size = background_size;
     runtime->room_count = room_count;
     /* Buffer-only callers historically consume Dam assets. Stage-aware loads
@@ -272,6 +282,7 @@ GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run_with_providers(
     input.view_width = (int16_t)width;
     input.view_height = (int16_t)height;
     input.providers = providers;
+    input.program = runtime->program;
     visibility_status = ge_original_bg_visibility_run(&input, result);
     runtime->last_original_status = visibility_status;
     return visibility_status == GE_ORIGINAL_BG_VISIBILITY_OK

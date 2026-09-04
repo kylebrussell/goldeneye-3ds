@@ -16,6 +16,8 @@ typedef struct GeOriginalBgRoomBounds {
     float maximum[3];
 } GeOriginalBgRoomBounds;
 
+typedef struct GeOriginalBgVisibilityProgram GeOriginalBgVisibilityProgram;
+
 /* Mirrors the two pieces of mutable state consumed by the original global-vis
  * interpreter. portal_controls is the authoritative current controlbytes1
  * array supplied by the eventual door system. preload_room returns nonzero
@@ -49,6 +51,10 @@ typedef struct GeOriginalBgVisibilityInput {
     int16_t view_width;
     int16_t view_height;
     const GeOriginalBgVisibilityProviders *providers;
+    /* Optional relocated immutable portal geometry and global-vis stream. Its background must
+     * remain unchanged and alive until the program is closed. Door controls,
+     * cameras, room flags and original interpreter execution are never cached. */
+    const GeOriginalBgVisibilityProgram *program;
 } GeOriginalBgVisibilityInput;
 
 typedef struct GeOriginalBgVisibleRoom {
@@ -74,7 +80,8 @@ typedef enum GeOriginalBgVisibilityStatus {
     GE_ORIGINAL_BG_VISIBILITY_OK = 0,
     GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT,
     GE_ORIGINAL_BG_VISIBILITY_INVALID_BACKGROUND,
-    GE_ORIGINAL_BG_VISIBILITY_CAPACITY_EXCEEDED
+    GE_ORIGINAL_BG_VISIBILITY_CAPACITY_EXCEEDED,
+    GE_ORIGINAL_BG_VISIBILITY_NO_MEMORY
 } GeOriginalBgVisibilityStatus;
 
 /* Read-only view of the exact mutable room publication consumed by
@@ -94,6 +101,11 @@ typedef struct GeOriginalBgRoomVisibilitySnapshot {
 GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     const GeOriginalBgVisibilityInput *input,
     GeOriginalBgVisibilityResult *result);
+
+GeOriginalBgVisibilityProgram *ge_original_bg_visibility_program_create(
+    const uint8_t *background, size_t background_size, size_t room_count,
+    GeOriginalBgVisibilityStatus *status);
+void ge_original_bg_visibility_program_close(GeOriginalBgVisibilityProgram *program);
 
 int ge_original_bg_visibility_room_snapshot(
     uint8_t room, GeOriginalBgRoomVisibilitySnapshot *snapshot);

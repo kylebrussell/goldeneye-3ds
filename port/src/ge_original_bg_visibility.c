@@ -2,6 +2,7 @@
 #include "ge_original_bg_visibility_internal.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define GE_BG_BASE UINT32_C(0x0f000000)
@@ -53,6 +54,17 @@ typedef struct GePortalGeometryStorage {
 static bg_portal_data_entry ge_portals[PORTMAX + 1U];
 static GePortalGeometryStorage ge_portal_geometry[PORTMAX];
 static uint32_t ge_portal_addresses[PORTMAX];
+struct GeOriginalBgVisibilityProgram {
+    const uint8_t *background;
+    size_t background_size;
+    size_t room_count;
+    size_t portal_count;
+    size_t command_count;
+    uint64_t stream_hash;
+    bg_portal_data_entry portals[PORTMAX + 1U];
+    GePortalGeometryStorage geometry[PORTMAX];
+    GlobalVisCommand commands[];
+};
 static GlobalVisCommand ge_global_commands[GE_GLOBAL_VIS_MAX_COMMANDS];
 static player ge_player;
 static coord3d ge_player_position;
@@ -317,6 +329,47 @@ static GeOriginalBgVisibilityStatus ge_materialize_global_visibility(
     return GE_ORIGINAL_BG_VISIBILITY_OK;
 }
 
+GeOriginalBgVisibilityProgram *ge_original_bg_visibility_program_create(
+    const uint8_t *background, size_t background_size, size_t room_count,
+    GeOriginalBgVisibilityStatus *status)
+{
+    size_t portal_count;
+    GeOriginalBgVisibilityStatus result = GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
+    GeOriginalBgVisibilityProgram *program = NULL;
+    if (background == NULL || room_count == 0U || room_count > MAXROOMCOUNT)
+        goto done;
+    result = ge_materialize_portals(background, background_size, room_count, &portal_count);
+    if (result != GE_ORIGINAL_BG_VISIBILITY_OK) goto done;
+    result = ge_materialize_global_visibility(background, background_size, room_count, portal_count);
+    if (result != GE_ORIGINAL_BG_VISIBILITY_OK) goto done;
+    program = malloc(sizeof(*program) + ge_global_command_count * sizeof(GlobalVisCommand));
+    if (program == NULL) {
+        result = GE_ORIGINAL_BG_VISIBILITY_NO_MEMORY;
+        goto done;
+    }
+    program->background = background;
+    program->background_size = background_size;
+    program->room_count = room_count;
+    program->portal_count = portal_count;
+    program->command_count = ge_global_command_count;
+    program->stream_hash = ge_global_stream_hash;
+    /* Portal pointers deliberately target the singleton original execution
+     * storage, not this snapshot. Each run restores the corresponding geometry
+     * before executing any original function, including after another stage. */
+    memcpy(program->portals, ge_portals, sizeof(ge_portals));
+    memcpy(program->geometry, ge_portal_geometry, sizeof(ge_portal_geometry));
+    memcpy(program->commands, ge_global_commands,
+        ge_global_command_count * sizeof(GlobalVisCommand));
+done:
+    if (status != NULL) *status = result;
+    return program;
+}
+
+void ge_original_bg_visibility_program_close(GeOriginalBgVisibilityProgram *program)
+{
+    free(program);
+}
+
 Mtxf *camGetWorldToScreenMtxf(void)
 {
     return &ge_world_to_screen;
@@ -403,12 +456,34 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
             || input->view_width <= 0 || input->view_height <= 0) {
         return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
     }
-    status = ge_materialize_portals(input->background,
-        input->background_size, input->room_count, &portal_count);
-    if (status != GE_ORIGINAL_BG_VISIBILITY_OK) return status;
-    status = ge_materialize_global_visibility(input->background,
-        input->background_size, input->room_count, portal_count);
-    if (status != GE_ORIGINAL_BG_VISIBILITY_OK) return status;
+    if (input->program != NULL
+            && (input->program->background != input->background
+                || input->program->background_size != input->background_size
+                || input->program->room_count != input->room_count))
+        return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
+    if (input->program != NULL) {
+        const GeOriginalBgVisibilityProgram *program = input->program;
+        portal_count = program->portal_count;
+        /* Restore only the authored range plus the terminating portal. The
+         * original traversal and line lookup stop at that sentinel; validated
+         * global commands cannot name a portal outside this range. In
+         * particular, zero-portal stages need no polygon copy at all. */
+        memcpy(ge_portals, program->portals,
+            (portal_count + 1U) * sizeof(ge_portals[0]));
+        memcpy(ge_portal_geometry, program->geometry,
+            portal_count * sizeof(ge_portal_geometry[0]));
+        ge_global_command_count = program->command_count;
+        ge_global_stream_hash = program->stream_hash;
+        memcpy(ge_global_commands, program->commands,
+            program->command_count * sizeof(GlobalVisCommand));
+    } else {
+        status = ge_materialize_portals(input->background,
+            input->background_size, input->room_count, &portal_count);
+        if (status != GE_ORIGINAL_BG_VISIBILITY_OK) return status;
+        status = ge_materialize_global_visibility(input->background,
+            input->background_size, input->room_count, portal_count);
+        if (status != GE_ORIGINAL_BG_VISIBILITY_OK) return status;
+    }
     if (input->providers != NULL
             && input->providers->portal_controls != NULL
             && input->providers->portal_control_count < portal_count) {
@@ -531,6 +606,7 @@ const char *ge_original_bg_visibility_status_name(
         return "invalid background";
     case GE_ORIGINAL_BG_VISIBILITY_CAPACITY_EXCEEDED:
         return "capacity exceeded";
+    case GE_ORIGINAL_BG_VISIBILITY_NO_MEMORY: return "no memory";
     default: return "unknown";
     }
 }

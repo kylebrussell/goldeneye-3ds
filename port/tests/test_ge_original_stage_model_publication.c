@@ -10,6 +10,8 @@
 #endif
 #include <bondconstants.h>
 #include <bondtypes.h>
+#include "matrixmath.h"
+#include <PR/gu.h>
 
 #include <assert.h>
 #include <math.h>
@@ -209,6 +211,60 @@ static void exercise_glass(GeOriginalPitemModelProvider *models)
         assert(ge_original_model_scene_cache_build(&cache, &input, 1U,
             &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
     }
+    /* Real authored window normals and ST scale, original LookAt producer,
+     * and the same matrix composition as objTick. Camera refresh must only
+     * change shade/ST, not geometry or retained topology. */
+    assert(batches[0].material.texture_gen_enabled);
+    assert(batches[0].material.texture_scale_s == 0x0d80U);
+    set_identity(glass.mtx.m);
+    glass.mtx.m[0][0] = 0.0f;
+    glass.mtx.m[0][2] = 0.5f;
+    glass.mtx.m[2][0] = -0.5f;
+    glass.mtx.m[2][2] = 0.0f;
+    glass.mtx.m[1][1] = 0.5f;
+    float first_u = 0.0f;
+    int different_uv = 0;
+    const uint64_t topology_rebuilds = cache.topology_rebuilds;
+    for (unsigned angle = 0U; angle < 24U; ++angle) {
+        float view[4][4];
+        LookAt look_at = {0};
+        const float radians = (float)angle * 0.25f;
+        GeGbiRenderState shading;
+        Mtxf expected, camera;
+        guLookAtReflectF(view, &look_at, 0.0f, 0.0f, 0.0f,
+            sinf(radians), 0.0f, cosf(radians), 0.0f, 1.0f, 0.0f);
+        assert(ge_original_stage_model_publication_glass_shading(&glass,
+            view, (const uint8_t *)&look_at, &batches[0].material, &shading));
+        memcpy(camera.m, view, sizeof(camera.m));
+        matrix_4x4_multiply_homogeneous(&camera, &glass.mtx, &expected);
+        for (size_t row = 0U; row < 3U; ++row)
+            for (size_t column = 0U; column < 3U; ++column)
+                assert(shading.modelview_stack.entries[0].elements[row][column]
+                    == (float)(int32_t)(expected.m[row][column] * 65536.0f) / 65536.0f);
+        for (size_t vertex = 0U; vertex < 6U; ++vertex) {
+            GeGbiProcessedVertex full, retained = vertices[vertex].processed;
+            assert(ge_gbi_vertex_process(&shading, &vertices[vertex].source, &full)
+                == GE_GBI_VERTEX_PROCESS_OK);
+            assert(ge_gbi_vertex_shade(&shading, &vertices[vertex].source, &retained)
+                == GE_GBI_VERTEX_PROCESS_OK);
+            assert(retained.texture_generated == 1U);
+            assert(memcmp(full.texture, retained.texture, sizeof(full.texture)) == 0);
+            assert(memcmp(full.rgba, retained.rgba, sizeof(full.rgba)) == 0);
+            assert(memcmp(retained.object, vertices[vertex].processed.object,
+                sizeof(retained.object)) == 0);
+            assert(memcmp(retained.eye, vertices[vertex].processed.eye,
+                sizeof(retained.eye)) == 0);
+            assert(memcmp(retained.clip, vertices[vertex].processed.clip,
+                sizeof(retained.clip)) == 0);
+            assert(retained.texture[0] >= 0.0f && retained.texture[0] <= 1.0f);
+            assert(retained.texture[1] >= 0.0f && retained.texture[1] <= 1.0f);
+            if (vertex == 0U) {
+                if (angle == 0U) first_u = retained.texture[0];
+                else if (fabsf(first_u - retained.texture[0]) > 0.1f) different_uv = 1;
+            }
+        }
+    }
+    assert(different_uv && cache.topology_rebuilds == topology_rebuilds);
     ge_original_model_scene_cache_close(&cache);
     assert(ge_original_pitem_model_release_instance(models, model));
     puts("authored glass lighting/blend/opacity and cache invalidation passed");

@@ -14,6 +14,7 @@ int main(void)
 {
     GePicaMaterial material;
     GeTextureUv uv;
+    GeTextureUvContext context;
 
     memset(&material, 0, sizeof(material));
     material.texture_scale_s = UINT16_MAX;
@@ -50,6 +51,15 @@ int main(void)
            == GE_TEXTURE_UV_INVALID_ARGUMENT);
     assert(ge_texture_uv_normalize(0, 0, NULL, 32U, 32U, &uv)
            == GE_TEXTURE_UV_INVALID_ARGUMENT);
+    material.texture_scale_s = 0x0d80U; /* ROM PwindowZ: 54 << 6. */
+    material.texture_scale_t = 32U << 6;
+    assert(ge_texture_uv_prepare(&material, 64U, 32U, &context) == GE_TEXTURE_UV_OK);
+    assert(ge_texture_uv_generated_prepared(1.0f, 0.5f, &context, &uv) == GE_TEXTURE_UV_OK);
+    assert(uv.u == 54.0f / 64.0f && uv.v == 0.5f);
+    assert(ge_texture_uv_generated_prepared(0.0f, 0.0f, &context, &uv) == GE_TEXTURE_UV_OK);
+    assert(uv.u == 0.0f && uv.v == 0.0f);
+    assert(ge_texture_uv_generated_prepared(NAN, 0.0f, &context, &uv)
+        == GE_TEXTURE_UV_INVALID_ARGUMENT);
     puts("N64 authored texture-coordinate conversion tests passed");
     return 0;
 }

@@ -4,10 +4,12 @@
 #endif
 #include <bondconstants.h>
 #include <bondtypes.h>
+#include "game/matrixmath.h"
 
 #include "ge_original_stage_model_publication.h"
 
 #include <string.h>
+#include <math.h>
 
 /* The SDK macro shifts a signed int into bit 31. Preserve its exact command
  * bits while making the host/ARM encoding well-defined under UBSan. */
@@ -16,6 +18,55 @@
     ((uint32_t)(a) << 30 | (uint32_t)(b) << 26 \
      | (uint32_t)(c) << 22 | (uint32_t)(d) << 18)
 #include "ge_original_model_render_setup.inc"
+
+int ge_original_stage_model_publication_glass_shading(
+    const void *definition, const float view[4][4],
+    const uint8_t look_at[32], const GePicaMaterial *material,
+    GeGbiRenderState *state)
+{
+    const ObjectRecord *object = definition;
+    Mtxf camera, local, eye;
+    uint8_t ambient[16] = {0};
+    size_t row, column;
+    if (object == NULL || view == NULL || look_at == NULL
+            || material == NULL || state == NULL
+            || (object->type != PROPDEF_GLASS
+                && object->type != PROPDEF_TINTED_GLASS)
+            || !material->lighting_enabled || !material->texture_gen_enabled)
+        return 0;
+    /* Same normal matrix as objTick's non-door branch; no position is needed
+     * by lighting. Do not use the world-space geometry upload's identity
+     * segment-3 substitute or replace the camera's original LookAt axes. */
+    memcpy(camera.m, view, sizeof(camera.m));
+    memcpy(&local, &object->mtx, sizeof(local));
+    matrix_4x4_multiply_homogeneous(&camera, &local, &eye);
+    ge_gbi_state_init(state);
+    for (row = 0U; row < 3U; ++row) {
+        for (column = 0U; column < 3U; ++column) {
+            const float fixed = eye.m[row][column] * 65536.0f;
+            if (!isfinite(fixed) || fixed < -2147483648.0f
+                    || fixed >= 2147483648.0f) return 0;
+            state->modelview_stack.entries[0].elements[row][column] =
+                (float)(int32_t)fixed / 65536.0f;
+        }
+    }
+    state->geometry_mode = GE_GBI_GEOMETRY_LIGHTING
+        | GE_GBI_GEOMETRY_TEXTURE_GEN
+        | (material->texture_gen_linear ? GE_GBI_GEOMETRY_TEXTURE_GEN_LINEAR : 0U);
+    memcpy(ambient, &ge_model_level_light.a, sizeof(ge_model_level_light.a));
+    if (ge_gbi_light_decode((const uint8_t *)&ge_model_level_light.l[0],
+                16U, &state->lights[0]) != GE_GBI_RSP_PAYLOAD_OK
+            || ge_gbi_light_decode(ambient, 16U, &state->lights[1])
+                != GE_GBI_RSP_PAYLOAD_OK
+            || ge_gbi_light_decode(look_at, 16U, &state->look_at[0])
+                != GE_GBI_RSP_PAYLOAD_OK
+            || ge_gbi_light_decode(look_at + 16U, 16U, &state->look_at[1])
+                != GE_GBI_RSP_PAYLOAD_OK) return 0;
+    state->directional_light_count = 1U;
+    state->valid_lights = 3U;
+    state->valid_look_at = 3U;
+    return 1;
+}
 
 int ge_original_stage_model_publication_glass_opacity(
     const void *definition, uint8_t *opacity)

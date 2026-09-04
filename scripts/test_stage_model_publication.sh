@@ -51,6 +51,8 @@ cc -std=gnu11 -Wall -Wextra -Werror \
     "${repo_dir}/port/src/ge_pica_apply.c" \
     "${repo_dir}/port/src/ge_dam_room.c" \
     "${repo_dir}/src/game/matrixmath.c" \
+    "${repo_dir}/src/libultra/gu/lookatref.c" \
+    "${repo_dir}/src/libultra/gu/mtxutil.c" \
     "${test_dir}/ge_original_move_model_tables.c" \
     -lm "${dead_strip[@]}" \
     -o "${test_dir}/test_ge_original_stage_model_publication"

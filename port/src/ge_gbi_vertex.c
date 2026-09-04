@@ -254,6 +254,21 @@ GeGbiVertexProcessStatus ge_gbi_vertex_process(
         }
     }
 
+    return ge_gbi_vertex_shade(state, vertex, processed);
+}
+
+GeGbiVertexProcessStatus ge_gbi_vertex_shade(
+    const GeGbiRenderState *state, const GeGbiVertex *vertex,
+    GeGbiProcessedVertex *processed)
+{
+    const GeGbiMatrix *modelview;
+    if (state == NULL || vertex == NULL || processed == NULL)
+        return GE_GBI_VERTEX_PROCESS_INVALID_ARGUMENT;
+    modelview = ge_gbi_matrix_stack_top(&state->modelview_stack);
+    if (modelview == NULL) return GE_GBI_VERTEX_PROCESS_INVALID_STATE;
+    processed->texture_generated = 0U;
+    processed->texture[0] = vertex->texture_s;
+    processed->texture[1] = vertex->texture_t;
     if ((state->geometry_mode & GE_GBI_GEOMETRY_LIGHTING) != 0U) {
         ge_gbi_vertex_transform_normal(modelview, vertex, processed->normal);
         ge_gbi_vertex_apply_lighting(state, vertex, processed);

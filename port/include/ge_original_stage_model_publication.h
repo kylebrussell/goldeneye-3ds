@@ -22,6 +22,14 @@ void ge_original_stage_model_publication_glass_material(
 int ge_original_stage_model_publication_glass_opacity(
     const void *definition, uint8_t *opacity);
 
+/* Static type-4 glass: retain its geometry but restore bgLevelRender's
+ * lights/LookAt and objTick's object-to-eye normal matrix for vertex shading.
+ * Door/articulated matrices require their separate live publication path. */
+int ge_original_stage_model_publication_glass_shading(
+    const void *definition, const float view[4][4],
+    const uint8_t look_at[32], const GePicaMaterial *material,
+    GeGbiRenderState *state);
+
 /* Binds one currently visible native object's exact Model.render_pos matrix
  * bank to the model-scene input. The bank remains eye-space, exactly as
  * objTick/modelUpdateMatrices published it; live view-to-world is the outer

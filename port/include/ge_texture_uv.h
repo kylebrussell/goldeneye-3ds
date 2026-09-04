@@ -32,6 +32,11 @@ GeTextureUvStatus ge_texture_uv_prepare(const GePicaMaterial *material,
 GeTextureUvStatus ge_texture_uv_normalize_prepared(int16_t texture_s,
     int16_t texture_t, const GeTextureUvContext *context, GeTextureUv *result);
 
+/* G_TEXTURE_GEN produces a unit normal projection rather than s10.5 ST.
+ * Its maximum texel coordinate is the authored gSPTexture scale / 64. */
+GeTextureUvStatus ge_texture_uv_generated_prepared(float generated_s,
+    float generated_t, const GeTextureUvContext *context, GeTextureUv *result);
+
 /* Converts an N64 s10.5 vertex coordinate into normalized source-image UVs.
  * Mirrors gsSPTexture's unsigned 0.16 scale for the unshifted primary/base
  * image bound by this adapter (not tile 0's detail shift). */

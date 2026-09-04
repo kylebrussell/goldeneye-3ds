@@ -424,22 +424,41 @@ GeTextureUvStatus ge_3ds_scene_texture_uv_prepare(
     return GE_TEXTURE_UV_OK;
 }
 
+static void ge_3ds_scene_texture_map_normalized(
+    const Ge3dsSceneTextureUvContext *context,
+    const GeTextureUv *normalized, GeTextureUv *result)
+{
+    const float top_u = context->top_left_u + context->top_delta_u * normalized->u;
+    const float top_v = context->top_left_v + context->top_delta_v * normalized->u;
+    const float bottom_u = context->bottom_left_u + context->bottom_delta_u * normalized->u;
+    const float bottom_v = context->bottom_left_v + context->bottom_delta_v * normalized->u;
+    result->u = top_u + (bottom_u - top_u) * normalized->v;
+    result->v = top_v + (bottom_v - top_v) * normalized->v;
+}
+
+GeTextureUvStatus ge_3ds_scene_texture_map_generated_uv_prepared(
+    const Ge3dsSceneTextureUvContext *context,
+    float generated_s, float generated_t, GeTextureUv *result)
+{
+    GeTextureUv normalized;
+    if (context == NULL || result == NULL
+            || ge_texture_uv_generated_prepared(generated_s, generated_t,
+                &context->normalization, &normalized) != GE_TEXTURE_UV_OK)
+        return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    ge_3ds_scene_texture_map_normalized(context, &normalized, result);
+    return GE_TEXTURE_UV_OK;
+}
+
 GeTextureUvStatus ge_3ds_scene_texture_map_uv_prepared(
     const Ge3dsSceneTextureUvContext *context,
     int16_t texture_s, int16_t texture_t, GeTextureUv *result)
 {
     GeTextureUv normalized;
-    float top_u, top_v, bottom_u, bottom_v;
     if (context == NULL || result == NULL
             || ge_texture_uv_normalize_prepared(texture_s, texture_t,
                 &context->normalization, &normalized) != GE_TEXTURE_UV_OK)
         return GE_TEXTURE_UV_INVALID_ARGUMENT;
-    top_u = context->top_left_u + context->top_delta_u * normalized.u;
-    top_v = context->top_left_v + context->top_delta_v * normalized.u;
-    bottom_u = context->bottom_left_u + context->bottom_delta_u * normalized.u;
-    bottom_v = context->bottom_left_v + context->bottom_delta_v * normalized.u;
-    result->u = top_u + (bottom_u - top_u) * normalized.v;
-    result->v = top_v + (bottom_v - top_v) * normalized.v;
+    ge_3ds_scene_texture_map_normalized(context, &normalized, result);
     return GE_TEXTURE_UV_OK;
 }
 

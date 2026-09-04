@@ -601,6 +601,8 @@ typedef struct RuntimeFineProfile {
     uint64_t world_gpu_flush_vertices;
     /* World batch preparations/vertices, then first-person preparations/vertices. */
     uint64_t texture_uv_work[4];
+    /* Prepared glass batches, shaded vertices, changed GPU attribute ranges. */
+    uint64_t glass_shading_work[3];
     uint64_t frame_begin_ticks;
     uint64_t renderer_draw_ticks;
     /* CPU preparation; sky/world draws; effects/hands; final HUD draws. */
@@ -1387,6 +1389,7 @@ typedef struct RuntimeDamPreview {
     size_t gpu_dirty_vertex_offset;
     size_t gpu_dirty_vertex_count;
     float original_camera_view[4][4];
+    uint8_t original_camera_look_at[32];
     float original_camera_view_to_world[4][4];
     float original_camera_projection[4][4];
     float original_camera_position[3];
@@ -1736,6 +1739,10 @@ static bool write_visual_probe_tour_diagnostic(
             &preview->preload_queue, next_room) : UINT_MAX);
     fprintf(stream, "camera_updated=%u\n",
             (unsigned int)runtime->diagnostic_camera_updated);
+    fprintf(stream, "glass_shading_work=%llu,%llu,%llu\n",
+        (unsigned long long)fine_profile.glass_shading_work[0],
+        (unsigned long long)fine_profile.glass_shading_work[1],
+        (unsigned long long)fine_profile.glass_shading_work[2]);
     fprintf(stream, "camera_status=%u\n",
             (unsigned int)preview->camera_handoff_status);
     fprintf(stream, "stream_camera_status=%u\n",
@@ -3631,6 +3638,10 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.texture_uv_work[1],
             (unsigned long long)fine_profile.texture_uv_work[2],
             (unsigned long long)fine_profile.texture_uv_work[3]);
+        fprintf(stream, "glass_shading_work=%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.glass_shading_work[0],
+            (unsigned long long)fine_profile.glass_shading_work[1],
+            (unsigned long long)fine_profile.glass_shading_work[2]);
         fprintf(stream, "guard_gpu_range_vertices=%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.guard_gpu_upload_vertices,
             (unsigned long long)fine_profile.guard_gpu_full_upload_vertices,
@@ -8774,6 +8785,66 @@ static bool refresh_stage_monitor_surfaces(
     return true;
 }
 
+static bool refresh_stage_glass_shading(
+    RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination)
+{
+    if (objects == NULL || !objects->scene_ready || objects->preview == NULL)
+        return true;
+    RuntimeDamPreview *preview = objects->preview;
+    if (!preview->original_camera_ready) return true;
+    GeDamDynamicScene *scene = &preview->dynamic_scene;
+    const size_t room_vertices = scene->scene.vertex_count - scene->overlay_vertex_count;
+    const size_t room_batches = scene->scene.batch_count - scene->overlay_batch_count;
+    for (size_t part = 0U; part < objects->ordinary_scene_part_count; ++part) {
+        const RuntimeStageScenePartRange *range = &objects->ordinary_scene_parts[part];
+        if (range->entry_index >= objects->entry_count) return false;
+        const RuntimeStageOrdinaryEntry *entry = &objects->entries[range->entry_index];
+        if (entry->type != PROPDEF_GLASS && entry->type != PROPDEF_TINTED_GLASS)
+            continue;
+        /* Residency includes preloaded rooms. Match the draw path's original
+         * portal-visible room set before doing camera-dependent vertex work.
+         * This does not skip or mutate any original object/gameplay tick. */
+        if (!dam_visibility_contains_room(preview, entry->room)) continue;
+        for (size_t index = 0U; index < range->batch_count; ++index) {
+            const size_t batch_index = range->batch_offset + index;
+            if (batch_index >= scene->overlay_batch_count) return false;
+            const GeDamRoomDrawBatch *batch = &scene->overlay_batches[batch_index];
+            if (!batch->material.lighting_enabled || !batch->material.texture_gen_enabled)
+                continue;
+            GeGbiRenderState shading;
+            if (!ge_original_stage_model_publication_glass_shading(
+                    entry->definition, preview->original_camera_view,
+                    preview->original_camera_look_at, &batch->material, &shading))
+                return false;
+            ++fine_profile.glass_shading_work[0];
+            fine_profile.glass_shading_work[1] += batch->vertex_count;
+            if (batch->first_vertex > scene->overlay_vertex_count
+                    || batch->vertex_count > scene->overlay_vertex_count - batch->first_vertex)
+                return false;
+            bool changed = false;
+            for (size_t vertex = batch->first_vertex;
+                    vertex < batch->first_vertex + batch->vertex_count; ++vertex) {
+                GeDamRoomWorldVertex *source = &scene->overlay_vertices[vertex];
+                GeGbiProcessedVertex shaded = source->processed;
+                if (ge_gbi_vertex_shade(&shading, &source->source, &shaded)
+                        != GE_GBI_VERTEX_PROCESS_OK) return false;
+                if (memcmp(&source->processed, &shaded, sizeof(shaded)) != 0) {
+                    source->processed = shaded;
+                    scene->vertices[room_vertices + vertex].processed = shaded;
+                    changed = true;
+                }
+            }
+            /* No topology decode, allocation or position rewrite. Stationary
+             * views retain both their GPU attributes and cache publication. */
+            if (changed && !upload_dam_gpu_world_scene_range(preview, gpu_destination,
+                    room_vertices + batch->first_vertex, batch->vertex_count,
+                    room_batches + batch_index, 1U, 3U)) return false;
+            if (changed) ++fine_profile.glass_shading_work[2];
+        }
+    }
+    return true;
+}
+
 static bool refresh_stage_live_overlays(
     RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination)
 {
@@ -8901,7 +8972,7 @@ static bool refresh_stage_live_overlays(
         objects->preview->gpu_uploaded_vertex_count =
             objects->preview->source_vertex_count;
     }
-    return true;
+    return refresh_stage_glass_shading(objects, gpu_destination);
 }
 
 static bool refresh_stage_ordinary_object_scenes(
@@ -8914,12 +8985,13 @@ static bool refresh_stage_ordinary_object_scenes(
                 == objects->preview->dynamic_scene.install_successes
             && objects->resident_eviction_successes
                 == objects->preview->dynamic_scene.eviction_successes)
-        return true;
+        return refresh_stage_glass_shading(objects, gpu_destination);
     const bool room_prefix_current =
         dam_gpu_room_prefix_is_current(objects->preview);
     if (!install_stage_ordinary_object_scenes(objects)) return false;
     return upload_dam_gpu_scene_after_overlay(
-        objects->preview, gpu_destination, room_prefix_current);
+        objects->preview, gpu_destination, room_prefix_current)
+        && refresh_stage_glass_shading(objects, gpu_destination);
 }
 
 static void publish_stage_ordinary_visibility(
@@ -11094,10 +11166,11 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
     /* 0: positions/colors, 1: all attributes and UV mapping, 2: positions
      * only. Mode 2 is exclusively for model-cache publications whose
      * static_data_changed is false, including the immutable shade bytes.
-     * Door/monitor callers retain mode 0/1 and their color updates. */
-    const bool map_texture_uv = update_mode == 1U;
+     * Door/monitor callers retain mode 0/1 and their color updates. Mode 3
+     * updates camera-dependent colors/UVs only, retaining XYZ. */
+    const bool map_texture_uv = update_mode == 1U || update_mode == 3U;
 
-    if (update_mode > 2U || preview == NULL || destination == NULL
+    if (update_mode > 3U || preview == NULL || destination == NULL
             || preview->source_vertices == NULL || preview->batches == NULL
             || vertex_offset > preview->source_vertex_count
             || vertex_count > preview->source_vertex_count - vertex_offset
@@ -11122,7 +11195,17 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
             preview->gpu_batch_bounds_capacity = 0U;
         }
     }
-    if (update_mode == 2U) {
+    if (update_mode == 3U) {
+        /* Camera-dependent RSP shade/ST publication, geometry retained. */
+        for (vertex_index = vertex_offset;
+                vertex_index < vertex_offset + vertex_count; ++vertex_index) {
+            const uint8_t *rgba = preview->source_vertices[vertex_index].processed.rgba;
+            destination[vertex_index].r = renderer_normalized_color[rgba[0]];
+            destination[vertex_index].g = renderer_normalized_color[rgba[1]];
+            destination[vertex_index].b = renderer_normalized_color[rgba[2]];
+            destination[vertex_index].a = renderer_normalized_color[rgba[3]];
+        }
+    } else if (update_mode == 2U) {
         for (vertex_index = vertex_offset;
                 vertex_index < vertex_offset + vertex_count; ++vertex_index) {
             destination[vertex_index].x = preview->source_vertices[vertex_index].world[0];
@@ -11167,11 +11250,13 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
                 vertex_index < batch->first_vertex + batch->vertex_count;
                 ++vertex_index) {
             GeTextureUv uv;
-            if (ge_3ds_scene_texture_map_uv_prepared(
-                    &uv_context,
-                    preview->source_vertices[vertex_index].source.texture_s,
-                    preview->source_vertices[vertex_index].source.texture_t,
-                    &uv) == GE_TEXTURE_UV_OK) {
+            const GeDamRoomWorldVertex *source = &preview->source_vertices[vertex_index];
+            const GeTextureUvStatus status = source->processed.texture_generated
+                ? ge_3ds_scene_texture_map_generated_uv_prepared(&uv_context,
+                    source->processed.texture[0], source->processed.texture[1], &uv)
+                : ge_3ds_scene_texture_map_uv_prepared(&uv_context,
+                    source->source.texture_s, source->source.texture_t, &uv);
+            if (status == GE_TEXTURE_UV_OK) {
                 destination[vertex_index].u = uv.u;
                 destination[vertex_index].v = uv.v;
             }
@@ -11533,6 +11618,8 @@ static bool update_original_dam_camera(
     preview->original_camera_matrices = camera.matrix_allocations;
     preview->original_camera_lights = camera.light_allocations;
     preview->original_camera_room = camera.room;
+    memcpy(preview->original_camera_look_at, camera.look_at,
+           sizeof(preview->original_camera_look_at));
     memcpy(preview->original_camera_view, camera.view,
            sizeof(preview->original_camera_view));
     memcpy(preview->original_camera_view_to_world, camera.view_to_world,

@@ -44,6 +44,11 @@ for name in ("refresh_stage_ordinary_object_scenes", "refresh_stage_live_overlay
     assert "upload_dam_gpu_scene_after_overlay(" in body
 
 upload = function("upload_dam_gpu_world_scene_range")
+glass = function("refresh_stage_glass_shading")
+assert glass.index("dam_visibility_contains_room(") < glass.index(
+    "ge_original_stage_model_publication_glass_shading(")
+assert "ge_original_model_scene_build(" not in glass
+assert "malloc(" not in glass and "calloc(" not in glass
 prepare_uv = upload.index("ge_3ds_scene_texture_uv_prepare(")
 assert upload.index("if (!map_texture_uv) continue;") < prepare_uv
 assert prepare_uv < upload.index("for (vertex_index = batch->first_vertex;", prepare_uv)
@@ -101,6 +106,13 @@ GeTextureUvStatus ge_3ds_scene_texture_map_uv_prepared(
 {
     uv->u=(float)s / context->normalization.width;
     uv->v=(float)t / context->normalization.height;
+    return GE_TEXTURE_UV_OK;
+}
+GeTextureUvStatus ge_3ds_scene_texture_map_generated_uv_prepared(
+    const Ge3dsSceneTextureUvContext *context, float s, float t, GeTextureUv *uv)
+{
+    (void)context;
+    uv->u=s; uv->v=t;
     return GE_TEXTURE_UV_OK;
 }
 ''' + function("renderer_upload_world_vertices").replace(
@@ -204,7 +216,22 @@ int main(void)
         assert(memcmp(full,actual,sizeof(full))==0);
         assert(b.gpu_dirty_vertex_offset==start && b.gpu_dirty_vertex_count==count);
     }
-    assert(!upload_dam_gpu_world_scene_range(&b,actual,0,0,0,0,3U));
+    /* Shade-only publication retains XYZ and maps generated rather than raw
+     * ST. It dirties only the requested range and bypasses geometry upload. */
+    Vertex before=actual[510];
+    vertices[510].world[0]=9999.0f;
+    vertices[510].processed.texture_generated=1U;
+    vertices[510].processed.texture[0]=0.25f;
+    vertices[510].processed.texture[1]=0.75f;
+    vertices[510].processed.rgba[0]=71U;
+    writes=0; b.gpu_dirty_vertex_count=0;
+    assert(upload_dam_gpu_world_scene_range(&b,actual,510,3,17,1,3U));
+    assert(writes==0 && actual[510].x==before.x && actual[510].y==before.y
+        && actual[510].z==before.z);
+    assert(actual[510].u==0.25f && actual[510].v==0.75f
+        && actual[510].r==71.0f/255.0f);
+    assert(b.gpu_dirty_vertex_offset==510 && b.gpu_dirty_vertex_count==3);
+    assert(!upload_dam_gpu_world_scene_range(&b,actual,0,0,0,0,4U));
     free(a.gpu_batch_bounds);free(b.gpu_batch_bounds);
     printf("240 actual adapter overlay transitions: %zu full vs %zu partial vertex writes; exact full buffers, room bounds, UVs, colors and empty/shrink/growth/fallback counts\n",full_writes,partial_writes);
 }

@@ -76,6 +76,12 @@ static void test_original_camera_path_and_render_handoff(void)
     assert(original.room == 135U);
     assert(original.matrix_allocations == 5U);
     assert(original.light_allocations == 2U);
+    /* +Z view: original libultra emits -X right and +Y up in signed
+     * fractional bytes, including the asymmetric -128/+127 endpoints. */
+    assert(original.look_at[8] == 128U && original.look_at[9] == 0U
+        && original.look_at[10] == 0U);
+    assert(original.look_at[24] == 0U && original.look_at[25] == 127U
+        && original.look_at[26] == 0U);
     assert(original.room_updates == 1U);
     assert(original.frustum_updates == 1U);
     assert(nearly_equal(original.room_origin[0], 2.0f));
@@ -123,10 +129,26 @@ static void test_invalid_contract(void)
         GE_ORIGINAL_BOND_CAMERA_OK), "ok") == 0);
 }
 
+static void test_look_at_is_owned_and_tracks_rotation(void)
+{
+    GeOriginalBondCameraConfig config = valid_config();
+    GeOriginalBondCameraResult first, moved, rotated;
+    assert(ge_original_bond_camera_run(&config, &first) == GE_ORIGINAL_BOND_CAMERA_OK);
+    config.camera_position[0] += 100.0f;
+    assert(ge_original_bond_camera_run(&config, &moved) == GE_ORIGINAL_BOND_CAMERA_OK);
+    assert(memcmp(first.look_at, moved.look_at, sizeof(first.look_at)) == 0);
+    config.camera_look_direction[0] = 1.0f;
+    config.camera_look_direction[2] = 0.0f;
+    assert(ge_original_bond_camera_run(&config, &rotated) == GE_ORIGINAL_BOND_CAMERA_OK);
+    assert(rotated.look_at[8] == 0U && rotated.look_at[10] == 127U);
+    assert(first.look_at[8] == 128U && first.look_at[10] == 0U);
+}
+
 int main(void)
 {
     test_original_camera_path_and_render_handoff();
     test_invalid_contract();
+    test_look_at_is_owned_and_tracks_rotation();
     puts("original bondview camera slice tests passed");
     return 0;
 }

@@ -855,6 +855,27 @@ static void test_overlay_range_preflight_and_atomic_publication(void)
 
 int main(void)
 {
+    /* Generated ST must retain authored scale and Tex3DS padding/orientation,
+     * not be truncated back to the window model's raw zero ST. */
+    Ge3dsSceneTextureSlot slot = {0};
+    GePicaMaterial material = {0};
+    Ge3dsSceneTextureUvContext uv_context;
+    GeTextureUv generated, raw;
+    slot.loaded = 1U;
+    slot.width = 64U;
+    slot.height = 32U;
+    slot.subtexture.left = 0.25f;
+    slot.subtexture.right = 0.75f;
+    slot.subtexture.top = 0.875f;
+    slot.subtexture.bottom = 0.375f;
+    material.texture_scale_s = 64U << 6;
+    material.texture_scale_t = 32U << 6;
+    assert(ge_3ds_scene_texture_uv_prepare(&slot, &material, &uv_context) == GE_TEXTURE_UV_OK);
+    assert(ge_3ds_scene_texture_map_generated_uv_prepared(&uv_context, 0.5f, 1.0f,
+        &generated) == GE_TEXTURE_UV_OK);
+    assert(generated.u == 0.5f && generated.v == 0.375f);
+    assert(ge_3ds_scene_texture_map_uv_prepared(&uv_context, 0, 0, &raw) == GE_TEXTURE_UV_OK);
+    assert(raw.u == 0.25f && raw.v == 0.875f);
     test_abort_keeps_current_and_releases_only_import();
     test_commit_moves_retained_and_releases_removed_once();
     test_partial_missing_is_safe_to_commit();

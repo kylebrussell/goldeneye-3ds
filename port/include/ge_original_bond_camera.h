@@ -25,6 +25,9 @@ typedef struct GeOriginalBondCameraConfig {
 } GeOriginalBondCameraConfig;
 
 typedef struct GeOriginalBondCameraResult {
+    /* Original guLookAtReflect payload; byte-valued Light fields are endian
+     * independent. Copy from the allocator, never the legacy s32 pointer. */
+    uint8_t look_at[32];
     float view[4][4];
     float view_to_world[4][4];
     float projection[4][4];

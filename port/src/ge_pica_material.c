@@ -393,6 +393,10 @@ GePicaMaterialStatus ge_pica_material_translate(
     }
     material->lighting_enabled = (state->geometry_mode & GEOMETRY_LIGHTING)
         != 0U ? 1U : 0U;
+    material->texture_gen_enabled =
+        (state->geometry_mode & UINT32_C(0x00040000)) != 0U ? 1U : 0U;
+    material->texture_gen_linear =
+        (state->geometry_mode & UINT32_C(0x00080000)) != 0U ? 1U : 0U;
     material->smooth_shading = (state->geometry_mode
         & (GEOMETRY_SHADE | GEOMETRY_SHADING_SMOOTH))
         == (GEOMETRY_SHADE | GEOMETRY_SHADING_SMOOTH) ? 1U : 0U;

@@ -158,6 +158,9 @@ GeTextureUvStatus ge_3ds_scene_texture_uv_prepare(
 GeTextureUvStatus ge_3ds_scene_texture_map_uv_prepared(
     const Ge3dsSceneTextureUvContext *context,
     int16_t texture_s, int16_t texture_t, GeTextureUv *result);
+GeTextureUvStatus ge_3ds_scene_texture_map_generated_uv_prepared(
+    const Ge3dsSceneTextureUvContext *context,
+    float generated_s, float generated_t, GeTextureUv *result);
 
 /* Converts an authored N64 vertex ST pair and maps it through tex3ds' actual
  * subtexture orientation/padding. */

@@ -50,6 +50,12 @@ GeGbiVertexProcessStatus ge_gbi_vertex_process(
     const GeGbiVertex *vertex,
     GeGbiProcessedVertex *processed);
 
+/* Reapply only normal, shade and ST state to retained geometry. Position,
+ * projection and clip fields are untouched. Same path as vertex_process. */
+GeGbiVertexProcessStatus ge_gbi_vertex_shade(
+    const GeGbiRenderState *state, const GeGbiVertex *vertex,
+    GeGbiProcessedVertex *processed);
+
 #ifdef __cplusplus
 }
 #endif

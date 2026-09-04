@@ -40,6 +40,19 @@ def png_dimensions(path: Path) -> tuple[int, int]:
     return struct.unpack(">II", header[16:24])
 
 
+def select_texture_format(path: Path, requested: str) -> str:
+    if requested != "auto":
+        return requested
+    with path.open("rb") as stream:
+        header = stream.read(26)
+    if len(header) != 26 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise ValueError(f"missing PNG color type: {path}")
+    # tex2png preserves original intensity/alpha images as PNG gray+alpha.
+    # RGBA5551 erased fractional alpha (GLASS3 is uniformly 96/255). LA8
+    # preserves both channels without increasing the 16-bit GPU footprint.
+    return "la8" if header[25] == 4 else "rgba5551"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True,
@@ -54,8 +67,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tex3ds", default="tex3ds")
     parser.add_argument("--images-def", type=Path,
                         help="images.def used to attach original numeric image IDs")
-    parser.add_argument("--format", default="rgba5551",
-                        help="tex3ds output format (default: rgba5551)")
+    parser.add_argument("--format", default="auto",
+                        help="tex3ds output format (auto: la8 for gray+alpha, rgba5551 otherwise)")
     parser.add_argument("--compression", default="auto")
     parser.add_argument("--mipmap",
                         help="tex3ds mipmap filter (for example: box)")
@@ -158,8 +171,9 @@ def convert_texture(source: Path, input_root: Path, staged_png: Path, staged_t3x
         lod = int(png.stem.rsplit("-", 1)[1])
         relative_t3x = relative_stem.parent / f"{relative_stem.name}-{lod}.t3x"
         t3x = staged_t3x / relative_t3x
+        selected_format = select_texture_format(png, texture_format)
         command = [
-            tex3ds, "-f", texture_format, "-z", compression,
+            tex3ds, "-f", selected_format, "-z", compression,
             "-o", str(t3x),
         ]
         if mipmap is not None:
@@ -169,6 +183,7 @@ def convert_texture(source: Path, input_root: Path, staged_png: Path, staged_t3x
         width, height = png_dimensions(png)
         lods.append({
             "lod": lod,
+            "format": selected_format,
             "width": width,
             "height": height,
             "png": (relative_stem.parent / png.name).as_posix(),

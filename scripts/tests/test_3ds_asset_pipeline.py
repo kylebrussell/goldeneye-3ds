@@ -67,14 +67,15 @@ destination.mkdir(parents=True, exist_ok=True)
 lods = (0, 2) if source.stem == 'B' else (0,)
 for lod in lods:
     header = b'\\x89PNG\\r\\n\\x1a\\n' + b'\\x00\\x00\\x00\\x0dIHDR'
-    (destination / f'{source.stem}-{lod}.png').write_bytes(header + struct.pack('>II', 8 + lod, 4 + lod))
+    color_type = 4 if source.stem == 'B' else 6
+    (destination / f'{source.stem}-{lod}.png').write_bytes(header + struct.pack('>II', 8 + lod, 4 + lod) + bytes([8, color_type]))
 """)
             tex3ds = root / "tex3ds"
             write_executable(tex3ds, """#!/usr/bin/env python3
 from pathlib import Path
 import sys
 output = Path(sys.argv[sys.argv.index('-o') + 1])
-output.write_bytes(b'T3X' + Path(sys.argv[-1]).read_bytes())
+output.write_bytes(b'T3X' + sys.argv[sys.argv.index('-f') + 1].encode() + Path(sys.argv[-1]).read_bytes())
 """)
             command = [
                 sys.executable, str(CONVERTER), "--input", str(inputs),
@@ -92,6 +93,11 @@ output.write_bytes(b'T3X' + Path(sys.argv[-1]).read_bytes())
             self.assertEqual(parsed["texture_count"], 2)
             self.assertEqual(parsed["lod_count"], 3)
             self.assertEqual(parsed["mipmap"], "box")
+            self.assertEqual(parsed["format"], "auto")
+            self.assertEqual([lod["format"] for lod in parsed["textures"][0]["lods"]],
+                             ["la8", "la8"])
+            self.assertEqual(parsed["textures"][1]["lods"][0]["format"], "rgba5551")
+            self.assertTrue((t3x_output / "B-0.t3x").read_bytes().startswith(b"T3Xla8"))
             self.assertEqual([item["lod"] for item in parsed["textures"][0]["lods"]], [0, 2])
             self.assertNotIn(str(root), catalog.read_text(encoding="utf-8"))
 
@@ -99,6 +105,11 @@ output.write_bytes(b'T3X' + Path(sys.argv[-1]).read_bytes())
             second_hashes = (digest(catalog), digest(t3x_output / "B-0.t3x"),
                              digest(t3x_output / "B-2.t3x"), digest(t3x_output / "a-0.t3x"))
             self.assertEqual(first_hashes, second_hashes)
+
+            subprocess.run(command + ["--format", "rgba8"], check=True, capture_output=True, text=True)
+            parsed = json.loads(catalog.read_text(encoding="utf-8"))
+            self.assertTrue(all(lod["format"] == "rgba8"
+                                for texture in parsed["textures"] for lod in texture["lods"]))
 
     def test_extra_directory_is_recursive_and_pack_is_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_name:

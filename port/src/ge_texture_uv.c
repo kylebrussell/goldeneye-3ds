@@ -1,6 +1,18 @@
 #include "ge_texture_uv.h"
 
 #include <stddef.h>
+#include <math.h>
+
+GeTextureUvStatus ge_texture_uv_generated_prepared(float generated_s,
+    float generated_t, const GeTextureUvContext *context, GeTextureUv *result)
+{
+    if (context == NULL || !context->valid || result == NULL
+            || !isfinite(generated_s) || !isfinite(generated_t))
+        return GE_TEXTURE_UV_INVALID_ARGUMENT;
+    result->u = generated_s * context->scale_s / 64.0f / context->width;
+    result->v = generated_t * context->scale_t / 64.0f / context->height;
+    return GE_TEXTURE_UV_OK;
+}
 
 GeTextureUvStatus ge_texture_uv_prepare(const GePicaMaterial *material,
     uint32_t texture_width, uint32_t texture_height, GeTextureUvContext *context)

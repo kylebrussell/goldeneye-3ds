@@ -251,6 +251,8 @@ GeOriginalBondCameraStatus ge_original_bond_camera_run(
         return GE_ORIGINAL_BOND_CAMERA_INCOMPLETE;
     }
 
+    memcpy(result->look_at, &ge_bond_camera_harness.lookat,
+           sizeof(result->look_at));
     memcpy(result->view, g_CurrentPlayer->field_10CC->m,
            sizeof(result->view));
     memcpy(result->view_to_world, g_CurrentPlayer->viewtoworldmtxf->m,

@@ -147,6 +147,9 @@ typedef struct GePicaMaterial {
     uint8_t texture_image_size;
     uint8_t texture_perspective;
     uint8_t lighting_enabled;
+    /* RSP vertex attributes, not extra PICA fixed-function state. */
+    uint8_t texture_gen_enabled;
+    uint8_t texture_gen_linear;
     uint8_t smooth_shading;
     uint8_t fog_enabled;
     uint8_t depth_test_enabled;

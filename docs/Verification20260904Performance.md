@@ -1,5 +1,8 @@
 # Model publication hot-loop optimization
 
+Follow-up: [stage-coordinate correction and prepared visibility](Verification20260904StageScaleVisibility.md)
+diagnoses the Cradle/Runway failures below and records the subsequent builds.
+
 Continues `05475d80`. This is an incremental CPU optimization, not evidence
 of sustained 60 FPS across the game or on New 3DS hardware.
 

@@ -22,6 +22,13 @@ void ge_original_stage_model_publication_glass_material(
 int ge_original_stage_model_publication_glass_opacity(
     const void *definition, uint8_t *opacity);
 
+/* Immutable setup for retained geometry. The live material publisher must
+ * apply the original opacity before drawing; it is not a topology key. */
+void ge_original_stage_model_publication_glass_template(
+    const void *definition, int16_t model_type, GeOriginalModelSceneInput *input);
+int ge_original_stage_model_publication_glass_alpha(
+    const void *definition, GePicaMaterial *material);
+
 /* Static type-4 glass: retain its geometry but restore bgLevelRender's
  * lights/LookAt and objTick's object-to-eye normal matrix for vertex shading.
  * Door/articulated matrices require their separate live publication path. */

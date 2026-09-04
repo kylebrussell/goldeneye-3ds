@@ -83,8 +83,21 @@ int ge_original_stage_model_publication_glass_opacity(
     return 1;
 }
 
-void ge_original_stage_model_publication_glass_material(
-    const void *definition, int16_t model_type, GeOriginalModelSceneInput *input)
+int ge_original_stage_model_publication_glass_alpha(
+    const void *definition, GePicaMaterial *material)
+{
+    uint8_t opacity;
+    if (material == NULL || material->alpha_combine
+            != GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE_ADD_PRIMITIVE
+            || !ge_original_stage_model_publication_glass_opacity(definition, &opacity))
+        return 0;
+    material->primitive_color.alpha = opacity;
+    return 1;
+}
+
+static void ge_model_glass_setup(
+    const void *definition, int16_t model_type, GeOriginalModelSceneInput *input,
+    int template_only)
 {
     const ObjectRecord *object = definition;
     ModelRenderData render = {0};
@@ -101,7 +114,7 @@ void ge_original_stage_model_publication_glass_material(
     render.PropType = PROP_TYPE_MAX;
     render.zbufferenabled = (object->flags2 & 0x10000) == 0;
     if (!ge_original_stage_model_publication_glass_opacity(object, &opacity)) return;
-    render.envcolour.word = (uint32_t)opacity << 8;
+    render.envcolour.word = template_only ? 0U : (uint32_t)opacity << 8;
     input->parent_setup_enabled = 1U;
     input->world_zbuffer_enabled = (uint8_t)render.zbufferenabled;
     memset(input->parent_setup, 0, sizeof(input->parent_setup));
@@ -130,6 +143,18 @@ void ge_original_stage_model_publication_glass_material(
         memcpy(input->parent_setup[pass] + 96U, &ge_model_level_light.l[0], 16U);
         memcpy(input->parent_setup[pass] + 112U, &ge_model_level_light.a, 8U);
     }
+}
+
+void ge_original_stage_model_publication_glass_material(
+    const void *definition, int16_t model_type, GeOriginalModelSceneInput *input)
+{
+    ge_model_glass_setup(definition, model_type, input, 0);
+}
+
+void ge_original_stage_model_publication_glass_template(
+    const void *definition, int16_t model_type, GeOriginalModelSceneInput *input)
+{
+    ge_model_glass_setup(definition, model_type, input, 1);
 }
 
 static GeOriginalStageModelPublicationStatus

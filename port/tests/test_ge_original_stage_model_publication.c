@@ -266,6 +266,38 @@ static void exercise_glass(GeOriginalPitemModelProvider *models)
     }
     assert(different_uv && cache.topology_rebuilds == topology_rebuilds);
     ge_original_model_scene_cache_close(&cache);
+    /* Windowed-door parent state is the same original type-4 branch, but its
+     * changing calculated opacity is not immutable model topology. */
+    struct DoorRecord door = {0};
+    door.type = PROPDEF_DOOR;
+    door.doorFlags = DOORFLAG_WINDOWED;
+    ge_original_stage_model_publication_glass_template(&door, 4, &input);
+    for (opacity = 0U; opacity <= 255U; ++opacity) {
+        door.calculatedopacity = opacity;
+        ge_original_stage_model_publication_glass_template(&door, 4, &input);
+        assert(ge_original_model_scene_cache_build(&cache, &input, 1U,
+            &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(cache.topology_rebuilds == 1U);
+        assert(ge_original_stage_model_publication_glass_alpha(&door, &batches[0].material));
+        assert(batches[0].material.primitive_color.alpha == opacity);
+        assert(batches[0].material.depth_test_enabled && !batches[0].material.depth_write_enabled);
+        assert(ge_pica_apply_compile(&batches[0].material, &applied) == GE_PICA_APPLY_OK);
+        assert(applied.alpha.combine == GE_PICA_APPLY_MULTIPLY_ADD
+            && applied.constant_color.alpha == opacity);
+    }
+    assert(cache.unchanged_builds == 255U);
+    GePicaMaterial opaque = batches[0].material;
+    opaque.alpha_combine = GE_PICA_ALPHA_TEXTURE0;
+    opaque.primitive_color.alpha = 71U;
+    assert(!ge_original_stage_model_publication_glass_alpha(&door, &opaque));
+    assert(opaque.primitive_color.alpha == 71U);
+    door.doorFlags = 0U;
+    assert(!ge_original_stage_model_publication_glass_alpha(&door, &batches[0].material));
+    door.doorFlags = DOORFLAG_WINDOWED;
+    door.flags2 = 0x10000U;
+    ge_original_stage_model_publication_glass_template(&door, 4, &input);
+    assert(input.world_zbuffer_enabled == 0U);
+    ge_original_model_scene_cache_close(&cache);
     assert(ge_original_pitem_model_release_instance(models, model));
     puts("authored glass lighting/blend/opacity and cache invalidation passed");
 }

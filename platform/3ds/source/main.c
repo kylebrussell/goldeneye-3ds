@@ -2198,6 +2198,10 @@ typedef struct RuntimeStageOrdinaryObjects {
     uint64_t monitor_noop_tick_count;
     uint64_t monitor_tick_count;
     RuntimeStageScenePartRange *ordinary_scene_parts;
+    /* Door ranges are segment-local, so ordinary-prop topology replacements
+     * can move the door segment without invalidating its material owners. */
+    RuntimeStageScenePartRange *door_scene_parts;
+    size_t door_scene_part_count;
     size_t ordinary_scene_part_count;
     uint64_t monitor_surface_update_count;
     uint64_t monitor_surface_unchanged_count;
@@ -7379,6 +7383,7 @@ static bool install_stage_ordinary_object_scenes(
     GeOriginalModelSceneInput *inputs = NULL;
     GeOriginalModelScene *queries = NULL;
     RuntimeStageScenePartRange *candidate_scene_parts = NULL;
+    RuntimeStageScenePartRange *candidate_door_scene_parts = NULL;
     GeOriginalDoorRuntimePublication *door_publications = NULL;
     uint32_t *door_generations = NULL;
     GeDamRoomWorldVertex *vertices = NULL;
@@ -7484,6 +7489,9 @@ static bool install_stage_ordinary_object_scenes(
         free(objects->ordinary_scene_parts);
         objects->ordinary_scene_parts = NULL;
         objects->ordinary_scene_part_count = 0U;
+        free(objects->door_scene_parts);
+        objects->door_scene_parts = NULL;
+        objects->door_scene_part_count = 0U;
         dam_overlay_segment_close(&objects->door_overlay);
         dam_overlay_segment_close(&objects->guard_overlay);
         memset(&objects->guard_scene, 0, sizeof(objects->guard_scene));
@@ -7628,6 +7636,11 @@ static bool install_stage_ordinary_object_scenes(
         }
     }
     ordinary_input_count = input_index;
+    if (input_count > ordinary_input_count) {
+        candidate_door_scene_parts = calloc(input_count - ordinary_input_count,
+            sizeof(*candidate_door_scene_parts));
+        if (candidate_door_scene_parts == NULL) goto fail_stage_scene;
+    }
     objects->scene_install_ordinary_input_count = ordinary_input_count;
     objects->scene_install_failure_phase =
         RUNTIME_STAGE_SCENE_INSTALL_DOOR_QUERY;
@@ -7669,6 +7682,10 @@ static bool install_stage_ordinary_object_scenes(
             input->segment4_offset = part.segment4_offset;
             input->segment3_matrices =
                 door_publications[entry_index].matrices;
+            candidate_door_scene_parts[input_index - ordinary_input_count].entry_index = entry_index;
+            candidate_door_scene_parts[input_index - ordinary_input_count].part_index = part_index;
+            ge_original_stage_model_publication_glass_template(
+                entry->definition, part.model_type, input);
             input->segment3_matrix_count =
                 door_publications[entry_index].matrix_count;
             input->room_id = room;
@@ -7738,6 +7755,21 @@ static bool install_stage_ordinary_object_scenes(
             range->vertex_count = built.vertex_count;
             range->batch_offset = batch_count;
             range->batch_count = built.batch_count;
+        } else {
+            RuntimeStageScenePartRange *range =
+                &candidate_door_scene_parts[input_index - ordinary_input_count];
+            range->vertex_offset = vertex_count - door_vertex_offset;
+            range->vertex_count = built.vertex_count;
+            range->batch_offset = batch_count - door_batch_offset;
+            range->batch_count = built.batch_count;
+            const GeOriginalStageInteractiveEntry *entry =
+                ge_original_stage_interactive_entry(&objects->interactive, range->entry_index);
+            if (entry == NULL) goto fail_stage_scene;
+            /* The neutral cache template must never become a displayed
+             * material, including the first frame before an actor tick. */
+            for (size_t batch = 0U; batch < built.batch_count; ++batch)
+                (void)ge_original_stage_model_publication_glass_alpha(
+                    entry->definition, &storage.batches[batch].material);
         }
         for (local_batch = 0U; local_batch < built.batch_count; ++local_batch)
             batches[batch_count + local_batch].first_vertex += vertex_count;
@@ -7835,6 +7867,10 @@ static bool install_stage_ordinary_object_scenes(
     objects->ordinary_scene_parts = candidate_scene_parts;
     objects->ordinary_scene_part_count = ordinary_input_count;
     candidate_scene_parts = NULL;
+    free(objects->door_scene_parts);
+    objects->door_scene_parts = candidate_door_scene_parts;
+    objects->door_scene_part_count = input_count - ordinary_input_count;
+    candidate_door_scene_parts = NULL;
     for (entry_index = 0U; entry_index < objects->entry_count; ++entry_index)
         if (objects->entries[entry_index].articulated != NULL)
             objects->entries[entry_index].articulated->force_copy = true;
@@ -7853,6 +7889,7 @@ static bool install_stage_ordinary_object_scenes(
     ge_3ds_scene_textures_close(&candidate_textures);
     free(candidate_slots); free(batches); free(vertices);
     free(door_generations); free(door_publications);
+    free(candidate_door_scene_parts);
     free(candidate_scene_parts); free(queries); free(inputs);
     return true;
 
@@ -7869,6 +7906,7 @@ fail_stage_scene:
     ge_3ds_scene_textures_close(&candidate_textures);
     free(candidate_slots); free(batches); free(vertices);
     free(door_generations); free(door_publications);
+    free(candidate_door_scene_parts);
     free(candidate_scene_parts); free(queries); free(inputs);
     return false;
 }
@@ -8001,6 +8039,8 @@ static bool refresh_stage_door_overlay(
             input->secondary_offset = part.secondary_offset;
             input->segment4_offset = part.segment4_offset;
             input->segment3_matrices = publication->matrices;
+            ge_original_stage_model_publication_glass_template(
+                entry->definition, part.model_type, input);
             input->segment3_matrix_count = publication->matrix_count;
             input->room_id = room;
             memcpy(input->matrix, matrix, sizeof(input->matrix));
@@ -8785,12 +8825,44 @@ static bool refresh_stage_monitor_surfaces(
     return true;
 }
 
+static bool refresh_stage_windowed_door_materials(RuntimeStageOrdinaryObjects *objects)
+{
+    GeDamDynamicScene *scene = &objects->preview->dynamic_scene;
+    RuntimeDamOverlaySegment *segment = &objects->door_overlay;
+    const size_t room_batches = scene->scene.batch_count - scene->overlay_batch_count;
+    for (size_t part = 0U; part < objects->door_scene_part_count; ++part) {
+        const RuntimeStageScenePartRange *range = &objects->door_scene_parts[part];
+        const GeOriginalStageInteractiveEntry *entry = ge_original_stage_interactive_entry(
+            &objects->interactive, range->entry_index);
+        uint8_t opacity;
+        if (entry == NULL || !entry->constructed) return false;
+        if (!ge_original_stage_model_publication_glass_opacity(entry->definition, &opacity))
+            continue;
+        if (range->batch_offset > segment->batch_count
+                || range->batch_count > segment->batch_count - range->batch_offset)
+            return false;
+        for (size_t index = 0U; index < range->batch_count; ++index) {
+            const size_t local = range->batch_offset + index;
+            const size_t overlay = segment->batch_offset + local;
+            if (overlay >= scene->overlay_batch_count) return false;
+            if (!ge_original_stage_model_publication_glass_alpha(
+                    entry->definition, &segment->batches[local].material)) continue;
+            /* Keep all three mutable publications coherent; cached immutable
+             * topology retains its neutral primitive-alpha template. */
+            scene->overlay_batches[overlay].material.primitive_color.alpha = opacity;
+            scene->batches[room_batches + overlay].material.primitive_color.alpha = opacity;
+        }
+    }
+    return true;
+}
+
 static bool refresh_stage_glass_shading(
     RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination)
 {
     if (objects == NULL || !objects->scene_ready || objects->preview == NULL)
         return true;
     RuntimeDamPreview *preview = objects->preview;
+    if (!refresh_stage_windowed_door_materials(objects)) return false;
     if (!preview->original_camera_ready) return true;
     GeDamDynamicScene *scene = &preview->dynamic_scene;
     const size_t room_vertices = scene->scene.vertex_count - scene->overlay_vertex_count;
@@ -9107,6 +9179,7 @@ static void close_stage_ordinary_objects(
     ge_original_stage_safe_runtime_close(&objects->safe_runtime);
     free(objects->active_prop_inputs);
     free(objects->ordinary_scene_parts);
+    free(objects->door_scene_parts);
     dam_overlay_segment_close(&objects->door_overlay);
     dam_overlay_segment_close(&objects->guard_overlay);
     ge_original_model_scene_cache_close(&objects->door_scene_cache);

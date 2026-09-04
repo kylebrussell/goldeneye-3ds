@@ -7,7 +7,7 @@
 typedef struct GeOriginalModelSceneContext {
     const GeOriginalModelSceneInput *input;
     const GeDamRoomSceneStorage *storage;
-    GeDamRoomListKind sequence_kinds[2];
+    GeDamRoomListKind sequence_kinds[4];
     size_t sequence_count;
     GeOriginalModelSceneStatus status;
     size_t vertex_cursor;
@@ -275,7 +275,7 @@ static GeOriginalModelSceneStatus execute_lists(
     const GeGbiTraversalConfig traversal = {8U, 4096U};
     GeOriginalModelSceneContext context;
     GeGbiPipelineResult pipeline;
-    GeGbiAddress roots[2];
+    GeGbiAddress roots[4];
     size_t root_count = 0U;
     size_t list_index;
     uint8_t *matrix_segment = NULL;
@@ -287,6 +287,14 @@ static GeOriginalModelSceneStatus execute_lists(
         if ((size_t)offset >= input->blob_size
                 || (offset & UINT32_C(7)) != 0U)
             return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+        if (input->parent_setup_enabled != 0U) {
+            const uint32_t setup_offset = (uint32_t)list_index * 128U;
+            roots[root_count] = (GeGbiAddress){
+                .raw = UINT32_C(0x02000000) | setup_offset,
+                .offset = setup_offset, .segment = 2U};
+            context.sequence_kinds[root_count++] = list_index == 0U
+                ? GE_DAM_ROOM_LIST_PRIMARY : GE_DAM_ROOM_LIST_SECONDARY;
+        }
         roots[root_count] = model_address(offset);
         context.sequence_kinds[root_count] = list_index == 0U
             ? GE_DAM_ROOM_LIST_PRIMARY : GE_DAM_ROOM_LIST_SECONDARY;
@@ -294,6 +302,11 @@ static GeOriginalModelSceneStatus execute_lists(
     }
     if (root_count == 0U) return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
     ge_gbi_memory_map_init(&memory);
+    if (input->parent_setup_enabled != 0U
+            && ge_gbi_memory_map_set_segment(&memory, 2U,
+                &input->parent_setup[0][0], sizeof(input->parent_setup))
+                != GE_GBI_RESOLVE_OK)
+        return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
     if (ge_gbi_memory_map_set_segment(
             &memory, UINT8_C(5), input->blob, input->blob_size)
             != GE_GBI_RESOLVE_OK)
@@ -547,7 +560,15 @@ static uint64_t cache_topology_signature(
         hash = cache_hash_u64(hash, input->secondary_offset);
         hash = cache_hash_u64(hash, input->segment4_offset);
         hash = cache_hash_u64(hash, input->segment3_matrix_count);
-        hash = cache_hash_u64(hash, input->world_zbuffer_enabled);
+        hash = cache_hash_u64(hash, (uint64_t)input->world_zbuffer_enabled
+            | (uint64_t)input->parent_setup_enabled << 8);
+        if (input->parent_setup_enabled != 0U) {
+            size_t byte;
+            for (byte = 0U; byte < sizeof(input->parent_setup); ++byte) {
+                hash ^= ((const uint8_t *)input->parent_setup)[byte];
+                hash *= UINT64_C(1099511628211);
+            }
+        }
     }
     return hash;
 }
@@ -591,6 +612,8 @@ typedef struct GeOriginalModelSceneTopologyComponent {
     uint32_t segment4_offset;
     size_t segment3_matrix_count;
     uint8_t world_zbuffer_enabled;
+    uint8_t parent_setup_enabled;
+    uint8_t parent_setup[2][128];
     GeOriginalModelScene query;
     GeDamRoomWorldVertex *vertices;
     GeDamRoomDrawBatch *batches;
@@ -609,7 +632,11 @@ static int cache_component_matches(
         && component->segment4_offset == input->segment4_offset
         && component->segment3_matrix_count == input->segment3_matrix_count
         && component->world_zbuffer_enabled
-            == input->world_zbuffer_enabled;
+            == input->world_zbuffer_enabled
+        && component->parent_setup_enabled == input->parent_setup_enabled
+        && (input->parent_setup_enabled == 0U
+            || memcmp(component->parent_setup, input->parent_setup,
+                sizeof(input->parent_setup)) == 0);
 }
 
 static GeOriginalModelSceneTopologyComponent *cache_find_component(
@@ -796,6 +823,9 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
     component->segment4_offset = input->segment4_offset;
     component->segment3_matrix_count = input->segment3_matrix_count;
     component->world_zbuffer_enabled = input->world_zbuffer_enabled;
+    component->parent_setup_enabled = input->parent_setup_enabled;
+    memcpy(component->parent_setup, input->parent_setup,
+           sizeof(input->parent_setup));
     component->query = built;
     component->vertices = vertices;
     component->batches = batches;
@@ -1296,27 +1326,24 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
         uint64_t input_hash = UINT64_C(1469598103934665603);
         size_t row;
         size_t column;
-        hash = cache_hash_u64(hash, input->room_id);
         input_hash = cache_hash_u64(input_hash, input->room_id);
-        for (row = 0U; row < 3U; ++row)
-            hash = cache_hash_float(hash, input->position[row]);
         for (row = 0U; row < 3U; ++row)
             input_hash = cache_hash_float(
                 input_hash, input->position[row]);
         for (row = 0U; row < 4U; ++row) {
             for (column = 0U; column < 4U; ++column) {
-                hash = cache_hash_float(
-                    hash, input->matrix[row][column]);
                 input_hash = cache_hash_float(
                     input_hash, input->matrix[row][column]);
             }
         }
-        hash = cache_hash_u64(
-            hash, cache->input_quantized_matrix_hashes[input_index]);
         input_hash = cache_hash_u64(
             input_hash,
             cache->input_quantized_matrix_hashes[input_index]);
         cache->input_publication_signatures[input_index] = input_hash;
+        /* The retained per-input signature already covers room, placement,
+         * outer matrix and the quantized joint bank. Fold it into the ordered
+         * aggregate once instead of hashing every field a second time. */
+        hash = cache_hash_u64(hash, input_hash);
     }
     *signature = hash;
     return GE_ORIGINAL_MODEL_SCENE_OK;

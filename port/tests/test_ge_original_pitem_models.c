@@ -969,7 +969,7 @@ static void audit_stage_monitors(GeAssetPack *pack)
                 .model_available = ge_original_pitem_model_available,
                 .construct_special_object = monitor_materializer_callback,
             };
-            GeOriginalStageMonitorProviders monitor_providers;
+            GeOriginalStageMonitorProviders monitor_providers = {0};
             GeOriginalDefaultObjectProviders object_providers;
             GeOriginalStageMonitorStatus status;
             MonitorHarness harness = {0};

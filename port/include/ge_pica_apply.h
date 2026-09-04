@@ -27,7 +27,8 @@ typedef enum GePicaApplySource {
 
 typedef enum GePicaApplyCombine {
     GE_PICA_APPLY_REPLACE = 0,
-    GE_PICA_APPLY_MODULATE
+    GE_PICA_APPLY_MODULATE,
+    GE_PICA_APPLY_MULTIPLY_ADD
 } GePicaApplyCombine;
 
 typedef enum GePicaApplyCull {

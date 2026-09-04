@@ -104,6 +104,13 @@ static void ge_pica_apply_alpha(const GePicaMaterial *material,
         channel->combine = GE_PICA_APPLY_MODULATE;
         state->texture_required = UINT8_C(1);
         break;
+    case GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE_ADD_PRIMITIVE:
+        channel->source0 = GE_PICA_APPLY_SOURCE_TEXTURE0;
+        channel->source1 = GE_PICA_APPLY_SOURCE_PRIMARY;
+        channel->combine = GE_PICA_APPLY_MULTIPLY_ADD;
+        state->constant_color.alpha = material->primitive_color.alpha;
+        state->texture_required = UINT8_C(1);
+        break;
     case GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE:
         channel->source0 = GE_PICA_APPLY_SOURCE_TEXTURE0;
         channel->source1 = GE_PICA_APPLY_SOURCE_CONSTANT;

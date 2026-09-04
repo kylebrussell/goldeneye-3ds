@@ -252,6 +252,15 @@ static int ge_pica_translate_two_cycle_alpha(
         *mode = first_mode;
         return first_exact;
     }
+    /* modelApplyRenderModeType4's ordinary/tinted glass alpha:
+     * clamp(COMBINED.a * SHADE.a + PRIMITIVE.a). Keep the authored
+     * opacity even when the first-cycle trilinear texture is approximated. */
+    if (second->alpha_a == 0U && second->alpha_b == 7U
+            && second->alpha_c == 4U && second->alpha_d == 3U
+            && first_mode == GE_PICA_ALPHA_TEXTURE0) {
+        *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE_ADD_PRIMITIVE;
+        return first_exact;
+    }
     if (first_mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT)
         first_exact = 0;
     if (ge_pica_alpha_modulate(second, UINT8_C(0), UINT8_C(5))) {

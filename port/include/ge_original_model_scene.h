@@ -34,6 +34,12 @@ typedef struct GeOriginalModelSceneInput {
      * deliberately omit the inherited Z-buffer bit and, for some model
      * types, the matching compare/write policy. */
     uint8_t world_zbuffer_enabled;
+    /* Optional caller-owned RSP/RDP setup, encoded as big-endian commands.
+     * Each list ends in G_ENDDL; unused bytes are zero. Segment 2 addresses
+     * within a setup refer to that setup's bytes (including light payloads).
+     * Value storage keeps retained topology independent of caller lifetime. */
+    uint8_t parent_setup_enabled;
+    uint8_t parent_setup[2][128];
     /* Native model render matrices are the canonical segment-3 matrix bank.
      * When supplied, each matrix is encoded as the N64 s15.16 ABI before GBI
      * traversal and processed model-view positions are transformed by matrix

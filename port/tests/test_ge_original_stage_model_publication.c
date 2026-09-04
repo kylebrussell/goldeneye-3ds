@@ -2,6 +2,7 @@
 #include "ge_original_model_scene.h"
 #include "ge_original_pitem_models.h"
 #include "ge_original_stage_model_publication.h"
+#include "ge_pica_apply.h"
 
 #include <ultra64.h>
 #ifdef MAXFLOAT
@@ -162,6 +163,57 @@ static int exercise_model(GeOriginalPitemModelProvider *models,
     return 1;
 }
 
+static void exercise_glass(GeOriginalPitemModelProvider *models)
+{
+    GeOriginalPitemModelScenePart part;
+    struct TintedGlassRecord glass = {0};
+    GeOriginalModelSceneInput input = {0};
+    GeOriginalModelScene scene;
+    GeOriginalModelSceneCache cache = {0};
+    GeDamRoomWorldVertex vertices[6];
+    GeDamRoomDrawBatch batches[1];
+    GeDamRoomSceneStorage storage = {vertices, 6U, batches, 1U};
+    GePicaApplyState applied;
+    unsigned opacity;
+    void *header = NULL, *model = NULL;
+    float scale;
+    assert(ge_original_pitem_model_resolve_instance(models, 104,
+        &header, &model, &scale));
+    assert(ge_original_pitem_model_scene_part(models, 104, 0U, &part));
+    assert(part.model_type == 4);
+    input.blob = part.blob;
+    input.blob_size = part.blob_size;
+    input.primary_offset = part.primary_offset;
+    input.secondary_offset = part.secondary_offset;
+    input.segment4_offset = part.segment4_offset;
+    set_identity(input.matrix);
+    glass.type = PROPDEF_TINTED_GLASS;
+    for (opacity = 0U; opacity <= 255U; opacity += 51U) {
+        glass.calculatedopacity = opacity;
+        ge_original_stage_model_publication_glass_material(&glass, 4, &input);
+        assert(input.parent_setup_enabled == 1U);
+        assert(ge_original_model_scene_cache_build(&cache, &input, 1U,
+            &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(scene.vertex_count == 6U && scene.batch_count == 1U);
+        assert(batches[0].material.blend_enabled);
+        assert(batches[0].material.depth_test_enabled);
+        assert(!batches[0].material.depth_write_enabled);
+        assert(batches[0].material.primitive_color.alpha == opacity);
+        assert(batches[0].material.alpha_combine
+            == GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE_ADD_PRIMITIVE);
+        assert(vertices[0].processed.rgba[0] >= 150U);
+        assert(ge_pica_apply_compile(&batches[0].material, &applied)
+            == GE_PICA_APPLY_OK);
+        assert(applied.alpha.combine == GE_PICA_APPLY_MULTIPLY_ADD
+            && applied.constant_color.alpha == opacity);
+        assert(ge_original_model_scene_cache_build(&cache, &input, 1U,
+            &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+    }
+    ge_original_model_scene_cache_close(&cache);
+    assert(ge_original_pitem_model_release_instance(models, model));
+    puts("authored glass lighting/blend/opacity and cache invalidation passed");
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -184,6 +236,7 @@ int main(int argc, char **argv)
     /* PcctvZ is the authored Bunker 2 room-49 target: its multi-matrix live
      * display-list parts must all publish before ONSCREEN is set. */
     assert(exercise_model(models, 24, 2U, 1));
+    exercise_glass(models);
     ge_original_pitem_model_provider_destroy(models);
     ge_asset_pack_close(&pack);
     puts("live ordinary identity/articulated model publication passed");

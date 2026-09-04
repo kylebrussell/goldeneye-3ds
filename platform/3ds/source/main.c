@@ -7597,6 +7597,8 @@ static bool install_stage_ordinary_object_scenes(
                 memcpy(input->matrix, matrix, sizeof(input->matrix));
                 memcpy(input->position, position, sizeof(input->position));
             }
+            ge_original_stage_model_publication_glass_material(
+                entry->definition, part.model_type, input);
             objects->scene_status = ge_original_model_scene_build(
                 input, NULL, &queries[input_index]);
             if (objects->scene_status
@@ -8784,6 +8786,32 @@ static bool refresh_stage_live_overlays(
     size_t overlay_scene_batch_base;
     if (objects == NULL || !objects->scene_ready || objects->preview == NULL
             || gpu_destination == NULL) return false;
+    /* Opacity changes do not change geometry, UVs, or draw layout. Publish
+     * the canonical tick's byte directly instead of retraversing glass lists
+     * or invalidating/reuploading their retained vertex payloads. */
+    for (size_t part_index = 0U;
+            part_index < objects->ordinary_scene_part_count; ++part_index) {
+        const RuntimeStageScenePartRange *range =
+            &objects->ordinary_scene_parts[part_index];
+        uint8_t opacity;
+        if (range->entry_index >= objects->entry_count
+                || !ge_original_stage_model_publication_glass_opacity(
+                    objects->entries[range->entry_index].definition, &opacity))
+            continue;
+        GeDamDynamicScene *scene = &objects->preview->dynamic_scene;
+        const size_t room_batches = scene->scene.batch_count
+            - scene->overlay_batch_count;
+        for (size_t index = 0U; index < range->batch_count; ++index) {
+            const size_t batch_index = range->batch_offset + index;
+            if (batch_index >= scene->overlay_batch_count) return false;
+            GePicaMaterial *material = &scene->overlay_batches[batch_index].material;
+            if (material->alpha_combine
+                    != GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE_ADD_PRIMITIVE)
+                continue;
+            material->primitive_color.alpha = opacity;
+            scene->batches[room_batches + batch_index].material.primitive_color.alpha = opacity;
+        }
+    }
     const bool room_prefix_current =
         dam_gpu_room_prefix_is_current(objects->preview);
     if (!refresh_stage_door_overlay(objects, &door_updated)) {
@@ -12582,7 +12610,7 @@ static bool initialize_original_frontend_model(
             parts[part_index].primary_offset,
             parts[part_index].secondary_offset,
             parts[part_index].segment4_offset,
-            0U, 0U, NULL, 0U, {{0}}, {0},
+            0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
         };
         for (diagonal = 0U; diagonal < 4U; ++diagonal)
             inputs[part_index].matrix[diagonal][diagonal] = 1.0f;
@@ -12715,7 +12743,7 @@ static bool prepare_original_frontend_pitem_scene(
                 parts[part_index].primary_offset,
                 parts[part_index].secondary_offset,
                 parts[part_index].segment4_offset,
-                0U, 0U, NULL, 0U, {{0}}, {0},
+                0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
             };
             for (diagonal = 0U; diagonal < 4U; ++diagonal)
                 inputs[part_index].matrix[diagonal][diagonal] = 1.0f;
@@ -13162,7 +13190,7 @@ static bool prepare_original_frontend_wallet(
                 parts[input_index].primary_offset,
                 parts[input_index].secondary_offset,
                 parts[input_index].segment4_offset,
-                0U, 0U, NULL, 0U, {{0}}, {0},
+                0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
             };
             if (snapshot->menu == MENU_MISSION_SELECT
                     && instance_index == 0U

@@ -15,6 +15,13 @@ typedef enum GeOriginalStageModelPublicationStatus {
     GE_ORIGINAL_STAGE_MODEL_PUBLICATION_INVALID_PART,
 } GeOriginalStageModelPublicationStatus;
 
+/* Restore the caller material state omitted by ROM child lists for authored
+ * type-4 glass. Does not mutate the object or calculate gameplay opacity. */
+void ge_original_stage_model_publication_glass_material(
+    const void *definition, int16_t model_type, GeOriginalModelSceneInput *input);
+int ge_original_stage_model_publication_glass_opacity(
+    const void *definition, uint8_t *opacity);
+
 /* Binds one currently visible native object's exact Model.render_pos matrix
  * bank to the model-scene input. The bank remains eye-space, exactly as
  * objTick/modelUpdateMatrices published it; live view-to-world is the outer

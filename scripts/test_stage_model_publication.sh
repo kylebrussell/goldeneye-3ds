@@ -6,6 +6,7 @@ repo_dir=${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 asset_pack=${2:-"${repo_dir}/build/host-tests/stage-assets/stages.gepack"}
 test_dir="${repo_dir}/build/host-tests/stage-model-publication"
 mkdir -p "${test_dir}"
+python3 "${repo_dir}/scripts/generate_model_render_setup.py" --check
 
 if [[ ! -f "${asset_pack}" ]]; then
     echo "missing campaign test asset pack: ${asset_pack}" >&2
@@ -47,6 +48,7 @@ cc -std=gnu11 -Wall -Wextra -Werror \
     "${repo_dir}/port/src/ge_gbi_vertex.c" \
     "${repo_dir}/port/src/ge_gbi_pipeline.c" \
     "${repo_dir}/port/src/ge_pica_material.c" \
+    "${repo_dir}/port/src/ge_pica_apply.c" \
     "${repo_dir}/port/src/ge_dam_room.c" \
     "${repo_dir}/src/game/matrixmath.c" \
     "${test_dir}/ge_original_move_model_tables.c" \

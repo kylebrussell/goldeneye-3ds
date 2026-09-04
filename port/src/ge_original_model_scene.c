@@ -573,12 +573,14 @@ static uint64_t cache_topology_signature(
     return hash;
 }
 
-/* A live room commonly cycles among more than three aggregate character
- * topologies as LOD, held-weapon, injury and death relations change.  The
- * immutable per-component cache keeps each retained aggregate modest, while
- * eight variants cover the observed combat working set without unbounded
- * growth or changing any canonical model state. */
-#define GE_ORIGINAL_MODEL_SCENE_TOPOLOGY_VARIANTS 8U
+/* A live room commonly cycles among many aggregate character topologies as
+ * guards cross portal/frustum boundaries and held-weapon, injury and death
+ * relations change. Immutable geometry lives in the component cache, so an
+ * aggregate variant retains only compact queries/indices/offsets/hashes.
+ * Dam combat measured 33 distinct states and evicted 24 entries from the old
+ * eight-slot ring; keep one room's observed working set to avoid repeatedly
+ * rebuilding that metadata on otherwise identical visibility transitions. */
+#define GE_ORIGINAL_MODEL_SCENE_TOPOLOGY_VARIANTS 32U
 
 typedef struct GeOriginalModelSceneTopologyVariant {
     void *storage;

@@ -560,7 +560,10 @@ static void exercise_component_map_reuse(const char *path)
 
 static void exercise_combat_topology_working_set(const char *path)
 {
-    enum { WORKING_SET = 6 };
+    /* Dam combat currently cycles through more than eight guard/attachment
+     * aggregate layouts. Exercise a representative room-scale working set,
+     * rather than only the old small-cache case. */
+    enum { WORKING_SET = 24 };
     uint8_t *blob = load_blob(path, GE_ORIGINAL_MODEL62_BLOB_SIZE);
     GeOriginalModelSceneInput inputs[WORKING_SET];
     GeOriginalModelScene scene;

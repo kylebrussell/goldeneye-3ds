@@ -646,6 +646,10 @@ typedef struct RuntimeFineProfile {
     uint64_t guard_replace_ticks;
     uint64_t guard_import_ticks;
     uint64_t guard_refresh_peak[7];
+    /* Canonical gameplay CPU attribution: whole original tick, background
+     * chr pass, MoveBond, gun update, mixed props/post services, diagnostic
+     * combat audits. These counters observe ordering and never gate it. */
+    uint64_t gameplay_phase_ticks[7];
     uint64_t idle_present_skips;
 } RuntimeFineProfile;
 
@@ -3513,6 +3517,15 @@ static bool write_input_probe_result(
         (unsigned long long)fine_profile.guard_refresh_peak[4],
         (unsigned long long)fine_profile.guard_refresh_peak[5],
         (unsigned long long)fine_profile.guard_refresh_peak[6]);
+    fprintf(stream,
+        "gameplay_phase_ticks=%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+        (unsigned long long)fine_profile.gameplay_phase_ticks[0],
+        (unsigned long long)fine_profile.gameplay_phase_ticks[1],
+        (unsigned long long)fine_profile.gameplay_phase_ticks[2],
+        (unsigned long long)fine_profile.gameplay_phase_ticks[3],
+        (unsigned long long)fine_profile.gameplay_phase_ticks[4],
+        (unsigned long long)fine_profile.gameplay_phase_ticks[5],
+        (unsigned long long)fine_profile.gameplay_phase_ticks[6]);
     fprintf(stream, "frame_peak_ms=%llu\n",
         (unsigned long long)runtime->displayed_peak_ms);
     fprintf(stream, "frame_tail_ms=%llu,%lu,%lu,%lu,%lu,%lu\n",
@@ -18586,15 +18599,19 @@ start_stage_runtime:
             for (original_tick = 0U; original_tick < ticks; original_tick++) {
                 GeOriginalDynFrameAudit dyn_frame_audit;
                 bool gun_tick_complete = false;
+                const uint64_t original_tick_profile_start = svcGetSystemTick();
                 if (stage_ordinary_objects.actor_tick_status
                         == RUNTIME_STAGE_ACTOR_TICK_READY) {
                     /* Exact bossMainloop/lvlManageMpGame boundary: background
                      * mission AI advances before the player-id shuffle and
                      * before lvlViewMoveTick/MoveBond. The paired propsTick
                      * remains at lvlRender below. */
+                    const uint64_t phase_start = svcGetSystemTick();
                     stage_ordinary_objects.active_prop_status =
                         ge_original_stage_active_props_pre_tick_exact(
                             &stage_ordinary_objects.active_props);
+                    fine_profile.gameplay_phase_ticks[1] +=
+                        svcGetSystemTick() - phase_start;
                 }
                 /* bossMainloop calls the unchanged four-slot player shuffle
                  * immediately after lvlManageMpGame and before every
@@ -18658,11 +18675,14 @@ start_stage_runtime:
                     gunSetSightVisible(
                         GUNSIGHTREASON_1,
                         cur_player_get_sight_onscreen_control());
+                    const uint64_t move_start = svcGetSystemTick();
                     (void)ge_original_bond_move_live_tick(
                         &first_person_models.bond_live,
                         port.original_clock_timer,
                         port.original_global_timer,
                         port.original_global_timer_delta);
+                    fine_profile.gameplay_phase_ticks[2] +=
+                        svcGetSystemTick() - move_start;
                     {
                         GeOriginalBondMotionSnapshot watch_motion;
                         if (watch_abort.bound
@@ -18730,7 +18750,10 @@ start_stage_runtime:
                         }
                     }
                     sync_first_person_pose_model(&first_person_models);
+                    const uint64_t gun_start = svcGetSystemTick();
                     gun_tick_complete = ge_original_gun_live_tick() != 0;
+                    fine_profile.gameplay_phase_ticks[3] +=
+                        svcGetSystemTick() - gun_start;
                     if (gun_tick_complete)
                         first_person_models.pose_status =
                             GE_ORIGINAL_FIRST_PERSON_POSE_OK;
@@ -18766,13 +18789,18 @@ start_stage_runtime:
                             == RUNTIME_STAGE_ACTOR_TICK_READY
                         && dyn_frame_active && gun_tick_complete
                         && dam_preview.original_camera_ready) {
+                    const uint64_t actor_tick_start = svcGetSystemTick();
+                    const uint64_t props_tick_start = svcGetSystemTick();
                     stage_ordinary_objects.active_prop_status =
                         GE_ORIGINAL_STAGE_ACTIVE_PROP_INVALID_ARGUMENT;
                     if (input_probe.enabled || GE_3DS_LIVE_DIAGNOSTICS) {
                         RuntimeStageGuardCombatAudit combat_before;
                         RuntimeStageGuardCombatAudit combat_after;
+                        uint64_t audit_start = svcGetSystemTick();
                         stage_guard_combat_audit(
                             &stage_ordinary_objects, &combat_before);
+                        fine_profile.gameplay_phase_ticks[5] +=
+                            svcGetSystemTick() - audit_start;
                         stage_ordinary_objects.active_prop_status =
                             ge_original_stage_active_props_tick_exact(
                                 &stage_ordinary_objects.active_props);
@@ -18788,10 +18816,13 @@ start_stage_runtime:
                         if (input_probe.enabled)
                             input_probe_capture_gates(
                                 &input_probe, &stage_ordinary_objects, true);
+                        audit_start = svcGetSystemTick();
                         stage_guard_combat_audit(
                             &stage_ordinary_objects, &combat_after);
                         stage_guard_combat_record(&stage_ordinary_objects,
                             &combat_before, &combat_after);
+                        fine_profile.gameplay_phase_ticks[5] +=
+                            svcGetSystemTick() - audit_start;
                     } else {
                         stage_ordinary_objects.active_prop_status =
                             ge_original_stage_active_props_tick_exact(
@@ -18803,6 +18834,8 @@ start_stage_runtime:
                             ge_original_stage_props_tick_player_exact();
                         }
                     }
+                    fine_profile.gameplay_phase_ticks[6] +=
+                        svcGetSystemTick() - props_tick_start;
                     stage_ordinary_objects.last_mission_tick_status =
                         UINT32_MAX;
                     stage_ordinary_objects.last_monitor_tick_ok = UINT32_MAX;
@@ -18856,6 +18889,8 @@ start_stage_runtime:
                         stage_ordinary_objects.actor_tick_status =
                             RUNTIME_STAGE_ACTOR_TICK_RUNTIME_FAILED;
                     }
+                    fine_profile.gameplay_phase_ticks[4] +=
+                        svcGetSystemTick() - actor_tick_start;
                 }
                 if (dam_stage && dam_objects.doors_linked
                         && stage_ordinary_objects.actor_tick_status
@@ -18912,6 +18947,8 @@ start_stage_runtime:
                     input_probe_capture_armour(&input_probe);
                     ++input_probe.simulation_frames;
                 }
+                fine_profile.gameplay_phase_ticks[0] +=
+                    svcGetSystemTick() - original_tick_profile_start;
             }
         }
         {

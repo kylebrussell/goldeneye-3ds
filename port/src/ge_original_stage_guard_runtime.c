@@ -32,6 +32,11 @@ typedef struct GeOriginalStageGuardSlot {
     GeOriginalStageGuardSnapshot state;
     GeOriginalCharacterModelPair pair;
     RenderPosView *render_positions;
+    /* Renderer-owned attachment indices.  The original prop graph remains
+     * authoritative; these preserve its weapon/hat publication order without
+     * rescanning every stage attachment for every visible guard. */
+    size_t first_weapon_index;
+    size_t first_hat_index;
 } GeOriginalStageGuardSlot;
 
 typedef struct GeOriginalStageGuardWeaponSlot {
@@ -43,6 +48,7 @@ typedef struct GeOriginalStageGuardWeaponSlot {
     Model *model;
     RenderPosView *render_positions;
     GeOriginalStageGuardSlot *owner;
+    size_t next_owner_index;
 } GeOriginalStageGuardWeaponSlot;
 
 typedef struct GeOriginalStageGuardHatSlot {
@@ -55,6 +61,7 @@ typedef struct GeOriginalStageGuardHatSlot {
     RenderPosView *render_positions;
     float pitem_scale;
     GeOriginalStageGuardSlot *owner;
+    size_t next_owner_index;
 } GeOriginalStageGuardHatSlot;
 
 struct GeOriginalStageGuardRuntime {
@@ -102,6 +109,50 @@ struct GeOriginalStageGuardRuntime {
 };
 
 static GeOriginalStageGuardRuntime *ge_active_stage_guard_runtime;
+
+static void runtime_slot_clear(GeOriginalStageGuardSlot *slot)
+{
+    if(slot==NULL)return;
+    memset(slot,0,sizeof(*slot));
+    slot->first_weapon_index=SIZE_MAX;
+    slot->first_hat_index=SIZE_MAX;
+}
+
+/* Attachments are immutable-owner records while equipped.  Rebuild the
+ * adapter-side index only at construction/bind time, retaining the exact
+ * global setup order inside each guard.  Canonical parent pointers still
+ * decide whether a dropped weapon or hat is rendered as attached. */
+static void runtime_rebuild_attachment_indices(
+    GeOriginalStageGuardRuntime *runtime)
+{
+    size_t guard_index,index,previous;
+    if(runtime==NULL)return;
+    for(guard_index=0U;guard_index<runtime->capacity;++guard_index){
+        runtime->slots[guard_index].first_weapon_index=SIZE_MAX;
+        runtime->slots[guard_index].first_hat_index=SIZE_MAX;
+    }
+    for(index=0U;index<runtime->weapon_count;++index)
+        runtime->weapons[index].next_owner_index=SIZE_MAX;
+    for(index=0U;index<runtime->hat_count;++index)
+        runtime->hats[index].next_owner_index=SIZE_MAX;
+    for(guard_index=0U;guard_index<runtime->count;++guard_index){
+        GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];
+        previous=SIZE_MAX;
+        for(index=0U;index<runtime->weapon_count;++index){
+            if(runtime->weapons[index].owner!=slot)continue;
+            if(previous==SIZE_MAX)slot->first_weapon_index=index;
+            else runtime->weapons[previous].next_owner_index=index;
+            previous=index;
+        }
+        previous=SIZE_MAX;
+        for(index=0U;index<runtime->hat_count;++index){
+            if(runtime->hats[index].owner!=slot)continue;
+            if(previous==SIZE_MAX)slot->first_hat_index=index;
+            else runtime->hats[previous].next_owner_index=index;
+            previous=index;
+        }
+    }
+}
 
 int ge_original_stage_guard_snapshot_death_complete(
     const GeOriginalStageGuardSnapshot *snapshot)
@@ -565,7 +616,7 @@ PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos,
                         runtime->services.context,2U,&sunglasses))return NULL;
         }
     }
-    slot=&runtime->slots[runtime->count];memset(slot,0,sizeof(*slot));
+    slot=&runtime->slots[runtime->count];runtime_slot_clear(slot);
     if(!ge_original_character_model_resolve_pair(runtime->models,bodynum,
             resolved_head,sunglasses,&slot->pair))return NULL;
     slot->render_positions=
@@ -666,7 +717,7 @@ static GeOriginalStageGuardRuntimeStatus runtime_construct(
         }
     }
     slot=&runtime->slots[runtime->count];
-    memset(slot,0,sizeof(*slot));
+    runtime_slot_clear(slot);
     if(!ge_original_character_model_resolve_pair(runtime->models,
             record->model_id,resolved_head,sunglasses,&slot->pair))
         return GE_ORIGINAL_STAGE_GUARD_RUNTIME_MODEL_UNAVAILABLE;
@@ -1056,6 +1107,7 @@ ge_original_stage_guard_runtime_bind_authored_weapons(
     }
     runtime->weapon_models=models;runtime->weapons=candidates;
     runtime->weapon_count=candidate_count;local.attached=candidate_count;
+    runtime_rebuild_attachment_indices(runtime);
     if(report!=NULL)*report=local;
     return runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
 fail:
@@ -1231,6 +1283,7 @@ ge_original_stage_guard_runtime_bind_authored_hats(
     local.failed_command_index=SIZE_MAX;local.failed_branch=0U;
     runtime->weapon_models=models;runtime->hats=candidates;
     runtime->hat_count=candidate_count;runtime->hat_capacity=allocation_capacity;
+    runtime_rebuild_attachment_indices(runtime);
     local.attached=candidate_count;
     if(report!=NULL)*report=local;
     return runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
@@ -1297,6 +1350,7 @@ PropRecord *hatCreateForChr(ChrRecord *chr, s32 modelnum, u32 flags)
     if(ge_original_stage_guard_actor_apply_hat(&slot->hat,chr,header,
             slot->prop,model,pitem_scale)==NULL)goto fail;
     ++runtime->hat_count;
+    runtime_rebuild_attachment_indices(runtime);
     runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
     return slot->prop;
 fail:
@@ -1385,12 +1439,12 @@ static void runtime_clear_attachment_matrices(
     GeOriginalStageGuardRuntime *runtime, GeOriginalStageGuardSlot *slot)
 {
     size_t index;
-    for(index=0U;index<runtime->weapon_count;++index)
-        if(runtime->weapons[index].owner==slot)
-            runtime->weapons[index].state.matrices_ready=0U;
-    for(index=0U;index<runtime->hat_count;++index)
-        if(runtime->hats[index].owner==slot)
-            runtime->hats[index].state.matrices_ready=0U;
+    for(index=slot->first_weapon_index;index!=SIZE_MAX;
+            index=runtime->weapons[index].next_owner_index)
+        runtime->weapons[index].state.matrices_ready=0U;
+    for(index=slot->first_hat_index;index!=SIZE_MAX;
+            index=runtime->hats[index].next_owner_index)
+        runtime->hats[index].state.matrices_ready=0U;
 }
 
 void ge_original_stage_guard_runtime_matrix_failure(
@@ -1486,9 +1540,10 @@ static GeOriginalStageGuardRuntimeStatus runtime_retain_culled_guard(
     if (runtime_retain_matrices(slot->pair.model_instance,
             slot->render_positions, slot->pair.matrix_count) < 0)
         return runtime_matrix_failed(runtime, __LINE__, guard_index);
-    for (attachment = 0U; attachment < runtime->weapon_count; ++attachment) {
+    for (attachment = slot->first_weapon_index; attachment != SIZE_MAX;
+            attachment = runtime->weapons[attachment].next_owner_index) {
         GeOriginalStageGuardWeaponSlot *weapon = &runtime->weapons[attachment];
-        if (weapon->owner != slot || weapon->prop == NULL
+        if (weapon->prop == NULL
                 || weapon->prop->parent != runtime->props[guard_index]) continue;
         if (weapon->model == NULL || weapon->model->obj == NULL
                 || weapon->model->obj->numMatrices <= 0
@@ -1496,9 +1551,10 @@ static GeOriginalStageGuardRuntimeStatus runtime_retain_culled_guard(
                     (size_t)weapon->model->obj->numMatrices) < 0)
             return runtime_matrix_failed(runtime, __LINE__, guard_index);
     }
-    for (attachment = 0U; attachment < runtime->hat_count; ++attachment) {
+    for (attachment = slot->first_hat_index; attachment != SIZE_MAX;
+            attachment = runtime->hats[attachment].next_owner_index) {
         GeOriginalStageGuardHatSlot *hat = &runtime->hats[attachment];
-        if (hat->owner != slot || hat->prop == NULL
+        if (hat->prop == NULL
                 || hat->prop->parent != runtime->props[guard_index]) continue;
         if (hat->model == NULL || hat->model->obj == NULL
                 || hat->model->obj->numMatrices <= 0
@@ -1588,12 +1644,12 @@ ge_original_stage_guard_runtime_update_matrices(
                 return runtime_matrix_failed(runtime, __LINE__, index);
             }
         slot->state.matrices_ready=1U;
-        for(size_t weapon_index=0U;weapon_index<runtime->weapon_count;
-                ++weapon_index){
+        for(size_t weapon_index=slot->first_weapon_index;
+                weapon_index!=SIZE_MAX;
+                weapon_index=runtime->weapons[weapon_index].next_owner_index){
             GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[weapon_index];
             Mtxf *attachment;Mtxf left_rotation;size_t weapon_matrix;
             int weapon_retained;
-            if(weapon->owner!=slot)continue;
             /* chrDropItem/chrpropDetach make a dead guard's weapon a root
              * prop.  It no longer has a character attachment matrix and must
              * leave this attached-model publication path immediately. */
@@ -1632,10 +1688,10 @@ ge_original_stage_guard_runtime_update_matrices(
                     return runtime_matrix_failed(runtime, __LINE__, index);
             weapon->state.matrices_ready=1U;
         }
-        for(size_t hat_index=0U;hat_index<runtime->hat_count;++hat_index){
+        for(size_t hat_index=slot->first_hat_index;hat_index!=SIZE_MAX;
+                hat_index=runtime->hats[hat_index].next_owner_index){
             GeOriginalStageGuardHatSlot *hat=&runtime->hats[hat_index];
             Mtxf *attachment;size_t hat_matrix;int hat_retained;
-            if(hat->owner!=slot)continue;
             if(hat->prop==NULL||hat->prop->parent!=runtime->props[index]){
                 hat->state.matrices_ready=0U;
                 continue;
@@ -1857,16 +1913,18 @@ static GeOriginalStageGuardRuntimeStatus build_scene_internal(
         ++published;
         input_count+=ge_original_character_model_instance_scene_part_count(
             runtime->models,slot->pair.model_instance);
-        for(size_t weapon_index=0U;weapon_index<runtime->weapon_count;
-                ++weapon_index){
+        for(size_t weapon_index=slot->first_weapon_index;
+                weapon_index!=SIZE_MAX;
+                weapon_index=runtime->weapons[weapon_index].next_owner_index){
             GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[weapon_index];
-            if(weapon->owner==slot&&weapon->state.matrices_ready)
+            if(weapon->state.matrices_ready)
                 input_count+=ge_original_pitem_model_scene_part_count(
                     runtime->weapon_models,weapon->state.model_id);
         }
-        for(size_t hat_index=0U;hat_index<runtime->hat_count;++hat_index){
+        for(size_t hat_index=slot->first_hat_index;hat_index!=SIZE_MAX;
+                hat_index=runtime->hats[hat_index].next_owner_index){
             GeOriginalStageGuardHatSlot *hat=&runtime->hats[hat_index];
-            if(hat->owner==slot&&hat->state.matrices_ready)
+            if(hat->state.matrices_ready)
                 input_count+=ge_original_pitem_model_scene_part_count(
                     runtime->weapon_models,hat->state.model_id);
         }
@@ -1919,11 +1977,12 @@ static GeOriginalStageGuardRuntimeStatus build_scene_internal(
             triangles+=queries[input_index].triangle_count;
             commands+=queries[input_index].commands_visited;++input_index;
         }
-        for(size_t weapon_index=0U;weapon_index<runtime->weapon_count;
-                ++weapon_index){
+        for(size_t weapon_index=slot->first_weapon_index;
+                weapon_index!=SIZE_MAX;
+                weapon_index=runtime->weapons[weapon_index].next_owner_index){
             GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[weapon_index];
             size_t weapon_parts,weapon_part_index;
-            if(weapon->owner!=slot||!weapon->state.matrices_ready)continue;
+            if(!weapon->state.matrices_ready)continue;
             weapon_parts=ge_original_pitem_model_scene_part_count(
                 runtime->weapon_models,weapon->state.model_id);
             for(weapon_part_index=0U;weapon_part_index<weapon_parts;
@@ -1964,10 +2023,11 @@ static GeOriginalStageGuardRuntimeStatus build_scene_internal(
                 commands+=queries[input_index].commands_visited;++input_index;
             }
         }
-        for(size_t hat_index=0U;hat_index<runtime->hat_count;++hat_index){
+        for(size_t hat_index=slot->first_hat_index;hat_index!=SIZE_MAX;
+                hat_index=runtime->hats[hat_index].next_owner_index){
             GeOriginalStageGuardHatSlot *hat=&runtime->hats[hat_index];
             size_t hat_parts,hat_part_index;
-            if(hat->owner!=slot||!hat->state.matrices_ready)continue;
+            if(!hat->state.matrices_ready)continue;
             hat_parts=ge_original_pitem_model_scene_part_count(
                 runtime->weapon_models,hat->state.model_id);
             for(hat_part_index=0U;hat_part_index<hat_parts;++hat_part_index){
@@ -2069,15 +2129,17 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
             if (parts > maximum_character_parts)
                 maximum_character_parts = parts;
         }
-        for(attachment=0U;attachment<runtime->weapon_count;++attachment){
+        for(attachment=slot->first_weapon_index;attachment!=SIZE_MAX;
+                attachment=runtime->weapons[attachment].next_owner_index){
             GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[attachment];
-            if(weapon->owner==slot&&weapon->state.matrices_ready)
+            if(weapon->state.matrices_ready)
                 input_count+=ge_original_pitem_model_scene_part_count(
                     runtime->weapon_models,weapon->state.model_id);
         }
-        for(attachment=0U;attachment<runtime->hat_count;++attachment){
+        for(attachment=slot->first_hat_index;attachment!=SIZE_MAX;
+                attachment=runtime->hats[attachment].next_owner_index){
             GeOriginalStageGuardHatSlot *hat=&runtime->hats[attachment];
-            if(hat->owner==slot&&hat->state.matrices_ready)
+            if(hat->state.matrices_ready)
                 input_count+=ge_original_pitem_model_scene_part_count(
                     runtime->weapon_models,hat->state.model_id);
         }
@@ -2156,10 +2218,11 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
             for(row=0U;row<4U;++row)for(column=0U;column<4U;++column)
                 input->matrix[row][column]=view_to_world[row][column];
         }
-        for(attachment=0U;attachment<runtime->weapon_count;++attachment){
+        for(attachment=slot->first_weapon_index;attachment!=SIZE_MAX;
+                attachment=runtime->weapons[attachment].next_owner_index){
             GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[attachment];
             size_t weapon_parts,weapon_part;
-            if(weapon->owner!=slot||!weapon->state.matrices_ready)continue;
+            if(!weapon->state.matrices_ready)continue;
             weapon_parts=ge_original_pitem_model_scene_part_count(
                 runtime->weapon_models,weapon->state.model_id);
             for(weapon_part=0U;weapon_part<weapon_parts;++weapon_part){
@@ -2182,10 +2245,11 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
                     input->matrix[row][column]=view_to_world[row][column];
             }
         }
-        for(attachment=0U;attachment<runtime->hat_count;++attachment){
+        for(attachment=slot->first_hat_index;attachment!=SIZE_MAX;
+                attachment=runtime->hats[attachment].next_owner_index){
             GeOriginalStageGuardHatSlot *hat=&runtime->hats[attachment];
             size_t hat_parts,hat_part;
-            if(hat->owner!=slot||!hat->state.matrices_ready)continue;
+            if(!hat->state.matrices_ready)continue;
             hat_parts=ge_original_pitem_model_scene_part_count(
                 runtime->weapon_models,hat->state.model_id);
             for(hat_part=0U;hat_part<hat_parts;++hat_part){

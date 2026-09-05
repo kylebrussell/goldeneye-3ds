@@ -112,6 +112,22 @@ stagesetup g_CurrentSetup;
 s32 g_ClockTimer;
 f32 g_GlobalTimerDelta;
 
+/* Polling before/after a full snapshot must observe exactly the same
+ * generation, including opening, closing and articulated door fixtures. */
+static int checked_door_snapshot(const void *door, GeOriginalDoorRuntimePublication *out)
+{
+    uint32_t before = UINT32_MAX, after = UINT32_MAX;
+    int polled = ge_original_door_runtime_generation(door, &before);
+    int snapped = ge_original_door_runtime_snapshot(door, out);
+    assert(polled == snapped);
+    if (snapped) {
+        assert(before == out->generation);
+        assert(ge_original_door_runtime_generation(door, &after));
+        assert(after == before);
+    }
+    return snapped;
+}
+
 u32 randomGetNext(void)
 {
     static u32 state = UINT32_C(0x6d2b79f5);
@@ -294,7 +310,7 @@ static int canonical_door_construct(
     }
     assert(status == GE_ORIGINAL_DOOR_OK);
     assert(((ObjectRecord *)definition)->model != NULL);
-    assert(ge_original_door_runtime_snapshot(
+    assert(checked_door_snapshot(
         definition, &closed_publication));
     for (size_t part_index = 0U; part_index <
             ge_original_pitem_model_scene_part_count(harness->models, request->model_id);
@@ -325,9 +341,9 @@ static int canonical_door_construct(
             assert(isfinite(closed_publication.matrix[row][column]));
     authored_open_position = door->openPosition;
     door->openPosition = door->maxFrac * 0.5f;
-    assert(ge_original_door_runtime_snapshot(
+    assert(checked_door_snapshot(
         definition, &moved_publication));
-    assert(ge_original_door_runtime_snapshot(
+    assert(checked_door_snapshot(
         definition, &repeated_publication)
         && repeated_publication.generation
             == moved_publication.generation);
@@ -433,8 +449,8 @@ static void canonical_dam_gate_tick_until(
         ++harness->global_timer;
         assert(ge_original_door_runtime_tick(tick_root)
                == GE_ORIGINAL_DOOR_RUNTIME_OK);
-        assert(ge_original_door_runtime_snapshot(first, &a)
-               && ge_original_door_runtime_snapshot(second, &b));
+        assert(checked_door_snapshot(first, &a)
+               && checked_door_snapshot(second, &b));
         /* The unchanged 0x40000000 interlock may never expose both secure
          * sections at once. This is the defining Dam-gate invariant. */
         assert(!(a.open_position > 0.0f && b.open_position > 0.0f));
@@ -494,8 +510,8 @@ static void audit_dam_interlocked_door_runtime(
     providers.test_collision = canonical_door_collision_test;
     providers.sound_event = canonical_door_sound_event;
     ge_original_door_runtime_bind(&providers, &state);
-    assert(ge_original_door_runtime_snapshot(doors[0], &initial[0])
-           && ge_original_door_runtime_snapshot(doors[1], &initial[1]));
+    assert(checked_door_snapshot(doors[0], &initial[0])
+           && checked_door_snapshot(doors[1], &initial[1]));
     assert(fabsf(initial[0].open_position - initial[0].max_frac) < 0.0001f
            && initial[1].open_position == 0.0f
            && initial[0].collision_edges > 0
@@ -508,8 +524,8 @@ static void audit_dam_interlocked_door_runtime(
            == GE_ORIGINAL_DOOR_RUNTIME_OK);
     canonical_dam_gate_tick_until(
         harness, doors[1], doors[0], doors[1], 0);
-    assert(ge_original_door_runtime_snapshot(doors[0], &second_open[0])
-           && ge_original_door_runtime_snapshot(doors[1], &second_open[1]));
+    assert(checked_door_snapshot(doors[0], &second_open[0])
+           && checked_door_snapshot(doors[1], &second_open[1]));
     assert(second_open[0].generation > initial[0].generation
            && second_open[1].generation > initial[1].generation
            && second_open[0].collision_edges > 0
@@ -526,8 +542,8 @@ static void audit_dam_interlocked_door_runtime(
            == GE_ORIGINAL_DOOR_RUNTIME_OK);
     canonical_dam_gate_tick_until(
         harness, doors[1], doors[0], doors[1], 1);
-    assert(ge_original_door_runtime_snapshot(doors[0], &both_closed[0])
-           && ge_original_door_runtime_snapshot(doors[1], &both_closed[1]));
+    assert(checked_door_snapshot(doors[0], &both_closed[0])
+           && checked_door_snapshot(doors[1], &both_closed[1]));
     assert(both_closed[0].generation >= second_open[0].generation
            && both_closed[1].generation > second_open[1].generation
            && both_closed[0].collision_edges > 0
@@ -538,8 +554,8 @@ static void audit_dam_interlocked_door_runtime(
            == GE_ORIGINAL_DOOR_RUNTIME_OK);
     canonical_dam_gate_tick_until(
         harness, doors[0], doors[0], doors[1], 2);
-    assert(ge_original_door_runtime_snapshot(doors[0], &first_reopened[0])
-           && ge_original_door_runtime_snapshot(doors[1], &first_reopened[1]));
+    assert(checked_door_snapshot(doors[0], &first_reopened[0])
+           && checked_door_snapshot(doors[1], &first_reopened[1]));
     assert(first_reopened[0].collision_edges > 0
            && first_reopened[1].collision_edges > 0
            && first_reopened[0].generation > both_closed[0].generation
@@ -2290,6 +2306,52 @@ static void audit_interactive_stages(GeAssetPack *pack)
            harness.door_links);
 }
 
+typedef struct AttachmentTextureTest { uint16_t ids[32]; size_t count; int reject; } AttachmentTextureTest;
+static int attachment_texture_visit(void *context, uint16_t image_id)
+{
+    AttachmentTextureTest *visit = context;
+    assert(visit->count < 32U);
+    visit->ids[visit->count++] = image_id;
+    return !visit->reject;
+}
+static void test_attachment_texture_dependencies(GeAssetPack *pack)
+{
+    GeOriginalPitemModelStatus status;
+    GeOriginalPitemModelStats before = {0}, after = {0};
+    GeOriginalPitemModelProvider *models = ge_original_pitem_model_provider_create(pack, 2U, 1U, &status);
+    AttachmentTextureTest visit = {0};
+    void *header_ptr = NULL, *instance = NULL;
+    float scale;
+    assert(models != NULL);
+    assert(!ge_original_pitem_model_visit_texture_ids(models, PROP_HATBERETBLUE, &visit, attachment_texture_visit));
+    assert(visit.count == 0U);
+    assert(ge_original_pitem_model_resolve_instance(models, PROP_HATBERETBLUE, &header_ptr, &instance, &scale));
+    ge_original_pitem_model_get_stats(models, &before);
+    for (unsigned repeat = 0; repeat < 2; ++repeat) {
+        visit.count = 0U;
+        assert(ge_original_pitem_model_visit_texture_ids(models, PROP_HATBERETBLUE, &visit, attachment_texture_visit));
+        assert(visit.count == 2U && visit.ids[0] == 1777U && visit.ids[1] == 1778U);
+    }
+    ge_original_pitem_model_get_stats(models, &after);
+    assert(memcmp(&before, &after, sizeof(before)) == 0);
+    visit.count = 0U; visit.reject = 1;
+    assert(!ge_original_pitem_model_visit_texture_ids(models, PROP_HATBERETBLUE, &visit, attachment_texture_visit));
+    assert(visit.count == 1U);
+    visit.count = 0U; visit.reject = 0;
+    ModelFileHeader *header = header_ptr;
+    const u32 saved = header->Textures[1].TextureID;
+    header->Textures[1].TextureID = UINT32_C(0x07000000);
+    assert(!ge_original_pitem_model_visit_texture_ids(models, PROP_HATBERETBLUE, &visit, attachment_texture_visit));
+    assert(visit.count == 0U);
+    header->Textures[1].TextureID = UINT32_C(0x05000001);
+    assert(ge_original_pitem_model_visit_texture_ids(models, PROP_HATBERETBLUE, &visit, attachment_texture_visit));
+    assert(visit.count == 1U && visit.ids[0] == 1777U);
+    header->Textures[1].TextureID = saved;
+    assert(ge_original_pitem_model_release_instance(models, instance));
+    ge_original_pitem_model_provider_destroy(models);
+    puts("Attachment texture dependencies: cold/repeat, exact blue-beret IDs, no allocation/state changes, rejection and embedded images passed");
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -2299,6 +2361,7 @@ int main(int argc, char **argv)
     ConstructionHarness harness = {0};
     assert(argc == 2);
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
+    test_attachment_texture_dependencies(&pack);
     models = ge_original_pitem_model_provider_create(&pack, 32U, 128U,
                                                       &status);
     assert(models != NULL && status == GE_ORIGINAL_PITEM_MODEL_OK);
@@ -2368,6 +2431,20 @@ int main(int argc, char **argv)
             assert(find_opcode(header->RootNode,
                                MODELNODE_OPCODE_GROUPSIMPLE) != NULL);
             assert(find_opcode(header->RootNode, MODELNODE_OPCODE_DL) != NULL);
+            {
+                ModelNode *dl = find_opcode(header->RootNode, MODELNODE_OPCODE_DL);
+                uint32_t origin = UINT32_MAX;
+                assert(ge_original_native_model_hit_vertex_offset(
+                    dl->Data->DisplayList.BaseAddr,
+                    dl->Data->DisplayList.Vertices, &origin));
+                assert(origin == 0x100U
+                    && dl->Data->DisplayList.numVertices == 100U);
+                assert(!ge_original_native_model_hit_vertex_offset(
+                    dl->Data->DisplayList.BaseAddr,
+                    dl->Data->DisplayList.Vertices + 1, &origin));
+                assert(!ge_original_native_model_hit_vertex_offset(
+                    NULL, dl->Data->DisplayList.Vertices, &origin));
+            }
             assert(find_opcode(header->RootNode,
                                MODELNODE_OPCODE_GUNFIRE) != NULL);
             assert(ge_original_pitem_model_instance_gunfire_count(

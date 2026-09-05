@@ -216,6 +216,29 @@ int ge_original_prop_state_is_active(const void *opaque_prop)
     return 0;
 }
 
+int ge_original_prop_state_snapshot_active(GeOriginalPropActiveSet *set)
+{
+    _Static_assert(sizeof(set->active) == MAX_PROPS, "active-set pool size");
+    const PropRecord *prop = g_ActivePropsTail;
+    size_t visited = 0U;
+    if (set == NULL) return 0;
+    memset(set, 0, sizeof(*set));
+    while (prop != NULL) {
+        if (!ge_prop_pointer_in_pool(prop) || visited++ >= MAX_PROPS) return 0;
+        set->active[prop - g_Props] = 1U;
+        prop = prop->prev;
+    }
+    return 1;
+}
+
+int ge_original_prop_state_active_set_contains(
+    const GeOriginalPropActiveSet *set, const void *opaque_prop)
+{
+    if (set == NULL) return ge_original_prop_state_is_active(opaque_prop);
+    if (!ge_prop_pointer_in_pool(opaque_prop)) return 0;
+    return set->active[(const PropRecord *)opaque_prop - g_Props] != 0U;
+}
+
 int ge_original_prop_state_is_enabled(const void *opaque_prop)
 {
     const PropRecord *prop = opaque_prop;
@@ -293,6 +316,14 @@ int ge_original_prop_state_object_scene_matrix_bank(
 int ge_original_prop_state_publish_scene_visibility(
     void *opaque_prop, int visible, const float world_to_view[4][4])
 {
+    return ge_original_prop_state_publish_scene_visibility_with_active_set(
+        opaque_prop, visible, world_to_view, NULL);
+}
+
+int ge_original_prop_state_publish_scene_visibility_with_active_set(
+    void *opaque_prop, int visible, const float world_to_view[4][4],
+    const GeOriginalPropActiveSet *active)
+{
     PropRecord *prop = opaque_prop;
     ObjectRecord *object;
     coord3d view_position;
@@ -300,7 +331,7 @@ int ge_original_prop_state_publish_scene_visibility(
 
     if (!ge_prop_pointer_in_pool(prop) || world_to_view == NULL) return 0;
     prop->flags &= (u8)~PROPFLAG_ONSCREEN;
-    if (!visible || !ge_original_prop_state_is_active(prop)
+    if (!visible || !ge_original_prop_state_active_set_contains(active, prop)
             || (prop->flags & PROPFLAG_ENABLED) == 0U)
         return 1;
     view_position = prop->pos;

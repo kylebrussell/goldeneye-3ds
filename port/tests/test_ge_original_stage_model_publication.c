@@ -396,6 +396,152 @@ static void exercise_glass(GeOriginalPitemModelProvider *models)
     puts("authored glass lighting/blend/opacity and cache invalidation passed");
 }
 
+static void exercise_world_door_depth(GeOriginalPitemModelProvider *models)
+{
+    const int32_t model_ids[] = {144, 176, 178};
+    float matrices[16][4][4];
+    unsigned missing_in_child = 0U;
+    for (size_t i = 0U; i < 16U; ++i) set_identity(matrices[i]);
+    for (size_t model = 0U; model < 3U; ++model) {
+        struct DoorRecord door = {0};
+        door.type = PROPDEF_DOOR;
+        void *header = NULL, *instance = NULL;
+        float scale;
+        assert(ge_original_pitem_model_resolve_instance(models, model_ids[model], &header, &instance, &scale));
+        const size_t parts = ge_original_pitem_model_scene_part_count(models, model_ids[model]);
+        assert(parts != 0U);
+        for (size_t index = 0U; index < parts; ++index) {
+            GeOriginalPitemModelScenePart part;
+            GeOriginalModelSceneInput input = {0};
+            GeOriginalModelScene query, scene;
+            assert(ge_original_pitem_model_scene_part(models, model_ids[model], index, &part));
+            input.blob = part.blob; input.blob_size = part.blob_size;
+            input.primary_offset = part.primary_offset; input.secondary_offset = part.secondary_offset;
+            input.segment4_offset = part.segment4_offset;
+            input.segment3_matrices = matrices; input.segment3_matrix_count = 16U;
+            set_identity(input.matrix);
+            assert(ge_original_model_scene_build(&input, NULL, &query)
+                == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+            GeDamRoomWorldVertex *vertices = calloc(query.required_vertex_count, sizeof(*vertices));
+            GeDamRoomDrawBatch *batches = calloc(query.required_batch_count, sizeof(*batches));
+            assert(vertices && batches);
+            GeDamRoomSceneStorage storage = {vertices, query.required_vertex_count, batches, query.required_batch_count};
+            assert(ge_original_model_scene_build(&input, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+            for (size_t batch = 0U; batch < scene.batch_count; ++batch)
+                missing_in_child += !batches[batch].material.depth_test_enabled;
+            for (unsigned template_only = 0U; template_only < 2U; ++template_only) {
+                for (unsigned disabled = 0U; disabled < 2U; ++disabled) {
+                    door.flags2 = disabled ? 0x10000 : 0;
+                    if (template_only)
+                        ge_original_stage_model_publication_glass_template(&door, part.model_type, &input);
+                    else
+                        ge_original_stage_model_publication_glass_material(&door, part.model_type, &input);
+                    assert(input.world_zbuffer_enabled == !disabled);
+                    assert(ge_original_model_scene_build(&input, &storage, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+                    if (!disabled) for (size_t batch = 0U; batch < scene.batch_count; ++batch) {
+                        assert(batches[batch].material.depth_test_enabled);
+                        assert(batches[batch].material.depth_write_enabled
+                            == (batches[batch].list_kind == GE_DAM_ROOM_LIST_PRIMARY));
+                    }
+                }
+            }
+            free(batches); free(vertices);
+        }
+        assert(ge_original_pitem_model_release_instance(models, instance));
+    }
+    assert(missing_in_child != 0U);
+    puts("authored door child lists inherit primary/secondary world depth; flags2 disable retained");
+}
+
+static void exercise_clipped_door_cache(GeOriginalPitemModelProvider *models, int32_t model_id)
+{
+    void *header = NULL, *instance = NULL;
+    float scale;
+    assert(ge_original_pitem_model_resolve_instance(models, model_id, &header, &instance, &scale));
+    struct DoorRecord door = {0};
+    door.type = PROPDEF_DOOR;
+    door.model = instance;
+    door.doorFlags = DOORFLAG_CLIP_TO_BBOX;
+    const ModelNode *clipped = door.model->obj->RootNode->Child->Child;
+    const ModelRoData_DisplayList_CollisionRecord *data = (const void *)clipped->Data;
+    Vertex *native = malloc((size_t)data->numVertices * sizeof(*native));
+    assert(native != NULL);
+    GeOriginalDoorRuntimePublication publication = {0};
+    publication.clipped_vertices = native;
+    publication.clipped_vertex_count = data->numVertices;
+    publication.clipped_vertex_stride = sizeof(*native);
+    GeOriginalModelSceneCache cache = {0};
+    unsigned exercised = 0U;
+    for (size_t part_index = 0U; part_index < ge_original_pitem_model_scene_part_count(models, model_id); ++part_index) {
+        GeOriginalPitemModelScenePart part;
+        assert(ge_original_pitem_model_scene_part(models, model_id, part_index, &part));
+        if (part.node != clipped) continue;
+        GeOriginalModelSceneInput input = {0};
+        input.blob = part.blob; input.blob_size = part.blob_size;
+        input.primary_offset = part.primary_offset; input.secondary_offset = part.secondary_offset;
+        input.segment4_offset = part.segment4_offset;
+        set_identity(input.matrix);
+        float bank[16][4][4];
+        for (size_t matrix = 0U; matrix < 16U; ++matrix) set_identity(bank[matrix]);
+        bank[0][0][0] = 1.125f; bank[0][3][0] = 3.25f;
+        input.segment3_matrices = bank; input.segment3_matrix_count = 16U;
+        input.position[1] = 2.5f;
+        memcpy(native, data->Vertices, (size_t)data->numVertices * sizeof(*native));
+        assert(ge_original_stage_model_publication_door_vertices(&door, &part, &publication, &input));
+        assert(input.segment4_vertex_count == (size_t)data->numVertices);
+        GeOriginalModelScene query, direct, cached;
+        assert(ge_original_model_scene_build(&input, NULL, &query) == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED);
+        GeDamRoomSceneStorage expected = {
+            calloc(query.required_vertex_count, sizeof(GeDamRoomWorldVertex)), query.required_vertex_count,
+            calloc(query.required_batch_count, sizeof(GeDamRoomDrawBatch)), query.required_batch_count};
+        GeDamRoomSceneStorage actual = {
+            calloc(query.required_vertex_count, sizeof(GeDamRoomWorldVertex)), query.required_vertex_count,
+            calloc(query.required_batch_count, sizeof(GeDamRoomDrawBatch)), query.required_batch_count};
+        assert(expected.vertices && expected.batches && actual.vertices && actual.batches);
+        for (unsigned frame = 0U; frame < 8U; ++frame) {
+            memcpy(native, data->Vertices, (size_t)data->numVertices * sizeof(*native));
+            /* Distinct quad vertices may share original positions. Give them
+             * different deformations to catch invalid position-only dedup. */
+            for (size_t i = 0U; i < (size_t)data->numVertices; ++i) {
+                native[i].coord.x += (float)(frame * (i % 3U));
+                native[i].s += (int16_t)(frame * 7U);
+                native[i].t -= (int16_t)(frame * 3U);
+            }
+            assert(ge_original_model_scene_build(&input, &expected, &direct) == GE_ORIGINAL_MODEL_SCENE_OK);
+            assert(ge_original_model_scene_cache_build(&cache, &input, 1U, &actual, &cached) == GE_ORIGINAL_MODEL_SCENE_OK);
+            assert(direct.vertex_count == cached.vertex_count);
+            for (size_t i = 0U; i < direct.vertex_count; ++i) {
+                assert(memcmp(&expected.vertices[i].source, &actual.vertices[i].source, sizeof(GeGbiVertex)) == 0);
+                assert(memcmp(expected.vertices[i].world, actual.vertices[i].world, sizeof(actual.vertices[i].world)) == 0);
+                assert(memcmp(expected.vertices[i].processed.texture, actual.vertices[i].processed.texture,
+                    sizeof(actual.vertices[i].processed.texture)) == 0);
+            }
+            assert(cache.topology_rebuilds == 1U && cache.topology_component_count == 1U);
+            assert(cache.publication_range_count == 1U && cache.publication_ranges[0].static_data_changed);
+            assert(ge_original_model_scene_cache_build(&cache, &input, 1U, &actual, &cached) == GE_ORIGINAL_MODEL_SCENE_OK);
+            assert(cache.publication_range_count == 0U);
+        }
+        /* Remove the override, then restore it in the same output buffers. */
+        GeOriginalModelSceneInput original = input;
+        original.segment4_vertices = NULL; original.segment4_read_vertex = NULL; original.segment4_vertex_count = 0U;
+        assert(ge_original_model_scene_build(&original, &expected, &direct) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(ge_original_model_scene_cache_build(&cache, &original, 1U, &actual, &cached) == GE_ORIGINAL_MODEL_SCENE_OK);
+        for (size_t i = 0U; i < direct.vertex_count; ++i)
+            assert(memcmp(&expected.vertices[i].source, &actual.vertices[i].source, sizeof(GeGbiVertex)) == 0);
+        assert(ge_original_model_scene_cache_build(&cache, &input, 1U, &actual, &cached) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(cache.topology_component_count == 2U);
+        input.segment4_vertex_count = SIZE_MAX;
+        assert(ge_original_model_scene_cache_build(&cache, &input, 1U, &actual, &cached) == GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT);
+        free(actual.batches); free(actual.vertices); free(expected.batches); free(expected.vertices);
+        exercised++;
+    }
+    assert(exercised == 1U);
+    ge_original_model_scene_cache_close(&cache);
+    free(native);
+    assert(ge_original_pitem_model_release_instance(models, instance));
+    puts("clipped door XYZ/ST publication matches canonical decode; immutable topology and dirty ranges retained");
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -419,6 +565,10 @@ int main(int argc, char **argv)
      * display-list parts must all publish before ONSCREEN is set. */
     assert(exercise_model(models, 24, 2U, 1));
     exercise_glass(models);
+    exercise_world_door_depth(models);
+    exercise_clipped_door_cache(models, 144);
+    exercise_clipped_door_cache(models, 176);
+    exercise_clipped_door_cache(models, 178);
     ge_original_pitem_model_provider_destroy(models);
     ge_asset_pack_close(&pack);
     puts("live ordinary identity/articulated model publication passed");

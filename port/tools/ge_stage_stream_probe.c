@@ -61,6 +61,37 @@ static int install_room(GeDamDynamicScene *scene,
     return status == GE_DAM_DYNAMIC_SCENE_OK ? 0 : 1;
 }
 
+static int audit_materials(GeAssetPack *pack, const GeStageAssetDescriptor *stage,
+                           const GeDamWorld *world)
+{
+    const GeDamDynamicSceneLimits limits = {1U, 65536U, 65536U};
+    int failures = 0;
+    puts("stage,room,batch,texture,triangles,pass,depth,depth_test,depth_write,blend,alpha_test,alpha_threshold,fog,fallback,texture_enabled,texture_source,color_combine,alpha_combine");
+    for (size_t room = 1U; room < world->room_count; ++room) {
+        GeDamDynamicScene scene = {0};
+        uint8_t id = (uint8_t)room;
+        GeDamDynamicSceneStatus status = ge_dam_dynamic_scene_init_for_stage(
+            &scene, pack, stage, world, &id, 1U, &limits);
+        if (status != GE_DAM_DYNAMIC_SCENE_OK) {
+            fprintf(stderr, "%s room %zu: %s\n", stage->key, room,
+                ge_dam_dynamic_scene_status_name(status));
+            failures++;
+        } else for (size_t batch = 0U; batch < scene.scene.batch_count; ++batch) {
+            const GeDamRoomDrawBatch *b = &scene.batches[batch];
+            const GePicaMaterial *m = &b->material;
+            printf("%s,%zu,%zu,%u,%zu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                stage->key, room, batch, m->texture_id, b->triangle_count,
+                b->list_kind, m->depth_mode, m->depth_test_enabled,
+                m->depth_write_enabled, m->blend_enabled, m->alpha_test,
+                m->alpha_threshold, m->fog_enabled, m->fallback_flags,
+                m->texture_enabled, m->texture_source, m->color_combine,
+                m->alpha_combine);
+        }
+        ge_dam_dynamic_scene_close(&scene);
+    }
+    return failures != 0;
+}
+
 int main(int argc, char **argv)
 {
     static const GeDamDynamicSceneLimits limits = {
@@ -85,6 +116,16 @@ int main(int argc, char **argv)
             != GE_ASSET_PACK_OK) {
         fprintf(stderr, "unknown stage or unreadable asset pack\n");
         return 2;
+    }
+    if (argc == 4 && strcmp(argv[3], "--materials") == 0) {
+        if (ge_stage_assets_resolve(&pack, stage, &assets) != GE_STAGE_ASSET_OK) {
+            ge_asset_pack_close(&pack);
+            return 2;
+        }
+        result = audit_materials(&pack, stage, &assets.world);
+        ge_stage_assets_close(&assets);
+        ge_asset_pack_close(&pack);
+        return result;
     }
     if (ge_stage_assets_resolve(&pack, stage, &assets)
             != GE_STAGE_ASSET_OK

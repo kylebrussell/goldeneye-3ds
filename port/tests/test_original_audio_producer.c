@@ -170,7 +170,13 @@ static int16_t expected_q15(int16_t value)
     return (int16_t)(product >> 15);
 }
 
-static void test_original_bus_save_chain_to_pcm_ring(void)
+static uint64_t test_profile_clock(void *context)
+{
+    uint64_t *ticks = context;
+    return ++*ticks;
+}
+
+static void test_original_bus_save_chain_to_pcm_ring(int profile)
 {
     static const int16_t left_samples[TEST_FRAMES] = {
         1000, -2000, 30000, -30000
@@ -178,6 +184,8 @@ static void test_original_bus_save_chain_to_pcm_ring(void)
     static const int16_t right_samples[TEST_FRAMES] = {
         -1000, 2000, 10000, -10000
     };
+    uint64_t profile_clock = 0U;
+    ge_audio_abi_profile_bind(profile ? test_profile_clock : NULL, &profile_clock);
     TestMemory memory = {0};
     TestSource source = {0};
     ALAuxBus aux = {0};
@@ -242,6 +250,21 @@ static void test_original_bus_save_chain_to_pcm_ring(void)
         assert(consumed[frame * 2U] == expected_left);
         assert(consumed[frame * 2U + 1U] == expected_right);
     }
+    uint64_t ticks[16], calls[16], hash, bytes, expected_hash = UINT64_C(14695981039346656037);
+    ge_audio_abi_profile_totals(ticks, calls);
+    ge_audio_abi_profile_pcm(&hash, &bytes);
+    uint64_t total_calls = 0U;
+    for (size_t opcode = 0; opcode < 16; ++opcode) {
+        assert(ticks[opcode] == calls[opcode]);
+        total_calls += calls[opcode];
+    }
+    assert(total_calls == (profile ? 15U : 0U));
+    assert(bytes == (profile ? sizeof(memory.output) : 0U));
+    if (profile) for (size_t byte = 0; byte < sizeof(memory.output); ++byte)
+        expected_hash = (expected_hash ^ memory.output[byte]) * UINT64_C(1099511628211);
+    assert(hash == expected_hash);
+    ge_audio_abi_profile_bind(NULL, NULL);
+
 }
 
 static void test_explicit_rsp_frontier(void)
@@ -585,6 +608,243 @@ static void test_resample_bounds_and_atomic_errors(void)
     }
 }
 
+static int resample_reference_range(uint16_t input, int position)
+{
+    if (position < -4) return 0;
+    return position < 0 || (uint32_t)input + (uint32_t)position * 2U + 2U
+        <= GE_AUDIO_ABI_DMEM_BYTES;
+}
+
+static void test_resample_pitch_sweep(void)
+{
+    uint32_t pitch;
+    uint32_t digest = UINT32_C(2166136261);
+    size_t accepted = 0U, rejected = 0U;
+    for (pitch = 0U; pitch <= UINT16_MAX; ++pitch) {
+        TestMemory memory = {0};
+        GeAudioAbiState abi;
+        uint8_t before[GE_AUDIO_ABI_DMEM_BYTES];
+        uint8_t history_before[32];
+        const uint16_t count = (uint16_t)(pitch % 257U);
+        const uint16_t initial_phase = (uint16_t)(pitch * 40503U);
+        const int initialize = (pitch & 1U) != 0U;
+        const uint16_t inputs[] = {0U, 1U, 0x200U, 3839U, 4094U,
+            4095U, 4096U, UINT16_MAX};
+        const GeAudioAbiCommand command = {
+            A_RESAMPLE << 24U | (initialize ? A_INIT << 16U : 0U) | pitch,
+            RESAMPLE_STATE_ADDRESS
+        };
+        const size_t samples = ((size_t)count + 15U) / 16U * 8U;
+        uint32_t phase = initialize ? 0U : initial_phase;
+        int position = -4;
+        int valid = 1;
+        size_t sample, tap, byte;
+
+        ge_audio_abi_init(&abi);
+        abi.dmem_input = inputs[(pitch / 257U) % 8U];
+        abi.dmem_output = 0U;
+        abi.count_bytes = count;
+        for (byte = 0U; byte < sizeof(abi.dmem); ++byte)
+            abi.dmem[byte] = (uint8_t)(byte * 13U + pitch);
+        fill_bytes(memory.resample_state, 0x5a, sizeof(memory.resample_state));
+        store_be16(memory.resample_state + 8U, (int16_t)initial_phase);
+        copy_bytes(before, abi.dmem, sizeof(before));
+        copy_bytes(history_before, memory.resample_state, sizeof(history_before));
+
+        /* Independent scalar walk of every tap, followed by persisted
+         * history. This deliberately does not use the optimized endpoint. */
+        for (sample = 0U; sample < samples; ++sample) {
+            for (tap = 0U; tap < 4U; ++tap)
+                if (!resample_reference_range(abi.dmem_input,
+                        position + (int)tap)) valid = 0;
+            phase += pitch * 2U;
+            position += (int)(phase >> 16U);
+            phase &= 0xffffU;
+        }
+        for (tap = 0U; tap < 4U; ++tap)
+            if (!resample_reference_range(abi.dmem_input,
+                    position + (int)tap)) valid = 0;
+        assert(ge_audio_abi_execute(&abi, &command, 1U,
+            resolve_test_address, &memory)
+            == (valid ? GE_AUDIO_ABI_OK : GE_AUDIO_ABI_DMEM_RANGE));
+        if (!valid) {
+            ++rejected;
+            for (byte = 0U; byte < sizeof(before); ++byte)
+                assert(before[byte] == abi.dmem[byte]);
+            for (byte = 0U; byte < sizeof(history_before); ++byte)
+                assert(history_before[byte] == memory.resample_state[byte]);
+        } else {
+            ++accepted;
+            assert((uint16_t)load_be16(memory.resample_state + 8U) == phase);
+        }
+        for (byte = 0U; byte < sizeof(abi.dmem); ++byte)
+            digest = (digest ^ abi.dmem[byte]) * UINT32_C(16777619);
+        for (byte = 0U; byte < sizeof(memory.resample_state); ++byte)
+            digest = (digest ^ memory.resample_state[byte]) * UINT32_C(16777619);
+    }
+    assert(accepted == 31898U && rejected == 33638U);
+    /* Recorded from the prior scalar-preflight implementation. Covers PCM,
+     * overlapping DMEM, continued history/phase and unchanged rejected data. */
+    assert(digest == UINT32_C(0xabfbe11a));
+}
+
+/* Every coefficient row and every sign combination at full scale. Exercise
+ * both history/DMEM crossing and the contiguous path, odd and overlapping
+ * buffers, and extreme pitches. The digest comes from the int64 scalar
+ * implementation, including persisted history and untouched DMEM bytes. */
+static void test_resample_full_scale(void)
+{
+    uint32_t digest = UINT32_C(2166136261);
+    const uint16_t pitches[] = {0U, 1U, 0x4000U, 0x7fffU, 0x8000U, 0xffffU};
+    unsigned row, signs, variant;
+    for (row = 0U; row < 64U; ++row) {
+        for (signs = 0U; signs < 16U; ++signs) {
+            for (variant = 0U; variant < 6U; ++variant) {
+                TestMemory memory = {0};
+                GeAudioAbiState abi;
+                GeAudioAbiCommand command = {
+                    A_RESAMPLE << 24U | pitches[variant],
+                    RESAMPLE_STATE_ADDRESS
+                };
+                size_t sample, byte;
+                ge_audio_abi_init(&abi);
+                abi.dmem_input = 0x101U;
+                abi.dmem_output = variant & 1U ? 0x101U : 0x800U;
+                abi.count_bytes = 256U;
+                for (sample = 0U; sample < 512U; ++sample) {
+                    const int16_t value = signs & (1U << (sample % 4U))
+                        ? INT16_MIN : INT16_MAX;
+                    store_be16(abi.dmem + abi.dmem_input + sample * 2U, value);
+                    if (sample < 4U)
+                        store_be16(memory.resample_state + sample * 2U, value);
+                }
+                store_be16(memory.resample_state + 8U, (int16_t)(row << 10U));
+                assert(ge_audio_abi_execute(&abi, &command, 1U,
+                    resolve_test_address, &memory) == GE_AUDIO_ABI_OK);
+                for (byte = 0U; byte < sizeof(abi.dmem); ++byte)
+                    digest = (digest ^ abi.dmem[byte]) * UINT32_C(16777619);
+                for (byte = 0U; byte < sizeof(memory.resample_state); ++byte)
+                    digest = (digest ^ memory.resample_state[byte]) * UINT32_C(16777619);
+            }
+        }
+    }
+    assert(digest == UINT32_C(0x41fa0db5));
+}
+
+static uint32_t mixer_test_random(uint32_t *seed)
+{
+    *seed = *seed * UINT32_C(1664525) + UINT32_C(1013904223);
+    return *seed;
+}
+
+static void test_envmixer_ramps_and_overlap(void)
+{
+    uint32_t digest = UINT32_C(2166136261), seed = 719U;
+    const uint16_t offsets[] = {0U, 1U, 0x200U, 0x201U, 0x400U, 0x600U};
+    unsigned trial;
+    for (trial = 0U; trial < 4096U; ++trial) {
+        GeAudioAbiState abi;
+        TestMemory memory = {0};
+        const GeAudioAbiCommand command = {
+            A_ENVMIXER << 24U | ((trial & 1U ? A_INIT : 0U)
+                | (trial & 2U ? A_AUX : 0U)) << 16U,
+            ENVMIX_STATE_ADDRESS
+        };
+        size_t byte, channel;
+        ge_audio_abi_init(&abi);
+        for (byte = 0U; byte < sizeof(abi.dmem); ++byte)
+            abi.dmem[byte] = (uint8_t)(mixer_test_random(&seed) >> 24U);
+        for (byte = 0U; byte < sizeof(memory.envmix_state); ++byte)
+            memory.envmix_state[byte] = (uint8_t)(mixer_test_random(&seed) >> 24U);
+        abi.count_bytes = trial % 513U;
+        abi.dmem_input = offsets[trial % 6U];
+        abi.dmem_output = offsets[(trial / 6U) % 6U];
+        abi.dmem_dry_right = offsets[(trial / 36U) % 6U];
+        abi.dmem_wet_left = offsets[(trial / 216U) % 6U];
+        abi.dmem_wet_right = offsets[(trial / 1296U) % 6U];
+        abi.envelope_dry = (int16_t)(mixer_test_random(&seed) >> 16U);
+        abi.envelope_wet = (int16_t)(mixer_test_random(&seed) >> 16U);
+        for (channel = 0U; channel < 2U; ++channel) {
+            abi.envelope_volume[channel] = (int16_t)(mixer_test_random(&seed) >> 16U);
+            abi.envelope_target[channel] = (int16_t)(mixer_test_random(&seed) >> 16U);
+            abi.envelope_rate[channel] = (int32_t)mixer_test_random(&seed);
+            if (trial % 3U == 0U) {
+                abi.envelope_rate[channel] = 0;
+                fill_bytes(memory.envmix_state + 16U + channel * 4U, 0U, 4U);
+            }
+            if (trial % 5U == 0U)
+                abi.envelope_target[channel] = abi.envelope_volume[channel];
+        }
+        assert(ge_audio_abi_execute(&abi, &command, 1U,
+                resolve_test_address, &memory) == GE_AUDIO_ABI_OK);
+        for (byte = 0U; byte < sizeof(abi.dmem); ++byte)
+            digest = (digest ^ abi.dmem[byte]) * UINT32_C(16777619);
+        for (byte = 0U; byte < sizeof(memory.envmix_state); ++byte)
+            digest = (digest ^ memory.envmix_state[byte]) * UINT32_C(16777619);
+    }
+    /* Recorded with the previous per-sample scalar mixer at -O2. */
+    assert(digest == UINT32_C(0x1f5e37d0));
+}
+
+static void test_adpcm_extreme_predictors(int bounded)
+{
+    uint32_t digest = UINT32_C(2166136261), seed = 819U;
+    unsigned trial;
+    for (trial = 0U; trial < 4096U; ++trial) {
+        GeAudioAbiState abi;
+        TestMemory memory = {0};
+        const GeAudioAbiCommand command = {
+            A_ADPCM << 24U | (trial & 1U ? A_INIT << 16U : 0U),
+            ADPCM_STATE_ADDRESS
+        };
+        size_t sample, byte;
+        ge_audio_abi_init(&abi);
+        abi.dmem_input = 0x101U;
+        abi.dmem_output = 0x501U;
+        abi.count_bytes = 256U;
+        abi.adpcm_codebook_bytes = sizeof(abi.adpcm_codebook);
+        for (sample = 0U; sample < GE_AUDIO_ABI_ADPCM_BOOK_SAMPLES; ++sample)
+            abi.adpcm_codebook[sample] = trial % 3U
+                ? (int16_t)(mixer_test_random(&seed) >> 16U)
+                : (sample & 1U ? INT16_MIN : INT16_MAX);
+        if (bounded) {
+            for (sample = 0U; sample < GE_AUDIO_ABI_ADPCM_BOOK_SAMPLES; ++sample)
+                abi.adpcm_codebook[sample] = trial % 5U == 0U
+                    ? (int16_t)((int32_t)(mixer_test_random(&seed) >> 19U) - 4096)
+                    : 0;
+            if (trial % 5U != 0U) {
+                for (sample = 0U; sample < 8U; ++sample) {
+                    /* Both signs, immediately on each side of the proven
+                     * 63487 coefficient-sum boundary. Alternate predictor
+                     * sizes within one command to exercise both paths. */
+                    const int negative = (trial & 2U) != 0U;
+                    abi.adpcm_codebook[sample * 16U + 7U] =
+                        negative ? INT16_MIN : INT16_MAX;
+                    abi.adpcm_codebook[sample * 16U + 15U] = negative
+                        ? (int16_t)(-30719 - (int)(sample & 1U))
+                        : (int16_t)(30720 + (sample & 1U));
+                }
+            }
+        }
+        for (byte = 0U; byte < sizeof(memory.adpcm_state); ++byte)
+            memory.adpcm_state[byte] = (uint8_t)(mixer_test_random(&seed) >> 24U);
+        for (byte = 0U; byte < 72U; ++byte)
+            abi.dmem[abi.dmem_input + byte] = (uint8_t)(mixer_test_random(&seed) >> 24U);
+        for (sample = 0U; sample < 8U; ++sample)
+            abi.dmem[abi.dmem_input + sample * 9U] =
+                (uint8_t)((trial % 16U) << 4U | sample);
+        assert(ge_audio_abi_execute(&abi, &command, 1U,
+                resolve_test_address, &memory) == GE_AUDIO_ABI_OK);
+        for (byte = 0U; byte < sizeof(abi.dmem); ++byte)
+            digest = (digest ^ abi.dmem[byte]) * UINT32_C(16777619);
+        for (byte = 0U; byte < sizeof(memory.adpcm_state); ++byte)
+            digest = (digest ^ memory.adpcm_state[byte]) * UINT32_C(16777619);
+    }
+    /* Recorded with the previous int64 floor/saturation implementation. */
+    if (bounded) assert(digest == UINT32_C(0xb961c332));
+    else assert(digest == UINT32_C(0xd2ddec30));
+}
+
 static void test_adpcm_loop_golden_vector(void)
 {
     static const int16_t expected[16] = {
@@ -753,13 +1013,19 @@ static void test_adpcm_bounds_and_atomic_errors(void)
 int main(void)
 {
     test_native_direct_address_mode();
-    test_original_bus_save_chain_to_pcm_ring();
+    test_original_bus_save_chain_to_pcm_ring(0);
+    test_original_bus_save_chain_to_pcm_ring(1);
     test_adpcm_loop_golden_vector();
     test_adpcm_init_scale_and_sign();
     test_adpcm_bounds_and_atomic_errors();
     test_resample_init_golden_vector();
     test_resample_continue_golden_vector();
     test_resample_bounds_and_atomic_errors();
+    test_resample_pitch_sweep();
+    test_resample_full_scale();
+    test_envmixer_ramps_and_overlap();
+    test_adpcm_extreme_predictors(0);
+    test_adpcm_extreme_predictors(1);
     test_goldeneye_envmixer_init_and_continue();
     test_polef_identity_and_saved_history();
     test_explicit_rsp_frontier();

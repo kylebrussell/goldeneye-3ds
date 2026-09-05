@@ -494,27 +494,74 @@ int ge_original_door_runtime_link_pair(
     return 1;
 }
 
+/* Generation polling uses the same validated source as full publication,
+ * but does not build matrices or copy collision/vertex metadata. */
+static GeOriginalDoorNativeSlot *door_publication_source(const void *definition)
+{
+    const ObjectRecord *object = definition;
+    GeOriginalDoorNativeSlot *slot = NULL;
+    for (size_t index = 0U; index < GE_ORIGINAL_DOOR_NATIVE_CAPACITY; ++index) {
+        if (native_doors[index].definition == definition
+                && native_doors[index].runtime != NULL) {
+            slot = &native_doors[index];
+            break;
+        }
+    }
+    if (slot == NULL || object == NULL || object->prop == NULL
+            || object->ptr_allocated_collisiondata_block == NULL) return NULL;
+    const struct collision_data *collision = object->ptr_allocated_collisiondata_block;
+    if (collision->edges < 0
+            || collision->edges > (int32_t)GE_ORIGINAL_DOOR_COLLISION_EDGE_CAPACITY)
+        return NULL;
+    if (slot->runtime->doorType == DOORTYPE_IRIS
+            && object->model->obj->numMatrices >= 13
+            && object->model->obj->numSwitches >= 13) {
+        for (size_t index = 1U; index <= 12U; ++index)
+            if (object->model->obj->Switches[index] == NULL) return NULL;
+    }
+    return slot;
+}
+
+static uint32_t door_publication_generation(GeOriginalDoorNativeSlot *slot)
+{
+    uint32_t open_position_bits;
+    memcpy(&open_position_bits, &slot->runtime->openPosition,
+           sizeof(open_position_bits));
+    if (!slot->open_position_published
+            || slot->last_open_position_bits != open_position_bits) {
+        slot->last_open_position_bits = open_position_bits;
+        slot->open_position_published = 1U;
+        slot->publication_generation++;
+    }
+    return slot->publication_generation;
+}
+
+int ge_original_door_runtime_generation(const void *door, uint32_t *generation)
+{
+    if (generation == NULL) return 0;
+    GeOriginalDoorNativeSlot *slot = door_publication_source(door);
+    if (slot == NULL) return 0;
+    *generation = door_publication_generation(slot);
+    return 1;
+}
+
 int ge_original_door_runtime_snapshot(
     const void *opaque_door, GeOriginalDoorRuntimePublication *out)
 {
-    DoorRecord *door = find_native_door((void *)opaque_door);
     GeOriginalDoorNativeSlot *slot;
+    DoorRecord *door;
     ObjectRecord *object;
     const struct collision_data *collision;
     Mtxf matrix;
     coord3d position;
-    uint32_t open_position_bits;
     int32_t edge;
 
-    object = (ObjectRecord *)opaque_door;
-    if (door == NULL || out == NULL || object->prop == NULL
-            || object->ptr_allocated_collisiondata_block == NULL) return 0;
-    slot = find_native_slot_by_runtime(door);
+    if (out == NULL) return 0;
+    slot = door_publication_source(opaque_door);
     if (slot == NULL) return 0;
+    door = slot->runtime;
+    object = (ObjectRecord *)opaque_door;
     collision = object->ptr_allocated_collisiondata_block;
-    if (collision->edges < 0
-            || collision->edges
-                > (int32_t)GE_ORIGINAL_DOOR_COLLISION_EDGE_CAPACITY) return 0;
 
     memset(out, 0, sizeof(*out));
     ge_original_door_matrix_slice(door, &matrix);
@@ -603,15 +650,7 @@ int ge_original_door_runtime_snapshot(
     out->clipped_vertices = door->unkcc;
     out->clipped_vertex_count = slot->clipped_vertex_count;
     out->clipped_vertex_stride = sizeof(Vertex);
-    memcpy(&open_position_bits, &door->openPosition,
-           sizeof(open_position_bits));
-    if (!slot->open_position_published
-            || slot->last_open_position_bits != open_position_bits) {
-        slot->last_open_position_bits = open_position_bits;
-        slot->open_position_published = 1U;
-        slot->publication_generation++;
-    }
-    out->generation = slot->publication_generation;
+    out->generation = door_publication_generation(slot);
     out->open_state = door->openstate;
     out->portal_number = door->portalNumber;
     out->room = (int16_t)object->prop->rooms[0];

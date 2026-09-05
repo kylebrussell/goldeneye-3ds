@@ -90,6 +90,8 @@ GeOriginalDoorRuntimeStatus ge_original_door_runtime_activate(
 GeOriginalDoorRuntimeStatus ge_original_door_runtime_tick(void *door);
 int ge_original_door_runtime_link_pair(void *first_definition,
                                        void *second_definition);
+/* Same validity/generation semantics as snapshot without matrix construction. */
+int ge_original_door_runtime_generation(const void *door, uint32_t *generation);
 int ge_original_door_runtime_snapshot(
     const void *door, GeOriginalDoorRuntimePublication *publication);
 const char *ge_original_door_runtime_status_name(

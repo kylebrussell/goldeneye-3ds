@@ -17,6 +17,7 @@ enum {
     OTHER_LOW_DEPTH_WRITE = 0x00000020,
     OTHER_LOW_DEPTH_MODE_MASK = 0x00000c00,
     OTHER_LOW_FORCE_BLEND = 0x00004000,
+    OTHER_LOW_COVERAGE_TIMES_ALPHA = 0x00001000,
     OTHER_HIGH_ALPHA_DITHER_MASK = 0x00000030,
     OTHER_HIGH_COLOR_DITHER_MASK = 0x000000c0,
     OTHER_HIGH_TEXTURE_FILTER_MASK = 0x00003000,
@@ -449,6 +450,16 @@ GePicaMaterialStatus ge_pica_material_translate(
     material->alpha_test = alpha_compare == 0U
         ? GE_PICA_ALPHA_TEST_DISABLED : GE_PICA_ALPHA_TEST_THRESHOLD;
     material->alpha_threshold = material->blend_color.alpha;
+    if ((state->other_mode_low & OTHER_LOW_COVERAGE_TIMES_ALPHA) != 0U) {
+        /* RDP coverage-times-alpha suppresses zero-alpha fragments even
+         * with G_AC_NONE. PICA has no coverage buffer: retain that endpoint
+         * through alpha testing and report the fractional-coverage gap. */
+        if (alpha_compare == 0U) {
+            material->alpha_test = GE_PICA_ALPHA_TEST_THRESHOLD;
+            material->alpha_threshold = 0U;
+        }
+        material->fallback_flags |= GE_PICA_FALLBACK_COVERAGE;
+    }
     if (alpha_compare == OTHER_LOW_ALPHA_COMPARE_MASK
             || (state->other_mode_high & OTHER_HIGH_ALPHA_DITHER_MASK)
                 != 0U) {

@@ -42,6 +42,27 @@ def pack_names(path: Path) -> list[str]:
     return names
 
 
+class PaletteAlphaTests(unittest.TestCase):
+    def test_auto_preserves_fractional_palette_alpha(self):
+        import importlib.util
+        import struct
+        spec = importlib.util.spec_from_file_location('converter', CONVERTER)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        def chunk(kind, payload):
+            return struct.pack('>I', len(payload)) + kind + payload + bytes(4)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'palette.png'
+            header = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 8,8,8,3,0,0,0))
+            for alpha, expected in [(bytes([0,255]), 'rgba5551'), (bytes([0,96,255]), 'rgba8'), (b'', 'rgba5551')]:
+                path.write_bytes(header + chunk(b'tRNS', alpha) + chunk(b'IDAT', b''))
+                self.assertEqual(module.select_texture_format(path, 'auto'), expected)
+                self.assertEqual(module.select_texture_format(path, 'rgba5551'), 'rgba5551')
+            path.write_bytes(header + chunk(b'IDAT', b''))
+            self.assertEqual(module.select_texture_format(path, 'auto'), 'rgba5551')
+            path.write_bytes(header + chunk(b'tRNS', bytes(257)))
+            with self.assertRaises(ValueError): module.select_texture_format(path, 'auto')
+
+
 class AssetPipelineTests(unittest.TestCase):
     def test_batch_catalog_is_sorted_pruned_and_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_name:
@@ -96,7 +117,7 @@ output.write_bytes(b'T3X' + sys.argv[sys.argv.index('-f') + 1].encode() + Path(s
             self.assertEqual(parsed["format"], "auto")
             self.assertEqual([lod["format"] for lod in parsed["textures"][0]["lods"]],
                              ["la8", "la8"])
-            self.assertEqual(parsed["textures"][1]["lods"][0]["format"], "rgba5551")
+            self.assertEqual(parsed["textures"][1]["lods"][0]["format"], "rgba8")
             self.assertTrue((t3x_output / "B-0.t3x").read_bytes().startswith(b"T3Xla8"))
             self.assertEqual([item["lod"] for item in parsed["textures"][0]["lods"]], [0, 2])
             self.assertNotIn(str(root), catalog.read_text(encoding="utf-8"))

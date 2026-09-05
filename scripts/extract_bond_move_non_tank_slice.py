@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract exact non-tank player tick and weapon-sway MoveBond dependencies."""
+"""Extract non-tank MoveBond dependencies with explicit native ABI returns."""
 
 from __future__ import annotations
 
@@ -347,7 +347,17 @@ def generate(repo: Path) -> str:
     for relative, names in FUNCTIONS.items():
         for name in names:
             body = extract_function(sources[relative], name)
-            sections.extend((f"/* {name} sha256={digest(body)} */", body, ""))
+            source_digest = digest(body)
+            if name == "sub_GAME_7F0C0BF0":
+                # IDO leaves get_mTrack2Vol's result in MIPS v0, but falling
+                # out of a value-returning C function is undefined on native
+                # compilers. Preserve that return explicitly in the port only.
+                old = "    get_mTrack2Vol();"
+                if body.count(old) != 1:
+                    raise ValueError("music-volume return boundary changed")
+                body = body.replace(old, "    return get_mTrack2Vol();")
+                sections.append("/* Native ABI: explicitly forward the music volume return. */")
+            sections.extend((f"/* {name} sha256={source_digest} */", body, ""))
     return "\n".join(sections)
 
 
@@ -360,7 +370,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(output)
     count = sum(map(len, FUNCTIONS.values())) + sum(map(len, VARIABLES.values()))
-    print(f"generated {count} exact non-tank MoveBond bodies/data -> {args.output}")
+    print(f"generated {count} non-tank MoveBond bodies/data (native ABI return) -> {args.output}")
 
 
 if __name__ == "__main__":

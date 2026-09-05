@@ -225,7 +225,9 @@ int main(int argc, char **argv)
                 GeOriginalCharacterModelScenePart individual;
                 assert(ge_original_character_model_instance_scene_part(
                     provider, pair.model_instance, part_index, &individual));
-                assert(individual.blob == bulk_parts[part_index].blob
+                assert(individual.node == bulk_parts[part_index].node
+                    && individual.model_type == bulk_parts[part_index].model_type
+                    && individual.blob == bulk_parts[part_index].blob
                     && individual.blob_size
                         == bulk_parts[part_index].blob_size
                     && individual.primary_offset
@@ -234,6 +236,34 @@ int main(int argc, char **argv)
                         == bulk_parts[part_index].secondary_offset
                     && individual.segment4_offset
                         == bulk_parts[part_index].segment4_offset);
+            }
+            /* The unchanged scalar walk is also the independent count
+             * oracle: bulk filtering must not silently omit a final part. */
+            GeOriginalCharacterModelScenePart absent;
+            assert(!ge_original_character_model_instance_scene_part(
+                provider, pair.model_instance, bulk_count, &absent));
+            size_t untouched_count = SIZE_MAX;
+            assert(!ge_original_character_model_instance_scene_parts(
+                provider, pair.model_instance, NULL, 1U, &untouched_count));
+            assert(untouched_count == SIZE_MAX);
+            if (bulk_count > 1U) {
+                GeOriginalCharacterModelScenePart *short_parts =
+                    calloc(bulk_count - 1U, sizeof(*short_parts));
+                assert(short_parts != NULL);
+                assert(!ge_original_character_model_instance_scene_parts(
+                    provider, pair.model_instance, short_parts, bulk_count - 1U,
+                    &untouched_count));
+                assert(untouched_count == SIZE_MAX);
+                for (size_t j=0; j<bulk_count-1U; ++j) {
+                    assert(short_parts[j].node == bulk_parts[j].node
+                        && short_parts[j].blob == bulk_parts[j].blob
+                        && short_parts[j].blob_size == bulk_parts[j].blob_size
+                        && short_parts[j].primary_offset == bulk_parts[j].primary_offset
+                        && short_parts[j].secondary_offset == bulk_parts[j].secondary_offset
+                        && short_parts[j].segment4_offset == bulk_parts[j].segment4_offset
+                        && short_parts[j].model_type == bulk_parts[j].model_type);
+                }
+                free(short_parts);
             }
             if (bulk_count > maximum_part_count) {
                 maximum_part_count = bulk_count;

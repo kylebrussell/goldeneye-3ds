@@ -125,11 +125,64 @@ def render(repo: Path) -> str:
         "#define chrlvAllChrTick ge_original_dam_guard_all_chr_tick_exact",
         "",
     ]
-    pieces.extend(function_text(chr_source, name) for name in CHR_FUNCTIONS)
-    pieces.extend(function_text(chraction_source, name)
-                  for name in CHRACTION_FUNCTIONS)
+    # Wrappers observe dispatch boundaries; retained source bodies remain
+    # byte-for-byte unchanged and an unbound clock calls straight through.
+    pieces.append(r"""
+static GeOriginalPropsProfileClock props_profile_clock;
+static void *props_profile_context;
+uint64_t ge_original_props_profile[10];
+void ge_original_props_profile_bind(GeOriginalPropsProfileClock clock, void *context)
+{
+    props_profile_clock = clock;
+    props_profile_context = context;
+    for (unsigned i = 0; i < 10; ++i) ge_original_props_profile[i] = 0;
+}
+""")
+    pieces.extend(function_text(chr_source, name) for name in CHR_FUNCTIONS[:2])
+    for function, target, params, args, category in (
+        ("chrlvActionTick", "ge_original_dam_guard_action_tick_exact", "ChrRecord *chr", "chr", 6),
+        ("chrUpdateAnim", "ge_original_dam_guard_chr_update_anim_exact", "ChrRecord *chr, s32 ticks", "chr, ticks", 7),
+        ("subcalcmatrices", "subcalcmatrices", "ModelRenderData *data, Model *model", "data, model", 8),
+        ("chrlvTriggerFireWeapon", "chrlvTriggerFireWeapon", "ChrRecord *chr", "chr", 9),
+    ):
+        pieces.append(f"""
+static void profile_{function}({params})
+{{
+    if (props_profile_clock == NULL) {{ {target}({args}); return; }}
+    uint64_t start = props_profile_clock(props_profile_context);
+    {target}({args});
+    ge_original_props_profile[{category}] += props_profile_clock(props_profile_context) - start;
+}}
+#undef {function}
+#define {function} profile_{function}
+""")
+    pieces.append(function_text(chr_source, "chrTick"))
+    pieces.extend(function_text(chraction_source, name) for name in CHRACTION_FUNCTIONS)
+    for function, target, category in (
+        ("chrTick", "ge_original_dam_guard_chr_tick_exact", 0),
+        ("objTick", "objTick", 1),
+        ("explosionChrpropExplosionTick", "explosionChrpropExplosionTick", 2),
+        ("explosionChrpropSmokeTick", "explosionChrpropSmokeTick", 2),
+        ("playerTick", "playerTick", 2),
+    ):
+        pieces.append(f"""
+static s32 profile_{function}(PropRecord *prop)
+{{
+    if (props_profile_clock == NULL) return {target}(prop);
+    uint64_t start = props_profile_clock(props_profile_context);
+    s32 result = {target}(prop);
+    ge_original_props_profile[{category}] += props_profile_clock(props_profile_context) - start;
+    ge_original_props_profile[{category + 3}]++;
+    return result;
+}}
+#undef {function}
+#define {function} profile_{function}
+""")
     pieces.extend(function_text(chrprop_source, name)
                   for name in CHRPROP_FUNCTIONS)
+    pieces.append("\n".join("#undef " + name for name in (
+        "objTick", "explosionChrpropExplosionTick", "explosionChrpropSmokeTick", "playerTick",
+        "subcalcmatrices", "chrlvTriggerFireWeapon")))
     pieces.extend([
         "",
         "#undef chrlvAllChrTick",

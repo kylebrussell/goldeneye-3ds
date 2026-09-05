@@ -50,7 +50,33 @@ def select_texture_format(path: Path, requested: str) -> str:
     # tex2png preserves original intensity/alpha images as PNG gray+alpha.
     # RGBA5551 erased fractional alpha (GLASS3 is uniformly 96/255). LA8
     # preserves both channels without increasing the 16-bit GPU footprint.
-    return "la8" if header[25] == 4 else "rgba5551"
+    color_type = header[25]
+    if color_type == 4:
+        return "la8"
+    if color_type == 6:
+        # Native RGBA textures can contain fractional alpha (e.g. effects).
+        # Preserve their channels; only this small family pays the 32-bit cost.
+        return "rgba8"
+    if color_type == 3:
+        # Indexed PNGs carry alpha in tRNS rather than their color type.
+        with path.open("rb") as stream:
+            stream.seek(8)
+            while True:
+                chunk = stream.read(8)
+                if len(chunk) != 8:
+                    raise ValueError(f"truncated PNG chunk: {path}")
+                size, kind = struct.unpack(">I4s", chunk)
+                if kind in (b"IDAT", b"IEND"):
+                    break
+                if kind == b"tRNS":
+                    if size > 256:
+                        raise ValueError(f"invalid palette alpha: {path}")
+                    alpha = stream.read(size)
+                    if len(alpha) != size:
+                        raise ValueError(f"truncated palette alpha: {path}")
+                    return "rgba8" if any(0 < value < 255 for value in alpha) else "rgba5551"
+                stream.seek(size + 4, 1)
+    return "rgba5551"
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--images-def", type=Path,
                         help="images.def used to attach original numeric image IDs")
     parser.add_argument("--format", default="auto",
-                        help="tex3ds output format (auto: la8 for gray+alpha, rgba5551 otherwise)")
+                        help="tex3ds output format (auto: la8 for gray+alpha, rgba8 for RGBA/fractional palette alpha, rgba5551 otherwise)")
     parser.add_argument("--compression", default="auto")
     parser.add_argument("--mipmap",
                         help="tex3ds mipmap filter (for example: box)")

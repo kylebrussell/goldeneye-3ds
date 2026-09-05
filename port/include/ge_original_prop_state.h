@@ -17,6 +17,14 @@ typedef struct GeOriginalCharacterSceneState {
     float zdepth;
 } GeOriginalCharacterSceneState;
 
+/* Local to one publication pass. Discard before any canonical list mutation. */
+typedef struct GeOriginalPropActiveSet {
+    uint8_t active[600];
+} GeOriginalPropActiveSet;
+int ge_original_prop_state_snapshot_active(GeOriginalPropActiveSet *set);
+int ge_original_prop_state_active_set_contains(
+    const GeOriginalPropActiveSet *set, const void *prop);
+
 /*
  * Initializes native storage for the original 600-slot prop pool and its
  * 256 room-list chunks. This is a platform allocation boundary; allocation,
@@ -71,6 +79,9 @@ int ge_original_prop_state_object_scene_matrix_bank(
  * objTick transform convention before ONSCREEN is set. */
 int ge_original_prop_state_publish_scene_visibility(
     void *prop, int visible, const float world_to_view[4][4]);
+int ge_original_prop_state_publish_scene_visibility_with_active_set(
+    void *prop, int visible, const float world_to_view[4][4],
+    const GeOriginalPropActiveSet *active);
 
 /* Read-only character renderer observation. The unchanged chrTick body is
  * the sole writer of character ONSCREEN and zDepth; platform scene residency

@@ -107,6 +107,11 @@ def apply_native_model_hit_abi(body: str, name: str) -> str:
     native-endian command words assumed by the original source.
     """
     if name == "bgTestHitOnObj":
+        body = body.replace("    Vertex *vtxbase;", """#if defined(GE_PORT_MODEL_HIT_NATIVE_ABI)
+    GeNativeModelHitVertices vertex_range = ge_port_model_hit_vertices;
+#else
+    Vertex *vtxbase;
+#endif""")
         body = body.replace("((u32 *) gdl)[1]", "GE_MODEL_HIT_U32(gdl, 1)")
         body = body.replace("((u32 *) gdl)[0]", "GE_MODEL_HIT_U32(gdl, 0)")
         body = body.replace("((u16 *) gdl)[3]", "GE_MODEL_HIT_U16(gdl, 3)")
@@ -115,8 +120,47 @@ def apply_native_model_hit_abi(body: str, name: str) -> str:
         vertex_base = "(Vertex *) ((((s32) vertices) + padC) - (op << 4))"
         if body.count(vertex_base) != 1:
             raise ValueError("unexpected bgTestHitOnObj vertex-base shape")
-        body = body.replace(vertex_base,
-            "GE_MODEL_HIT_VERTEX_BASE(vertices, padC, op << 4)")
+        body = body.replace("vtxbase = " + vertex_base + ";", """#if defined(GE_PORT_MODEL_HIT_NATIVE_ABI)
+            if (!ge_native_model_hit_vertices_load(&vertex_range,
+                    GE_MODEL_HIT_U32(gdl, 0), GE_MODEL_HIT_U32(gdl, 1)))
+                return FALSE;
+#else
+            vtxbase = GE_MODEL_HIT_VERTEX_BASE(vertices, padC, op << 4);
+#endif""")
+        for indices in ("idx", "idx2"):
+            # Rare pads TRI4 with repeated-index triangles. Rejecting an
+            # unloaded padding slot must not discard an earlier valid hit.
+            # Such triangles have zero area regardless of their coordinates.
+            cursor = "gdl = GE_MODEL_HIT_GDL_NEXT(gdl);" if indices == "idx" else "++s2;"
+            marker = re.compile(r"(?P<indent> +)for \(i = 0; i < 3; i\+\+\)\s*\{\s*v = vtxbase;\s*v \+= " + indices + r"\[i\];")
+            if len(marker.findall(body)) != 1:
+                raise ValueError("unexpected collision vertex-loop shape")
+            body = marker.sub(lambda m: "#if defined(GE_PORT_MODEL_HIT_NATIVE_ABI)\n"
+                + f"if ({indices}[0] == {indices}[1] || {indices}[0] == {indices}[2] || {indices}[1] == {indices}[2]) {{ {cursor} continue; }}\n"
+                + "#endif\n" + m.group(0), body)
+            old = re.compile(r"v = vtxbase;\s*v \+= " + indices + r"\[i\];")
+            if len(old.findall(body)) != 1:
+                raise ValueError("unexpected collision vertex-read shape")
+            body = old.sub("""#if defined(GE_PORT_MODEL_HIT_NATIVE_ABI)
+                    v = ge_port_model_hit_vertex(&vertex_range, vertices, """
+                    + indices + """[i]);
+                    if (v == NULL) return FALSE;
+#else
+                    v = vtxbase; v += """ + indices + """[i];
+#endif""", body)
+            old_points = (f"pt0 = vtxbase; pt0 += {indices}[0]; "
+                f"pt1 = vtxbase; pt1 += {indices}[1]; "
+                f"pt2 = vtxbase; pt2 += {indices}[2];")
+            if body.count(old_points) != 1:
+                raise ValueError("unexpected collision triangle-read shape")
+            points = "\n".join(f"pt{i} = ge_port_model_hit_vertex("
+                f"&vertex_range, vertices, {indices}[{i}]);" for i in range(3))
+            body = body.replace(old_points,
+                "#if defined(GE_PORT_MODEL_HIT_NATIVE_ABI)\n" + points
+                + "\n#else\n" + old_points + "\n#endif")
+            for i in range(3):
+                old_point = f"&vtxbase[{indices}[{i}]]"
+                body = body.replace(old_point, f"pt{i}")
         if body.count("gdl++;") != 2 or body.count("tcmd--;") != 2:
             raise ValueError("unexpected bgTestHitOnObj Gfx cursor shape")
         body = body.replace("gdl++;", "gdl = GE_MODEL_HIT_GDL_NEXT(gdl);")
@@ -180,6 +224,19 @@ def apply_native_model_hit_abi(body: str, name: str) -> str:
             ge_port_model_hit_base_size =
                 ge_original_native_model_hit_blob_size(
                     ge_port_model_hit_base_addr);
+            const void *source_vertices = type == MODELNODE_OPCODE_DLCOLLISION
+                ? (const void *)node->Data->DisplayListCollisions.Vertices
+                : (const void *)node->Data->DisplayList.Vertices;
+            ge_port_model_hit_vertices.count = type == MODELNODE_OPCODE_DLCOLLISION
+                ? (size_t)node->Data->DisplayListCollisions.numVertices
+                : (size_t)node->Data->DisplayList.numVertices;
+            ge_port_model_hit_vertices.blob_offset = 0U;
+            ge_port_model_hit_vertices.blob_offset_known =
+                ge_original_native_model_hit_vertex_offset(
+                    ge_port_model_hit_base_addr, source_vertices,
+                    &ge_port_model_hit_vertices.blob_offset);
+            ge_port_model_hit_vertices.base_index = 0;
+            ge_port_model_hit_vertices.loaded = 0;
 #endif"""
         if body.count(marker) != 1:
             raise ValueError("unexpected propobjFindHit dispatch shape")
@@ -224,7 +281,15 @@ def main() -> None:
         "extern bool modelTestRayIntersectsNodeBBox(Model *model, ModelNode *node, coord3d *pos, coord3d *dir);",
         "extern s32 sub_GAME_7F074CAC(Model *model, ModelNode *node, coord3d *raypos, coord3d *raydir);",
         "#if defined(GE_PORT_MODEL_HIT_NATIVE_ABI)",
+        '#include "ge_native_model_hit_vertices.h"',
         "extern size_t ge_original_native_model_hit_blob_size(const void *base_address);",
+        "extern int ge_original_native_model_hit_vertex_offset(const void *, const void *, uint32_t *);",
+        "static GeNativeModelHitVertices ge_port_model_hit_vertices;",
+        "static Vertex *ge_port_model_hit_vertex(const GeNativeModelHitVertices *range, Vertex *vertices, unsigned slot) {",
+        "    size_t index;",
+        "    return vertices != NULL && ge_native_model_hit_vertex_index(range, slot, &index)",
+        "        ? vertices + index : NULL;",
+        "}",
         "static const uint8_t *ge_port_model_hit_base_addr;",
         "static size_t ge_port_model_hit_base_size;",
         "static uint16_t ge_port_model_hit_read_be16(const void *pointer) {",

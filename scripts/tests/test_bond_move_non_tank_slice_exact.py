@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -41,11 +43,32 @@ def main() -> None:
     for relative, names in module.FUNCTIONS.items():
         for name in names:
             canonical = module.extract_function((args.repo / relative).read_text(), name)
-            assert tokens(canonical) == tokens(module.extract_function(generated, name)), name
             assert f"{name} sha256={module.digest(canonical)}" in generated
+            if name == "sub_GAME_7F0C0BF0":
+                canonical = canonical.replace(
+                    "    get_mTrack2Vol();", "    return get_mTrack2Vol();")
+            assert tokens(canonical) == tokens(module.extract_function(generated, name)), name
             checked += 1
     assert checked == 141
-    print(f"bond move non-tank exactness: {checked} canonical bodies/data token-identical")
+    # Execute the emitted getter/forwarder with optimization enabled. A
+    # token-only check previously preserved the missing-return C bug.
+    fixture = "\n".join((
+        "#include <stdint.h>", "#include <assert.h>", "typedef uint16_t u16;",
+        module.extract_variable(generated, "mTrack2Vol"),
+        module.extract_function(generated, "get_mTrack2Vol"),
+        module.extract_function(generated, "sub_GAME_7F0C0BF0"),
+        "int main(void) { for (uint32_t v = 0; v <= 0x7fff; ++v) {",
+        "mTrack2Vol = (u16)v; assert(sub_GAME_7F0C0BF0() == v); } return 0; }",
+    ))
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory)
+        (path / "volume.c").write_text(fixture)
+        subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                        "-fsanitize=undefined", str(path / "volume.c"),
+                        "-o", str(path / "volume")], check=True)
+        subprocess.run([str(path / "volume")], check=True)
+    print(f"bond move non-tank exactness: {checked - 1} canonical bodies/data; "
+          "explicit native music-volume return passes all 32768 settings")
 
 
 if __name__ == "__main__":

@@ -140,6 +140,13 @@ int ge_original_pitem_model_instance_gunfire(
     const void *model_instance, size_t gunfire_index,
     GeOriginalPitemModelGunfire *gunfire);
 
+/* Visits all catalog IDs in an already loaded model's authored texture table,
+ * including hidden switch parts. Does not load models or change instances.
+ * Valid embedded segment-5 images stay model-owned and are omitted. */
+int ge_original_pitem_model_visit_texture_ids(
+    const GeOriginalPitemModelProvider *provider, int32_t model_id,
+    void *context, int (*visitor)(void *context, uint16_t image_id));
+
 /* Resolves the exact embedded image backing a SETTIMG command. */
 int ge_original_pitem_model_embedded_texture(
     const GeOriginalPitemModelProvider *provider, int32_t model_id,
@@ -168,6 +175,10 @@ int ge_original_pitem_model_hit_ready(
  * segmented-pointer operations have been translated.  A zero result means
  * the base is not owned by a live, validated Pitem resource. */
 size_t ge_original_native_model_hit_blob_size(const void *base_address);
+
+/* Recover the segment-5 origin of an immutable relocated vertex array. */
+int ge_original_native_model_hit_vertex_offset(const void *base_address,
+    const void *source_vertices, uint32_t *offset);
 
 GeOriginalPitemModelStatus ge_original_pitem_model_last_status(
     const GeOriginalPitemModelProvider *provider);

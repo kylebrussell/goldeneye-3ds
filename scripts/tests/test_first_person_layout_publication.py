@@ -22,7 +22,7 @@ def main() -> None:
     assert "ensure_first_person_scene_texture" in body[ensure:remap]
     assert "ge_original_first_person_assets_visit_texture_ids(" in body[ensure:remap]
     colors = body.index("if (uv_updated) {", remap)
-    assert colors < body.index("source->processed.rgba[0] / 255.0f", colors)
+    assert colors < body.index("renderer_normalized_color[source->processed.rgba[0]]", colors)
     print("first-person layout publication: texture residency and UV remap follow cached switches")
 
 

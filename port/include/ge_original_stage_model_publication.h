@@ -16,8 +16,8 @@ typedef enum GeOriginalStageModelPublicationStatus {
     GE_ORIGINAL_STAGE_MODEL_PUBLICATION_INVALID_PART,
 } GeOriginalStageModelPublicationStatus;
 
-/* Restore the caller material state omitted by ROM child lists for authored
- * type-4 glass. Does not mutate the object or calculate gameplay opacity. */
+/* Restore caller depth state for all world props and additional material
+ * state omitted by ROM child lists for authored type-4 glass. Does not mutate the object or calculate gameplay opacity. */
 void ge_original_stage_model_publication_glass_material(
     const void *definition, int16_t model_type, GeOriginalModelSceneInput *input);
 int ge_original_stage_model_publication_glass_opacity(
@@ -44,6 +44,13 @@ int ge_original_stage_model_publication_door_glass_shading(
     const void *definition, const GeOriginalDoorRuntimePublication *publication,
     size_t matrix_index, const float view[4][4], const uint8_t look_at[32],
     const GePicaMaterial *material, GeGbiRenderState *state);
+
+/* Bind only the exact DLCOLLISION node modified by original doorTick.
+ * Native vertices remain runtime-owned and are borrowed for one scene build. */
+int ge_original_stage_model_publication_door_vertices(
+    const void *definition, const GeOriginalPitemModelScenePart *part,
+    const GeOriginalDoorRuntimePublication *publication,
+    GeOriginalModelSceneInput *input);
 
 /* Binds one currently visible native object's exact Model.render_pos matrix
  * bank to the model-scene input. The bank remains eye-space, exactly as

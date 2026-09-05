@@ -126,7 +126,11 @@ static void ge_model_glass_setup(
     ModelRenderData render = {0};
     size_t pass;
     uint8_t opacity;
-    if (object == NULL || input == NULL || model_type != 4
+    if (object == NULL || input == NULL) return;
+    /* chrobjRenderProp supplies this state before every world model, not
+     * only windowed type-4 parts. ROM child lists need not repeat it. */
+    input->world_zbuffer_enabled = (object->flags2 & 0x10000) == 0;
+    if (model_type != 4
             || (object->type != PROPDEF_GLASS
                 && object->type != PROPDEF_TINTED_GLASS
                 && !(object->type == PROPDEF_DOOR
@@ -264,4 +268,57 @@ const char *ge_original_stage_model_publication_status_name(
         return "invalid part";
     default: return "unknown";
     }
+}
+
+static int ge_model_door_vertex(const void *vertices, size_t index, GeGbiVertex *out)
+{
+    const Vertex *vertex = &((const Vertex *)vertices)[index];
+    out->x = (int16_t)vertex->coord.x;
+    out->y = (int16_t)vertex->coord.y;
+    out->z = (int16_t)vertex->coord.z;
+    out->flag = (uint16_t)vertex->index;
+    out->texture_s = vertex->s; out->texture_t = vertex->t;
+    out->red = vertex->r; out->green = vertex->g;
+    out->blue = vertex->b; out->alpha = vertex->a;
+    return 1;
+}
+
+int ge_original_stage_model_publication_door_vertices(
+    const void *definition, const GeOriginalPitemModelScenePart *part,
+    const GeOriginalDoorRuntimePublication *publication,
+    GeOriginalModelSceneInput *input)
+{
+    const struct DoorRecord *door = definition;
+
+    if (door == NULL || part == NULL || publication == NULL || input == NULL
+            || door->type != PROPDEF_DOOR) return 0;
+    input->segment4_vertices = NULL;
+    input->segment4_read_vertex = NULL;
+    input->segment4_vertex_count = 0U;
+    if (!(door->doorFlags & DOORFLAG_CLIP_TO_BBOX)) return 1;
+    const ObjectRecord *object = definition;
+    if (object->model == NULL || object->model->obj == NULL
+            || object->model->obj->RootNode == NULL
+            || object->model->obj->RootNode->Child == NULL) return 0;
+    const ModelNode *node = object->model->obj->RootNode->Child->Child;
+    if (node == NULL) return 0;
+    if (node != part->node) return 1;
+    if ((node->Opcode & 0xffU) != MODELNODE_OPCODE_DLCOLLISION
+            || node->Data == NULL || part->segment4_offset == GE_ORIGINAL_MODEL_SCENE_NO_LIST)
+        return 0;
+    const ModelRoData_DisplayList_CollisionRecord *data =
+        (const ModelRoData_DisplayList_CollisionRecord *)node->Data;
+    if (data->numVertices <= 0 || (size_t)data->numVertices != part->vertex_count)
+        return 0;
+    if (publication->clipped_vertices != NULL) {
+        if (publication->clipped_vertex_count != part->vertex_count
+                || publication->clipped_vertex_stride != sizeof(Vertex)) return 0;
+        input->segment4_vertices = publication->clipped_vertices;
+    } else {
+        if (publication->clipped_vertex_count != 0U || data->Vertices == NULL) return 0;
+        input->segment4_vertices = data->Vertices;
+    }
+    input->segment4_vertex_count = part->vertex_count;
+    input->segment4_read_vertex = ge_model_door_vertex;
+    return 1;
 }

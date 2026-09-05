@@ -1355,6 +1355,33 @@ int ge_original_pitem_model_instance_gunfire(
         gunfire_index, gunfire) == gunfire_index + 1U;
 }
 
+int ge_original_pitem_model_visit_texture_ids(
+    const GeOriginalPitemModelProvider *provider, int32_t model_id,
+    void *context, int (*visitor)(void *context, uint16_t image_id))
+{
+    if (provider == NULL || visitor == NULL) return 0;
+    for (size_t resource_index = 0U; resource_index < provider->resource_count;
+            ++resource_index) {
+        const GeOriginalPitemModelResource *resource = &provider->resources[resource_index];
+        if (resource->model_id != model_id) continue;
+        if (resource->header.numtextures < 0
+                || resource->header.Textures != resource->textures) return 0;
+        /* Validate the whole dependency table before publishing any ID. */
+        for (size_t i = 0U; i < (size_t)resource->header.numtextures; ++i) {
+            const uint32_t id = resource->textures[i].TextureID;
+            if (id > UINT16_MAX && ((id >> 24U) != 5U
+                    || (id & UINT32_C(0x00ffffff)) >= resource->blob_size))
+                return 0;
+        }
+        for (size_t i = 0U; i < (size_t)resource->header.numtextures; ++i) {
+            const uint32_t id = resource->textures[i].TextureID;
+            if (id <= UINT16_MAX && !visitor(context, (uint16_t)id)) return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 int ge_original_pitem_model_embedded_texture(
     const GeOriginalPitemModelProvider *provider, int32_t model_id,
     uint32_t segmented_address,
@@ -1462,6 +1489,31 @@ int ge_original_pitem_model_hit_ready(
         if (instance->active && &instance->model == model_instance)
             return instance->resource != NULL
                 && instance->resource->hit_ready;
+    }
+    return 0;
+}
+
+int ge_original_native_model_hit_vertex_offset(const void *base_address,
+    const void *source_vertices, uint32_t *offset)
+{
+    const GeOriginalPitemModelProvider *provider;
+    if (base_address == NULL || source_vertices == NULL || offset == NULL)
+        return 0;
+    for (provider = ge_pitem_provider_registry; provider != NULL;
+            provider = provider->registry_next) {
+        for (size_t index = 0U; index < provider->resource_count; ++index) {
+            const GeOriginalPitemModelResource *resource =
+                &provider->resources[index];
+            if (resource->blob != base_address) continue;
+            for (size_t node = 0U; node < resource->node_count; ++node) {
+                const GeOriginalPitemCollisionStorage *storage =
+                    &resource->collision[node];
+                if (storage->vertices == source_vertices) {
+                    *offset = storage->vertices_offset;
+                    return 1;
+                }
+            }
+        }
     }
     return 0;
 }

@@ -56,12 +56,25 @@ static bool ge_guard_animation_table_pointers_expanded;
 #define GE_SERVICE_AUDIO_TICK_RATE 60U
 #define GE_SERVICE_AUDIO_TICK_FRAMES 1024U
 
+#define GE_SERVICE_PCM_CACHE_CAPACITY 96U
+
+typedef struct GeServicePcm {
+    int16_t *pcm;
+    size_t frames;
+    GeOriginalSfxInfo info;
+    uint64_t last_use;
+    uint32_t references;
+    int16_t sound_id;
+    uint8_t valid;
+} GeServicePcm;
+
 typedef struct GeServiceSound {
     ALSoundState state;
     uint32_t ticks_remaining;
     int16_t sound_id;
     uint8_t allocated;
     int16_t *pcm;
+    GeServicePcm *cached_pcm;
     size_t pcm_frames;
     uint64_t position_q16;
     uint32_t step_q16;
@@ -76,8 +89,95 @@ typedef struct GeServiceSound {
     int32_t right_gain_q15;
 } GeServiceSound;
 
+static uint64_t (*ge_service_audio_profile_clock)(void *);
+static void *ge_service_audio_profile_context;
+static uint64_t ge_service_audio_decode_ticks;
+void ge_original_gameplay_services_bind_audio_profile(uint64_t (*clock)(void *), void *context)
+{
+    ge_service_audio_profile_clock = clock;
+    ge_service_audio_profile_context = context;
+    ge_service_audio_decode_ticks = 0U;
+}
+uint64_t ge_original_gameplay_services_audio_decode_ticks(void) { return ge_service_audio_decode_ticks; }
+
 static GeServiceSound ge_service_sounds[GE_SERVICE_SOUND_CAPACITY];
 static GeOriginalGameplayServiceStats ge_service_stats;
+static GeServicePcm ge_service_pcm_cache[GE_SERVICE_PCM_CACHE_CAPACITY];
+static uint64_t ge_service_pcm_stamp;
+
+static void ge_service_pcm_free(GeServicePcm *entry)
+{
+    if (entry->pcm == NULL) return;
+    ge_service_stats.sound_cache_bytes -= (uint32_t)(entry->frames * sizeof(*entry->pcm));
+    free(entry->pcm);
+    memset(entry, 0, sizeof(*entry));
+}
+
+/* The bank may be reconstructed at the same address on a stage transition.
+ * Invalidate on every bind, retaining retired entries only while voices use
+ * them. Playing voices keep their original decoded sample until disposal. */
+static void ge_service_pcm_invalidate(void)
+{
+    for (size_t i = 0; i < GE_SERVICE_PCM_CACHE_CAPACITY; ++i) {
+        GeServicePcm *entry = &ge_service_pcm_cache[i];
+        entry->valid = 0U;
+        if (entry->references == 0U) ge_service_pcm_free(entry);
+    }
+}
+
+static GeServicePcm *ge_service_pcm_find(int16_t sound_id)
+{
+    for (size_t i = 0; i < GE_SERVICE_PCM_CACHE_CAPACITY; ++i) {
+        GeServicePcm *entry = &ge_service_pcm_cache[i];
+        if (entry->valid && entry->sound_id == sound_id) {
+            ++entry->references;
+            entry->last_use = ++ge_service_pcm_stamp;
+            ++ge_service_stats.sound_cache_hits;
+            return entry;
+        }
+    }
+    return NULL;
+}
+
+static int ge_service_pcm_evict_one(void)
+{
+    GeServicePcm *oldest = NULL;
+    for (size_t i = 0; i < GE_SERVICE_PCM_CACHE_CAPACITY; ++i) {
+        GeServicePcm *entry = &ge_service_pcm_cache[i];
+        if (entry->pcm != NULL && entry->references == 0U
+                && (oldest == NULL || entry->last_use < oldest->last_use)) oldest = entry;
+    }
+    if (oldest == NULL) return 0;
+    ge_service_pcm_free(oldest);
+    ++ge_service_stats.sound_cache_evictions;
+    return 1;
+}
+
+/* Adopt a successful decode without copying it. An oversized sample or a
+ * fully pinned cache remains an ordinary voice-owned allocation instead. */
+static GeServicePcm *ge_service_pcm_adopt(int16_t sound_id, int16_t *pcm,
+                                         size_t frames, const GeOriginalSfxInfo *info)
+{
+    const size_t bytes = frames * sizeof(*pcm);
+    if (bytes > GE_ORIGINAL_SFX_CACHE_BYTE_LIMIT) return NULL;
+    for (;;) {
+        GeServicePcm *empty = NULL;
+        for (size_t i = 0; i < GE_SERVICE_PCM_CACHE_CAPACITY; ++i)
+            if (ge_service_pcm_cache[i].pcm == NULL) { empty = &ge_service_pcm_cache[i]; break; }
+        if (empty != NULL && ge_service_stats.sound_cache_bytes
+                <= GE_ORIGINAL_SFX_CACHE_BYTE_LIMIT - bytes) {
+            empty->pcm = pcm; empty->frames = frames; empty->info = *info;
+            empty->sound_id = sound_id; empty->references = 1U; empty->valid = 1U;
+            empty->last_use = ++ge_service_pcm_stamp;
+            ge_service_stats.sound_cache_bytes += (uint32_t)bytes;
+            if (ge_service_stats.sound_cache_bytes > ge_service_stats.sound_cache_peak_bytes)
+                ge_service_stats.sound_cache_peak_bytes = ge_service_stats.sound_cache_bytes;
+            return empty;
+        }
+        if (!ge_service_pcm_evict_one()) return NULL;
+    }
+}
+
 static char ge_service_hud_message[160];
 static ALBank ge_service_sound_bank;
 static const GeOriginalSfxBank *ge_service_sfx_bank;
@@ -169,7 +269,14 @@ static void ge_service_sound_dispose(GeServiceSound *sound)
 {
     if (sound == NULL) return;
     ge_service_sound_clear_owner(sound);
-    free(sound->pcm);
+    if (sound->cached_pcm != NULL) {
+        GeServicePcm *entry = sound->cached_pcm;
+        --entry->references;
+        if (!entry->valid && entry->references == 0U) ge_service_pcm_free(entry);
+        sound->cached_pcm = NULL;
+    } else {
+        free(sound->pcm);
+    }
     sound->pcm = NULL;
     sound->state.playingState = SOUND_STATE_NONE;
     sound->allocated = 0U;
@@ -205,6 +312,8 @@ void ge_original_gameplay_services_reset(void)
     size_t index;
     for (index = 0U; index < GE_SERVICE_SOUND_CAPACITY; index++)
         ge_service_sound_dispose(&ge_service_sounds[index]);
+    ge_service_pcm_invalidate();
+    ge_service_pcm_stamp = 0U;
     memset(ge_service_sounds, 0, sizeof(ge_service_sounds));
     memset(&ge_service_stats, 0, sizeof(ge_service_stats));
     memset(ge_service_hud_message, 0, sizeof(ge_service_hud_message));
@@ -263,6 +372,7 @@ void ge_original_gameplay_services_reset(void)
 void ge_original_gameplay_services_bind_audio(
     const GeOriginalSfxBank *bank, GeAudioOutput *output)
 {
+    ge_service_pcm_invalidate();
     ge_service_sfx_bank = bank;
     ge_service_audio_output = output;
     ge_service_audio_frame_remainder = 0U;
@@ -458,37 +568,60 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *sound_bank, s16 sound_index,
     slot->state.pan = AL_PAN_CENTER;
     slot->state.vol = INT16_MAX;
     if (ge_service_sfx_bank != NULL && ge_service_audio_output != NULL) {
+        const uint64_t decode_start = ge_service_audio_profile_clock != NULL
+            ? ge_service_audio_profile_clock(ge_service_audio_profile_context) : 0U;
         GeOriginalSfxInfo info;
         size_t frames = 0U;
-        if (ge_original_sfx_bank_decode(
-                ge_service_sfx_bank, sound_index, NULL, 0U,
-                &frames, &info) == GE_ORIGINAL_SFX_BANK_OUTPUT_TOO_SMALL
-                && frames != 0U && frames <= SIZE_MAX / sizeof(*slot->pcm)) {
-            slot->pcm = malloc(frames * sizeof(*slot->pcm));
-            if (slot->pcm != NULL && ge_original_sfx_bank_decode(
-                    ge_service_sfx_bank, sound_index, slot->pcm, frames,
-                    &frames, &info) == GE_ORIGINAL_SFX_BANK_OK) {
-                slot->pcm_frames = frames;
-                slot->source_rate = info.source_rate;
-                slot->sample_pitch_ratio = info.pitch_ratio;
-                slot->sample_pan = info.pan;
-                slot->sample_volume = info.volume;
-                slot->state.pitch_28 = info.pitch_ratio;
-                ge_service_sound_apply_params(slot);
-                if (info.has_loop) {
-                    slot->loop_start = info.loop_start;
-                    slot->loop_end = info.loop_end;
-                    slot->loop_count = info.loop_count;
-                }
-                ge_service_stats.decoded_sound_starts++;
-            } else {
-                free(slot->pcm);
-                slot->pcm = NULL;
-                ge_service_stats.sound_decode_failures++;
-            }
+        bool decoded = false;
+        slot->cached_pcm = ge_service_pcm_find(sound_index);
+        if (slot->cached_pcm != NULL) {
+            slot->pcm = slot->cached_pcm->pcm;
+            frames = slot->cached_pcm->frames;
+            info = slot->cached_pcm->info;
+            decoded = true;
         } else {
+            ++ge_service_stats.sound_cache_misses;
+            if (ge_original_sfx_bank_decode(
+                    ge_service_sfx_bank, sound_index, NULL, 0U,
+                    &frames, &info) == GE_ORIGINAL_SFX_BANK_OUTPUT_TOO_SMALL
+                    && frames != 0U && frames <= SIZE_MAX / sizeof(*slot->pcm)) {
+                slot->pcm = malloc(frames * sizeof(*slot->pcm));
+                /* Cached idle samples must not turn an otherwise playable
+                 * sound into a memory-allocation failure. */
+                if (slot->pcm == NULL) {
+                    while (ge_service_pcm_evict_one()) {}
+                    slot->pcm = malloc(frames * sizeof(*slot->pcm));
+                }
+                decoded = slot->pcm != NULL && ge_original_sfx_bank_decode(
+                    ge_service_sfx_bank, sound_index, slot->pcm, frames,
+                    &frames, &info) == GE_ORIGINAL_SFX_BANK_OK;
+                if (decoded) slot->cached_pcm = ge_service_pcm_adopt(
+                    sound_index, slot->pcm, frames, &info);
+            }
+        }
+        if (decoded) {
+            slot->pcm_frames = frames;
+            slot->source_rate = info.source_rate;
+            slot->sample_pitch_ratio = info.pitch_ratio;
+            slot->sample_pan = info.pan;
+            slot->sample_volume = info.volume;
+            slot->state.pitch_28 = info.pitch_ratio;
+            ge_service_sound_apply_params(slot);
+            if (info.has_loop) {
+                slot->loop_start = info.loop_start;
+                slot->loop_end = info.loop_end;
+                slot->loop_count = info.loop_count;
+            }
+            /* This existing counter denotes PCM-backed starts, including
+             * cache hits; misses report actual decoding separately. */
+            ge_service_stats.decoded_sound_starts++;
+        } else {
+            free(slot->pcm);
+            slot->pcm = NULL;
             ge_service_stats.sound_decode_failures++;
         }
+        if (ge_service_audio_profile_clock != NULL)
+            ge_service_audio_decode_ticks += ge_service_audio_profile_clock(ge_service_audio_profile_context) - decode_start;
     }
     if (pending_state != NULL)
         pending_state->link.next = (ALLink *)&slot->state;

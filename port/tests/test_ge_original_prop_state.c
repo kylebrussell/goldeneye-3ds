@@ -26,6 +26,19 @@ typedef int PLAYERFLAG;
 #include "ge_original_prop_state.h"
 
 extern stagesetup UsetupdamZ;
+extern PropRecord g_Props[MAX_PROPS];
+
+static void check_active_snapshot(void)
+{
+    GeOriginalPropActiveSet active;
+    assert(ge_original_prop_state_snapshot_active(&active));
+    for (size_t i = 0U; i < MAX_PROPS; ++i)
+        assert(ge_original_prop_state_active_set_contains(&active, &g_Props[i])
+            == ge_original_prop_state_is_active(&g_Props[i]));
+    assert(!ge_original_prop_state_active_set_contains(&active, NULL));
+    assert(!ge_original_prop_state_active_set_contains(&active, (char *)g_Props + 1));
+    assert(!ge_original_prop_state_snapshot_active(NULL));
+}
 extern DoorRecord *ge_port_door_runtime_native_definition(void *definition);
 
 typedef struct PropStateHarness {
@@ -402,6 +415,7 @@ int main(int argc, char **argv)
     assert(harness.props.enable_calls == 1U);
     assert(harness.props.room_registration_calls == 4U);
     assert(ge_original_prop_state_active_count() == 1U);
+    check_active_snapshot();
     assert(ge_original_prop_state_is_active(player_prop));
     assert(ge_original_prop_state_is_enabled(player_prop));
     assert(ge_original_prop_state_room_contains(135, player_prop));
@@ -616,6 +630,7 @@ int main(int argc, char **argv)
         }
     assert(ge_dam_setup_world_activate_entry(&world.first_object));
     assert(ge_original_prop_state_active_count() == 3U);
+    check_active_snapshot();
     {
         float scene_matrix[4][4];
         float scene_position[3];
@@ -639,6 +654,23 @@ int main(int argc, char **argv)
             assert(scene_matrices == NULL && scene_matrix_count == 0U);
             assert(ge_original_prop_state_publish_scene_visibility(
                 object_prop, 1, identity));
+            {
+                GeOriginalPropActiveSet active;
+                PropRecord expected = *object_prop;
+                Mtxf expected_matrix = {0};
+                if (harness.use_model62)
+                    expected_matrix = harness.model62.model.render_pos[0].pos;
+                assert(ge_original_prop_state_snapshot_active(&active));
+                assert(ge_original_prop_state_publish_scene_visibility_with_active_set(
+                    object_prop, 0, identity, &active));
+                assert(!(object_prop->flags & PROPFLAG_ONSCREEN));
+                assert(ge_original_prop_state_publish_scene_visibility_with_active_set(
+                    object_prop, 1, identity, &active));
+                assert(memcmp(object_prop, &expected, sizeof(expected)) == 0);
+                if (harness.use_model62)
+                    assert(memcmp(&harness.model62.model.render_pos[0].pos,
+                        &expected_matrix, sizeof(expected_matrix)) == 0);
+            }
             assert((object_prop->flags & PROPFLAG_ONSCREEN) != 0U);
             assert(fabsf(object_prop->zDepth + object_prop->pos.z)
                    < 0.0001f);

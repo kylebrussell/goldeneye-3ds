@@ -22,4 +22,13 @@ assert "ge_original_music_track_asset_path(" in MAIN
 assert "GeOriginalMusicRuntime **music_runtime" in MAIN
 assert "run_start_frontend\n            ? NULL" in MAIN
 
+# Diagnostic boots enter gameplay directly. They must make that decision
+# before music initialization; otherwise every input/visual probe silently
+# omits synthesis and understates the gameplay frame budget.
+startup = MAIN[MAIN.index("start_stage_runtime:"):]
+decision = "run_start_frontend = run_start_frontend\n        && !runtime_diagnostics_requested(stage_assets);"
+assert startup.index(decision) < startup.index("ge_audio_output_init(")
+assert "if (run_start_frontend) {" in startup
+assert startup.count("runtime_diagnostics_requested(stage_assets)") == 1
+
 print("canonical frontend music switching test passed")

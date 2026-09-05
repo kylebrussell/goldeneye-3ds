@@ -25,11 +25,15 @@ def main() -> None:
     props = source.index("ge_original_stage_active_props_tick_exact(", move)
     autoaim = source.index("chrpropUpdateAutoaimTarget();", props)
     assert loop < pre < shuffle < move < props < autoaim
-    music = source.index("ge_original_music_runtime_tick_60hz(original_music)", shuffle)
+    music = source.index("ge_original_music_runtime_begin_tick_60hz(original_music)", shuffle)
     assert shuffle < music < move
     assert "const bool render_music = audio_active && original_music != NULL;" in source[shuffle:music]
-    assert "? ge_original_music_runtime_tick_60hz(original_music) : GE_AUDIO_ABI_OK" in source[music - 2:move]
+    assert "? ge_original_music_runtime_begin_tick_60hz(original_music) : GE_AUDIO_ABI_OK" in source[music - 2:move]
     assert "if (music_status != GE_AUDIO_ABI_OK)" in source[music:move]
+    finish = source.index("ge_original_music_runtime_finish(original_music)", autoaim)
+    tick_end = source.index("fine_profile.gameplay_phase_ticks[0] +=", autoaim)
+    assert autoaim < finish < tick_end
+    assert "if (completed_music != GE_AUDIO_ABI_OK)" in source[finish:tick_end]
     assert "Exact bossMainloop/lvlManageMpGame boundary" in source[loop:pre]
 
     owner = (REPO / "port/src/ge_original_stage_active_props.c").read_text()

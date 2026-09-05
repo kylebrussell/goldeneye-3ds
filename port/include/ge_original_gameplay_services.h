@@ -7,12 +7,19 @@
 #include "ge_audio_output.h"
 #include "ge_original_sfx_bank.h"
 
+#define GE_ORIGINAL_SFX_CACHE_BYTE_LIMIT (2U * 1024U * 1024U)
+
 typedef struct GeOriginalGameplayServiceStats {
     uint32_t sound_play_calls;
     uint32_t sound_deactivate_calls;
     uint32_t active_sounds;
     uint32_t decoded_sound_starts;
     uint32_t sound_decode_failures;
+    uint32_t sound_cache_hits;
+    uint32_t sound_cache_misses;
+    uint32_t sound_cache_evictions;
+    uint32_t sound_cache_bytes;
+    uint32_t sound_cache_peak_bytes;
     uint32_t sound_parameter_events;
     uint64_t mixed_audio_frames;
     uint32_t hud_messages;
@@ -27,6 +34,8 @@ typedef struct GeOriginalGameplayServiceStats {
     int32_t last_music_id;
 } GeOriginalGameplayServiceStats;
 
+void ge_original_gameplay_services_bind_audio_profile(uint64_t (*clock)(void *), void *context);
+uint64_t ge_original_gameplay_services_audio_decode_ticks(void);
 void ge_original_gameplay_services_reset(void);
 void ge_original_gameplay_services_bind_visible_props(void *const *props,
                                                        size_t count);

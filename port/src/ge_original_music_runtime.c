@@ -1,5 +1,8 @@
 #include "ge_original_music_runtime.h"
 #include "ge_original_music_bank.h"
+#if defined(GE_PLATFORM_3DS)
+#include "ge_3ds_music_worker.h"
+#endif
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -46,6 +49,10 @@ struct GeOriginalMusicRuntime {
     GeOriginalMusicRuntimeStats stats;
     int initialized;
     uint8_t retrace_phase;
+    int pending;
+    size_t pending_samples;
+    size_t pending_command_count;
+    GeAudioAbiResult pending_result;
 };
 
 static ALCSPlayer *ge_music_layer_player(
@@ -206,6 +213,7 @@ static int ge_original_music_runtime_set_layer(
     memcpy(replacement, cseq, cseq_size);
     player = ge_music_layer_player(runtime, layer);
     sequence = ge_music_layer_sequence(runtime, layer);
+    (void)ge_original_music_runtime_finish(runtime);
     alCSPStop(player);
     if (retired != NULL) {
         /* Stop is delivered through libaudio's event queue. Keep the former
@@ -296,6 +304,7 @@ int ge_original_music_runtime_set_layer_volume(
 {
     ALCSPlayer *player = ge_music_layer_player(runtime, layer);
     if (player == NULL || !runtime->initialized) return 0;
+    (void)ge_original_music_runtime_finish(runtime);
     alCSPSetVol(player, volume);
     return 1;
 }
@@ -304,13 +313,17 @@ void ge_original_music_runtime_stop_layer(
         GeOriginalMusicRuntime *runtime, unsigned layer)
 {
     ALCSPlayer *player = ge_music_layer_player(runtime, layer);
-    if (player != NULL && runtime->initialized) alCSPStop(player);
+    if (player != NULL && runtime->initialized) {
+        (void)ge_original_music_runtime_finish(runtime);
+        alCSPStop(player);
+    }
 }
 
 void ge_original_music_runtime_close(GeOriginalMusicRuntime *runtime)
 {
     GeMusicRetiredSequence *retired;
     if (runtime == NULL) return;
+    (void)ge_original_music_runtime_finish(runtime);
     if (runtime->initialized) {
         unsigned layer;
         for (layer = 0U; layer < GE_MUSIC_RUNTIME_LAYER_COUNT; ++layer)
@@ -343,19 +356,47 @@ GeAudioOutput *ge_original_music_runtime_output(
     return runtime == NULL ? NULL : &runtime->music_output;
 }
 
-GeAudioAbiResult ge_original_music_runtime_render(
-        GeOriginalMusicRuntime *runtime, size_t sample_count)
+static void ge_music_execute_pending(void *context)
+{
+    GeOriginalMusicRuntime *runtime = context;
+    runtime->pending_result = ge_audio_abi_execute_and_queue(&runtime->abi,
+            (const GeAudioAbiCommand *)runtime->commands,
+            runtime->pending_command_count, ge_music_resolve, NULL,
+            (uint32_t)(uintptr_t)runtime->frame_pcm,
+            runtime->pending_samples, runtime->output);
+}
+
+GeAudioAbiResult ge_original_music_runtime_finish(GeOriginalMusicRuntime *runtime)
+{
+    if (runtime == NULL) return GE_AUDIO_ABI_INVALID_ARGUMENT;
+    if (!runtime->pending) return GE_AUDIO_ABI_OK;
+#if defined(GE_PLATFORM_3DS)
+    ge_3ds_music_worker_wait();
+#endif
+    GeAudioAbiResult result = runtime->pending_result;
+    runtime->stats.last_command_count = runtime->pending_command_count;
+    runtime->stats.generated_commands += runtime->pending_command_count;
+    runtime->stats.last_abi_result = result;
+    runtime->stats.player_state = alCSPGetState(&runtime->player);
+    if (result == GE_AUDIO_ABI_OK) {
+        runtime->stats.rendered_frames++;
+        runtime->stats.rendered_samples += runtime->pending_samples;
+    }
+    runtime->pending = 0;
+    return result;
+}
+
+static GeAudioAbiResult ge_music_begin_render(
+        GeOriginalMusicRuntime *runtime, size_t sample_count, int asynchronous)
 {
     s32 command_count = 0;
-    GeAudioAbiResult result;
     if (runtime == NULL || !runtime->initialized || sample_count == 0U
             || sample_count > GE_MUSIC_RUNTIME_MAX_SAMPLES
-            || (sample_count & 15U) != 0U) {
-        return GE_AUDIO_ABI_INVALID_ARGUMENT;
-    }
-    if (ge_audio_output_free(runtime->output) < sample_count) {
+            || (sample_count & 15U) != 0U) return GE_AUDIO_ABI_INVALID_ARGUMENT;
+    GeAudioAbiResult previous = ge_original_music_runtime_finish(runtime);
+    if (previous != GE_AUDIO_ABI_OK) return previous;
+    if (ge_audio_output_free(runtime->output) < sample_count)
         return GE_AUDIO_ABI_OUTPUT_FULL;
-    }
     memset(runtime->frame_pcm, 0, sample_count * 2U * sizeof(int16_t));
     alAudioFrame(runtime->commands, &command_count, runtime->frame_pcm,
             (s32)sample_count);
@@ -364,31 +405,45 @@ GeAudioAbiResult ge_original_music_runtime_render(
         runtime->stats.last_abi_result = GE_AUDIO_ABI_INVALID_ARGUMENT;
         return GE_AUDIO_ABI_INVALID_ARGUMENT;
     }
-    result = ge_audio_abi_execute_and_queue(&runtime->abi,
-            (const GeAudioAbiCommand *)runtime->commands,
-            (size_t)command_count, ge_music_resolve, NULL,
-            (uint32_t)(uintptr_t)runtime->frame_pcm,
-            sample_count, runtime->output);
-    runtime->stats.last_command_count = (size_t)command_count;
-    runtime->stats.generated_commands += (uint64_t)command_count;
-    runtime->stats.last_abi_result = result;
-    runtime->stats.player_state = alCSPGetState(&runtime->player);
-    if (result == GE_AUDIO_ABI_OK) {
-        runtime->stats.rendered_frames++;
-        runtime->stats.rendered_samples += sample_count;
-    }
-    return result;
+    runtime->pending_samples = sample_count;
+    runtime->pending_command_count = (size_t)command_count;
+    runtime->pending = 1;
+#if defined(GE_PLATFORM_3DS)
+    if (asynchronous && ge_3ds_music_worker_submit(
+            ge_music_execute_pending, runtime)) return GE_AUDIO_ABI_OK;
+#else
+    (void)asynchronous;
+#endif
+    ge_music_execute_pending(runtime);
+    return GE_AUDIO_ABI_OK;
+}
+
+GeAudioAbiResult ge_original_music_runtime_render(
+        GeOriginalMusicRuntime *runtime, size_t sample_count)
+{
+    GeAudioAbiResult result = ge_music_begin_render(runtime, sample_count, 0);
+    return result == GE_AUDIO_ABI_OK
+        ? ge_original_music_runtime_finish(runtime) : result;
+}
+
+GeAudioAbiResult ge_original_music_runtime_begin_tick_60hz(
+        GeOriginalMusicRuntime *runtime)
+{
+    if (runtime == NULL) return GE_AUDIO_ABI_INVALID_ARGUMENT;
+    GeAudioAbiResult previous = ge_original_music_runtime_finish(runtime);
+    if (previous != GE_AUDIO_ABI_OK) return previous;
+    uint8_t phase = runtime->retrace_phase++;
+    if ((phase & 1U) != 0U) return GE_AUDIO_ABI_OK;
+    return ge_music_begin_render(runtime, GE_ORIGINAL_MUSIC_FRAME_SAMPLES, 1);
 }
 
 GeAudioAbiResult ge_original_music_runtime_tick_60hz(
         GeOriginalMusicRuntime *runtime)
 {
-    uint8_t phase;
     if (runtime == NULL) return GE_AUDIO_ABI_INVALID_ARGUMENT;
-    phase = runtime->retrace_phase++;
-    if ((phase & 1U) != 0U) return GE_AUDIO_ABI_OK;
-    return ge_original_music_runtime_render(
-            runtime, GE_ORIGINAL_MUSIC_FRAME_SAMPLES);
+    uint8_t phase = runtime->retrace_phase++;
+    if ((phase & 1U) != 0U) return ge_original_music_runtime_finish(runtime);
+    return ge_original_music_runtime_render(runtime, GE_ORIGINAL_MUSIC_FRAME_SAMPLES);
 }
 
 void ge_original_music_runtime_stats(

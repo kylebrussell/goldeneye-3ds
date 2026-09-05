@@ -2,6 +2,7 @@
 #define GE_ORIGINAL_DAM_GUARD_CHR_SCHEDULER_H
 
 #include <bondtypes.h>
+#include "ge_original_props_profile.h"
 
 /* Unchanged chr.c bodies retained under isolated names. They are deliberately
  * not installed in the live frame loop until their full production boundary

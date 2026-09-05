@@ -461,8 +461,35 @@ static void test_texture_rectangle_rejects_unbound_domains(void)
            == GE_PICA_MATERIAL_INVALID_ARGUMENT);
 }
 
+static void test_coverage_alpha_endpoints(void)
+{
+    GeGbiRenderState state;
+    GePicaMaterial material;
+    ge_gbi_state_init(&state);
+    /* SDK AA_ZB_TEX_EDGE: opaque, coverage times alpha, alpha from coverage,
+     * compare/write Z, no explicit alpha compare. */
+    state.geometry_mode = 1U;
+    state.other_mode_low = 0x00003078U;
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(material.alpha_test == GE_PICA_ALPHA_TEST_THRESHOLD);
+    assert(material.alpha_threshold == 0U);
+    assert(material.depth_test_enabled && material.depth_write_enabled);
+    assert(material.fallback_flags & GE_PICA_FALLBACK_COVERAGE);
+    /* Preserve every explicit authored threshold, including both endpoints. */
+    state.other_mode_low |= 1U;
+    for (unsigned threshold = 0U; threshold <= 255U; ++threshold) {
+        state.blend_color = threshold;
+        assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+        assert(material.alpha_threshold == threshold);
+    }
+    state.other_mode_low = 0U;
+    assert(ge_pica_material_translate(&state, &material) == GE_PICA_MATERIAL_OK);
+    assert(material.alpha_test == GE_PICA_ALPHA_TEST_DISABLED);
+}
+
 int main(void)
 {
+    test_coverage_alpha_endpoints();
     test_invalid_arguments();
     test_default_is_auditable_fallback();
     test_textured_lit_material();

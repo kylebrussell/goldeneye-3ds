@@ -1,9 +1,22 @@
 # Nintendo 3DS native port
 
 Status note: much of this document records early bring-up milestones and is
-not a current missing-systems checklist. For the latest live integrations,
-emulator evidence, audio setup, exact artifacts, and remaining blockers, see
+not a current missing-systems checklist. For the current single-player target,
+menu/objective/audio fixes, validation limits and remaining acceptance work,
+see [the single-player parity checkpoint](SinglePlayerParity.md). Earlier live
+integrations are recorded in
 [the September 2 verification checkpoint](Verification20260902.md).
+The latest measured optimization and correctness repair are recorded in
+[the New 3DS music worker](Verification20260905MusicWorker.md) and
+[native weapon collision geometry](Verification20260905NativeHitGeometry.md), following
+[guard collection and exact vertex publication](Verification20260905GuardConstruction.md), following
+[exact draw sequences, glass shading and reproducible builds](Verification20260905WorldGuardSubmission.md), following
+[newest Dam stress attribution and exact audio sample stores](Verification20260905DamStressSampleStores.md), following
+[live Dam cluster attribution and exact GPU command encoding](Verification20260905GpuCommandEncoding.md), following
+[remaining Dam tails and opt-in geometry diagnostics](Verification20260905RemainingDamTails.md), following
+[articulated publication](Verification20260905ArticulatedPublication.md), following
+[exact SFX decoding and frame-tail attribution](Verification20260905SfxDecoderTails.md) and
+[guard texture preparation and world traversal](Verification20260905TexturePreparationAndWorldRuns.md).
 
 This branch keeps the original byte-matching Nintendo 64 build intact and adds a separate ARM11 target under
 `platform/3ds`. The current milestone is a bootable native `.3dsx`, not a playable game yet. It proves the 3DS

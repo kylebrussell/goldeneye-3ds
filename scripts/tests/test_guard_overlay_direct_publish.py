@@ -43,7 +43,8 @@ def main() -> None:
     pose_commit = body.index("ge_dam_dynamic_scene_commit_overlay_rooms(", pose_only)
     pose_end = body.index("continue;", pose_commit)
     assert "ge_dam_dynamic_scene_commit_overlay_batches(" not in body[pose_only:pose_end]
-    assert pose_commit < body.index("GeDamRoomDrawBatch batch =", pose_commit)
+    assert pose_commit < body.index("GeDamRoomDrawBatch *batch =", pose_commit)
+    assert "*batch = segment->batches[batch_index];" in body[pose_commit:]
     # Empty guard sets still own their insertion point after ordinary props
     # and doors. The live all-stage installer must preserve it just like the
     # older Dam-only installer; otherwise the first visible guard is inserted

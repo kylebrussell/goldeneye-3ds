@@ -1,3 +1,4 @@
+#include "ge_3ds_shade_cache.h"
 #include <3ds.h>
 #include <citro3d.h>
 #include <tex3ds.h>
@@ -25,6 +26,8 @@
 #include "ge_stan_collision.h"
 #include "ge_stan_native.h"
 #include "ge_3ds_audio.h"
+#include "ge_3ds_music_worker.h"
+#include "ge_3ds_alloc_profile.h"
 #include "ge_3ds_original_autogun_beam.h"
 #include "ge_3ds_fade_overlay.h"
 #include "ge_3ds_original_frontend_cast.h"
@@ -45,6 +48,7 @@
 #include "ge_original_dam_setup.h"
 #include "ge_original_dam_intro.h"
 #include "ge_original_dam_guard_runtime.h"
+#include "ge_original_props_profile.h"
 #include "ge_original_dam_guard_scene.h"
 #include "ge_original_dam_guard_weapon_model.h"
 #include "ge_original_dam_guards.h"
@@ -301,8 +305,12 @@ _Static_assert(FIRST_PERSON_SOURCE_VERTEX_CAPACITY
     "sdmc:/3ds/goldeneye-3ds/stage.cfg"
 #define INPUT_PROBE_PATH \
     "sdmc:/3ds/goldeneye-3ds/dam-input-probe.cfg"
+#define INPUT_DETAIL_PATH "sdmc:/3ds/goldeneye-3ds/probe-detail.cfg"
+#define INPUT_RETRACE_PATH "sdmc:/3ds/goldeneye-3ds/probe-retraces.cfg"
 #define INPUT_PROBE_RESULT_PATH \
     "sdmc:/3ds/goldeneye-3ds/dam-input-probe.result"
+#define WORLD_PROFILE_PATH \
+    "sdmc:/3ds/goldeneye-3ds/world-profile.cfg"
 #define FRONTEND_VISUAL_PROBE_PATH \
     "sdmc:/3ds/goldeneye-3ds/frontend-visual-probe.cfg"
 #define SAVE_SLOT_PATH \
@@ -325,7 +333,7 @@ static size_t renderer_vertex_flush_bytes(size_t vertex_count,
  * rounded reciprocal. Constant expressions put the 256 rounded results in
  * read-only storage; animated colors still sample the current source bytes. */
 #ifndef GE_3DS_EXPERIMENT_COLOR_LOOKUP
-#define GE_3DS_EXPERIMENT_COLOR_LOOKUP 0
+#define GE_3DS_EXPERIMENT_COLOR_LOOKUP 1
 #endif
 
 static const float renderer_normalized_color[UINT8_MAX + 1U] = {
@@ -607,6 +615,8 @@ typedef struct RuntimeFineProfile {
     uint64_t renderer_draw_ticks;
     /* CPU preparation; sky/world draws; effects/hands; final HUD draws. */
     uint64_t renderer_phase_ticks[4];
+    /* Every 16th frame: visibility, material, draw, total world, samples. */
+    uint64_t world_submission_detail_ticks[5];
     uint64_t music_render_ticks;
     uint64_t music_render_calls;
     uint64_t music_render_peak_ticks;
@@ -629,6 +639,8 @@ typedef struct RuntimeFineProfile {
     uint64_t first_person_material_prepare_hits;
     uint64_t first_person_material_prepare_misses;
     uint64_t world_frustum_tests;
+    uint64_t world_merge_detail[3];
+    uint64_t world_run_prepare[4];
     uint64_t world_frustum_culled_batches;
     uint64_t world_frustum_culled_vertices;
     uint64_t world_frustum_bounds_inside;
@@ -645,6 +657,8 @@ typedef struct RuntimeFineProfile {
     uint64_t guard_texture_ticks;
     uint64_t guard_replace_ticks;
     uint64_t guard_import_ticks;
+    uint64_t guard_import_events[32][5];
+    size_t guard_import_event_count;
     uint64_t guard_refresh_peak[7];
     /* Canonical gameplay CPU attribution: whole original tick, background
      * chr pass, MoveBond, gun update, mixed props/post services, diagnostic
@@ -654,6 +668,7 @@ typedef struct RuntimeFineProfile {
 } RuntimeFineProfile;
 
 static RuntimeFineProfile fine_profile;
+static bool world_submission_detail_enabled;
 
 static uint64_t runtime_profile_clock(void *context)
 {
@@ -716,7 +731,29 @@ typedef struct RuntimeInputProbeSlowFrame {
     uint64_t overlay_full_rebuilds;
 } RuntimeInputProbeSlowFrame;
 
+typedef struct RuntimeInputProbeTiming {
+    /* CPU work excludes explicit display pacing; phase counters may nest. */
+    uint64_t ticks[17];
+    uint64_t detail[18]; /* pre-AI, move, gun, audits, chr/obj/other ticks+calls, topology, scene, full overlay */
+    uint32_t allocations[6];
+    uint64_t checkpoint_rng[2];
+    float checkpoint_player[8];
+    uint64_t checkpoint_guard_hash;
+    uint32_t retraces;
+    uint32_t world_sampled;
+    uint64_t present_wait_ticks;
+    uint32_t previous_gpu_us;
+    uint32_t submit_vblank;
+} RuntimeInputProbeTiming;
+
 typedef struct RuntimeInputProbe {
+    RuntimeInputProbeTiming *timings;
+    uint8_t *replay_retraces;
+    uint64_t initial_rng[2];
+    bool deep_profile;
+    size_t timing_count;
+    size_t timing_capacity;
+    uint64_t timing_previous_start;
     GePortInput input;
     RuntimeInputProbeSegment segments[RUNTIME_INPUT_PROBE_SEGMENT_CAPACITY];
     size_t segment_count;
@@ -799,6 +836,25 @@ typedef struct RuntimeInputProbe {
     bool armour_observed;
     bool enabled;
 } RuntimeInputProbe;
+
+static bool input_probe_load_retraces(RuntimeInputProbe *runtime)
+{
+    FILE *file = fopen(INPUT_RETRACE_PATH, "rb");
+    if (file == NULL) return true;
+    char magic[32]; unsigned version, frames, value;
+    bool ok = fscanf(file, "%31s %u frames %u", magic, &version, &frames) == 3
+        && strcmp(magic, "GE_RETRACE_REPLAY") == 0 && version == 1U
+        && frames == runtime->target_frames;
+    if (ok) runtime->replay_retraces = malloc(frames);
+    ok = ok && runtime->replay_retraces != NULL;
+    for (unsigned i = 0; ok && i < frames; ++i) {
+        ok = fscanf(file, "%u", &value) == 1 && value > 0U && value <= 255U;
+        if (ok) runtime->replay_retraces[i] = (uint8_t)value;
+    }
+    if (ok) { char extra; ok = fscanf(file, " %c", &extra) == EOF; }
+    fclose(file);
+    return ok;
+}
 
 static GePortInput input_probe_cache_sample(
     RuntimeInputProbe *runtime, GePortInput input)
@@ -1377,6 +1433,9 @@ typedef struct RuntimeDamPreview {
     size_t render_batch_count;
     GeDrawBatchWorldBounds *gpu_batch_bounds;
     size_t gpu_batch_bounds_capacity;
+    uint32_t *gpu_batch_run_ends;
+    size_t gpu_batch_run_count;
+    uintptr_t gpu_batch_run_room_identity;
     float spawn_screen_x;
     float spawn_screen_y;
     bool original_camera_ready;
@@ -2885,6 +2944,18 @@ static bool write_input_probe_result(
     stream = fopen(INPUT_PROBE_RESULT_PATH, "wb");
     if (stream == NULL) return false;
     fprintf(stream, "GE_INPUT_PROBE_RESULT 1\n");
+    fprintf(stream, "probe_initial_rng=%016llx,%016llx\n",
+        (unsigned long long)runtime->initial_rng[0], (unsigned long long)runtime->initial_rng[1]);
+    fprintf(stream, "probe_clock=%s\n", runtime->replay_retraces ? "recorded-retraces-v1" : "live");
+    fprintf(stream, "probe_detail=%u\n", runtime->deep_profile ? 1U : 0U);
+    /* Record the actual parsed inputs, independent of a mutable SD filename. */
+    for (size_t segment = 0U; segment < runtime->segment_count; ++segment) {
+        const RuntimeInputProbeSegment *item = &runtime->segments[segment];
+        fprintf(stream, "probe_segment=%lu,%lu,%.9g,%.9g,%.9g,%.9g\n",
+            (unsigned long)item->frames, (unsigned long)item->input.held,
+            (double)item->input.move_x, (double)item->input.move_y,
+            (double)item->input.look_x, (double)item->input.look_y);
+    }
     fprintf(stream, "level_id=%ld\n",
         (long)(objects->preview != NULL && objects->preview->stage_assets != NULL
             ? objects->preview->stage_assets->level_id : LEVELID_NONE));
@@ -3049,6 +3120,39 @@ static bool write_input_probe_result(
         (unsigned long)objects->door_interaction.interaction_hits,
         (unsigned long)objects->door_interaction.activations,
         (unsigned)objects->door_interaction.result);
+    fprintf(stream, "door_runtime=%lu,%lu,%lu,%lu,%lu,%ld,%ld,%u\n",
+        (unsigned long)objects->door_runtime.ticks,
+        (unsigned long)objects->door_runtime.collision_tests,
+        (unsigned long)objects->door_runtime.collision_rollbacks,
+        (unsigned long)objects->door_runtime.completed_opens,
+        (unsigned long)objects->door_runtime.completed_closes,
+        (long)objects->door_runtime.last_global_timer,
+        (long)objects->door_runtime.last_clock_timer,
+        (unsigned)objects->door_runtime.status);
+    fprintf(stream, "door_collision=%lu,%lu,%lu,%lu,%lu,%u\n",
+        (unsigned long)objects->door_collision.tests,
+        (unsigned long)objects->door_collision.clear_results,
+        (unsigned long)objects->door_collision.blocked_results,
+        (unsigned long)objects->door_collision.missing_character_calls,
+        (unsigned long)objects->door_collision.missing_object_metadata_calls,
+        (unsigned)objects->door_collision.status);
+    for (size_t entry_index = 0U; objects->preview != NULL
+            && entry_index < objects->interactive.entry_count; ++entry_index) {
+        const GeOriginalStageInteractiveEntry *entry =
+            ge_original_stage_interactive_entry(&objects->interactive, entry_index);
+        GeOriginalDoorRuntimePublication door;
+        if (entry == NULL || !entry->constructed || entry->type != PROPDEF_DOOR
+                || entry->room < 0 || entry->room > UINT8_MAX
+                || !ge_dam_dynamic_scene_is_resident(&objects->preview->dynamic_scene,
+                    (uint8_t)entry->room)
+                || !ge_original_door_runtime_snapshot(entry->definition, &door)) continue;
+        fprintf(stream, "resident_door=%lu,%ld,%ld,%ld,%.6f,%.6f,%lu,%ld,%u,%lu,%.3f,%.3f,%.3f\n",
+            (unsigned long)entry->command_index, (long)entry->model_id, (long)entry->room,
+            (long)door.open_state, (double)door.open_position, (double)door.max_frac,
+            (unsigned long)door.generation, (long)door.portal_number,
+            (unsigned)door.matrix_count, (unsigned long)door.clipped_vertex_count,
+            (double)door.position[0], (double)door.position[1], (double)door.position[2]);
+    }
     {
         size_t gate_index;
         for (gate_index = 0U; gate_index < 2U; ++gate_index) {
@@ -3197,6 +3301,13 @@ static bool write_input_probe_result(
         (unsigned long long)objects->articulated_replace_peak_ticks,
         (unsigned long)objects->articulated_replace_command,
         (unsigned long)objects->articulated_replace_parts);
+    for (size_t event = 0U; event < fine_profile.guard_import_event_count; ++event) {
+        const uint64_t *entry = fine_profile.guard_import_events[event];
+        fprintf(stream, "guard_texture_import=%llu,%llu,%llu,%llu,%llu\n",
+            (unsigned long long)entry[0], (unsigned long long)entry[1],
+            (unsigned long long)entry[2], (unsigned long long)entry[3],
+            (unsigned long long)entry[4]);
+    }
     fprintf(stream, "guard_scene_cache=%llu,%llu,%llu,%llu,%llu\n",
         (unsigned long long)objects->guard_scene_cache.build_attempts,
         (unsigned long long)objects->guard_scene_cache.cached_builds,
@@ -3469,6 +3580,10 @@ static bool write_input_probe_result(
         (unsigned long)services.decoded_sound_starts,
         (unsigned long)services.sound_decode_failures,
         (unsigned long)services.active_sounds);
+    fprintf(stream, "sfx_cache=%lu,%lu,%lu,%lu,%lu\n",
+        (unsigned long)services.sound_cache_hits, (unsigned long)services.sound_cache_misses,
+        (unsigned long)services.sound_cache_evictions, (unsigned long)services.sound_cache_bytes,
+        (unsigned long)services.sound_cache_peak_bytes);
     ge_original_music_port_snapshot(&music_port);
     fprintf(stream, "music_port=%llu,%ld,%ld\n",
         (unsigned long long)music_port.unavailable_play_requests,
@@ -3567,6 +3682,39 @@ static bool write_input_probe_result(
             (unsigned long long)slow->topology_component_misses,
             (unsigned long long)slow->scene_generations,
             (unsigned long long)slow->overlay_full_rebuilds);
+    }
+    Ge3dsMusicWorkerStats music_worker_stats;
+    ge_3ds_music_worker_stats(&music_worker_stats);
+    fprintf(stream, "music_timing_scope=main_prepare_and_join\n");
+    fprintf(stream, "music_worker=%d,%llu,%llu,%llu\n", music_worker_stats.enabled,
+        (unsigned long long)music_worker_stats.submissions,
+        (unsigned long long)music_worker_stats.execution_ticks,
+        (unsigned long long)music_worker_stats.wait_ticks);
+    fprintf(stream, "frame_timing_version=3\n");
+    fprintf(stream, "frame_timing_count=%lu\n", (unsigned long)runtime->timing_count);
+    for (size_t frame = 0U; frame < runtime->timing_count; ++frame) {
+        const RuntimeInputProbeTiming *timing = &runtime->timings[frame];
+        fprintf(stream, "frame_timing=%lu", (unsigned long)(frame + 1U));
+        for (size_t field = 0U; field < 17U; ++field)
+            fprintf(stream, ",%llu", (unsigned long long)timing->ticks[field]);
+        fprintf(stream, ",%lu,%lu\n", (unsigned long)timing->retraces,
+                (unsigned long)timing->world_sampled);
+        fprintf(stream, "frame_detail=%lu", (unsigned long)(frame + 1U));
+        for (size_t i=0; i<18; ++i) fprintf(stream, ",%llu", (unsigned long long)timing->detail[i]);
+        for (size_t i=0; i<6; ++i) fprintf(stream, ",%lu", (unsigned long)timing->allocations[i]);
+        fprintf(stream, "\n");
+        if (frame % 60U == 0U) {
+            fprintf(stream, "probe_checkpoint=%lu,%016llx,%016llx,%016llx", (unsigned long)(frame+1),
+                (unsigned long long)timing->checkpoint_rng[0], (unsigned long long)timing->checkpoint_rng[1],
+                (unsigned long long)timing->checkpoint_guard_hash);
+            for (size_t i=0; i<8; ++i) fprintf(stream, ",%.9g", (double)timing->checkpoint_player[i]);
+            fprintf(stream, "\n");
+        }
+        fprintf(stream, "frame_present_timing=%lu,%llu,%lu,%lu\n",
+                (unsigned long)(frame + 1U),
+                (unsigned long long)timing->present_wait_ticks,
+                (unsigned long)timing->previous_gpu_us,
+                (unsigned long)timing->submit_vblank);
     }
     fprintf(stream,
         "frame_profile_ms=%llu,%llu,%llu,%llu,%llu,%llu,%lu\n",
@@ -3716,6 +3864,15 @@ static bool write_input_probe_result(
                 .first_person_material_prepare_hits,
             (unsigned long long)fine_profile
                 .first_person_material_prepare_misses);
+        fprintf(stream, "world_run_prepare=%llu,%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.world_run_prepare[0],
+            (unsigned long long)fine_profile.world_run_prepare[1],
+            (unsigned long long)fine_profile.world_run_prepare[2],
+            (unsigned long long)fine_profile.world_run_prepare[3]);
+        fprintf(stream, "world_merge_detail=%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.world_merge_detail[0],
+            (unsigned long long)fine_profile.world_merge_detail[1],
+            (unsigned long long)fine_profile.world_merge_detail[2]);
         fprintf(stream, "draw_profile_frustum=%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.world_frustum_tests,
             (unsigned long long)fine_profile.world_frustum_culled_batches,
@@ -3729,11 +3886,28 @@ static bool write_input_probe_result(
             (unsigned long long)fine_profile.world_room_frustum_tests,
             (unsigned long long)fine_profile.world_room_frustum_visible_batches,
             (unsigned long long)fine_profile.world_room_frustum_culled_batches);
+        if (runtime->deep_profile) {
+            uint64_t ticks[16], calls[16], pcm_hash, pcm_bytes;
+            ge_audio_abi_profile_pcm(&pcm_hash, &pcm_bytes);
+            fprintf(stream, "music_pcm=%016llx,%llu\n",
+                (unsigned long long)pcm_hash, (unsigned long long)pcm_bytes);
+            ge_audio_abi_profile_totals(ticks, calls);
+            for (unsigned opcode = 0; opcode < 16; ++opcode)
+                fprintf(stream, "music_opcode=%u,%llu,%llu\n", opcode,
+                    (unsigned long long)ticks[opcode],
+                    (unsigned long long)calls[opcode]);
+        }
         fprintf(stream, "simulation_wait_audio_ticks=%llu,%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.frame_begin_ticks,
             (unsigned long long)fine_profile.music_render_ticks,
             (unsigned long long)fine_profile.music_render_calls,
             (unsigned long long)fine_profile.music_render_peak_ticks);
+        fprintf(stream, "world_submission_detail_ticks=%llu,%llu,%llu,%llu,%llu\n",
+            (unsigned long long)fine_profile.world_submission_detail_ticks[0],
+            (unsigned long long)fine_profile.world_submission_detail_ticks[1],
+            (unsigned long long)fine_profile.world_submission_detail_ticks[2],
+            (unsigned long long)fine_profile.world_submission_detail_ticks[3],
+            (unsigned long long)fine_profile.world_submission_detail_ticks[4]);
         fprintf(stream, "renderer_phase_ticks=%llu,%llu,%llu,%llu\n",
             (unsigned long long)fine_profile.renderer_phase_ticks[0],
             (unsigned long long)fine_profile.renderer_phase_ticks[1],
@@ -3871,7 +4045,8 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
                                       RuntimeFirstPersonScene *runtime,
                                       RuntimeDamPreview *dam_preview,
                                       GeTextureCache *texture_cache,
-                                      Vertex *destination)
+                                      Vertex *destination,
+                                      bool deep_profile)
 {
     GeDamRoomSceneStorage source_storage;
     Ge3dsSceneTextureStatus texture_status;
@@ -3910,7 +4085,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
     phase_ticks[0] = svcGetSystemTick();
     topology_publications_before = runtime->cache.topology_publications;
     ge_original_first_person_scene_cache_bind_profile_clock(
-        &runtime->cache, runtime_profile_clock, NULL);
+        &runtime->cache, deep_profile ? runtime_profile_clock : NULL, NULL);
     runtime->scene.status = ge_original_first_person_scene_build_cached(
         &runtime->cache, &models->assets, 0U,
         runtime_eye_space_identity,
@@ -4014,10 +4189,10 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
          * Pose changes only republish positions; every layout switch above
          * invalidates UVs and therefore republishes these colors as well. */
         if (uv_updated) {
-            destination[vertex_index].r = (float)source->processed.rgba[0] / 255.0f;
-            destination[vertex_index].g = (float)source->processed.rgba[1] / 255.0f;
-            destination[vertex_index].b = (float)source->processed.rgba[2] / 255.0f;
-            destination[vertex_index].a = (float)source->processed.rgba[3] / 255.0f;
+            destination[vertex_index].r = renderer_normalized_color[source->processed.rgba[0]];
+            destination[vertex_index].g = renderer_normalized_color[source->processed.rgba[1]];
+            destination[vertex_index].b = renderer_normalized_color[source->processed.rgba[2]];
+            destination[vertex_index].a = renderer_normalized_color[source->processed.rgba[3]];
         }
     }
     phase_ticks[4] = svcGetSystemTick();
@@ -7358,8 +7533,29 @@ static bool prepare_stage_guard_texture_residency(
     /* Loaded body/head tables describe this stage's actual chosen guards.
      * Import hidden parts during level installation, and borrow them through
      * room-residency changes. No pose, visibility, AI or RNG is advanced. */
-    return ge_original_character_models_visit_texture_ids(
-            objects->guard_models, &residency, include_stage_guard_texture);
+    if (!ge_original_character_models_visit_texture_ids(
+            objects->guard_models, &residency, include_stage_guard_texture))
+        return false;
+    /* Authored attachments can first enter the visible scene much later
+     * than their owners. Their already-loaded model tables are dependencies
+     * of the same bounded transaction, independent of pose/visibility.
+     * Reconciliation borrows these handles through room/stage-overlay changes;
+     * it never touches an instance or consumes gameplay RNG. */
+    for (size_t i = 0U; i < ge_original_stage_guard_runtime_weapon_count(objects->guards); ++i) {
+        GeOriginalStageGuardWeaponSnapshot weapon;
+        if (!ge_original_stage_guard_runtime_weapon_snapshot(objects->guards, i, &weapon)
+                || !ge_original_pitem_model_visit_texture_ids(objects->models,
+                    weapon.model_id, &residency, include_stage_guard_texture))
+            return false;
+    }
+    for (size_t i = 0U; i < ge_original_stage_guard_runtime_hat_count(objects->guards); ++i) {
+        GeOriginalStageGuardHatSnapshot hat;
+        if (!ge_original_stage_guard_runtime_hat_snapshot(objects->guards, i, &hat)
+                || !ge_original_pitem_model_visit_texture_ids(objects->models,
+                    hat.model_id, &residency, include_stage_guard_texture))
+            return false;
+    }
+    return true;
 }
 
 typedef struct RuntimeStageOverlayCommit {
@@ -7754,6 +7950,9 @@ static bool install_stage_ordinary_object_scenes(
                 entry->definition, part.model_type, input);
             input->segment3_matrix_count =
                 door_publications[entry_index].matrix_count;
+            if (!ge_original_stage_model_publication_door_vertices(
+                    entry->definition, &part, &door_publications[entry_index], input))
+                goto fail_stage_scene;
             input->room_id = room;
             memcpy(input->matrix, matrix, sizeof(input->matrix));
             memcpy(input->position, position, sizeof(input->position));
@@ -8042,16 +8241,16 @@ static bool refresh_stage_door_overlay(
         const GeOriginalStageInteractiveEntry *entry =
             ge_original_stage_interactive_entry(
                 &objects->interactive, entry_index);
-        GeOriginalDoorRuntimePublication publication;
+        uint32_t generation;
         if (entry == NULL || !entry->constructed
                 || entry->type != PROPDEF_DOOR || entry->room < 0
                 || entry->room > UINT8_MAX
                 || !ge_dam_dynamic_scene_is_resident(
                     &objects->preview->dynamic_scene,
                     (uint8_t)entry->room)) continue;
-        if (!ge_original_door_runtime_snapshot(
-                entry->definition, &publication)) return false;
-        if (publication.generation
+        if (!ge_original_door_runtime_generation(
+                entry->definition, &generation)) return false;
+        if (generation
                 != objects->installed_door_scene_generations[entry_index]) {
             changed = true;
             break;
@@ -8143,6 +8342,8 @@ static bool refresh_stage_door_overlay(
             ge_original_stage_model_publication_glass_template(
                 entry->definition, part.model_type, input);
             input->segment3_matrix_count = publication->matrix_count;
+            if (!ge_original_stage_model_publication_door_vertices(
+                    entry->definition, &part, publication, input)) goto fail;
             input->room_id = room;
             memcpy(input->matrix, matrix, sizeof(input->matrix));
             memcpy(input->position, position, sizeof(input->position));
@@ -8221,7 +8422,16 @@ static int ensure_stage_guard_scene_texture(void *context,
     const uint64_t started = svcGetSystemTick();
     status = ge_3ds_scene_textures_ensure_image(
         objects->preview->texture_cache, &dam_scene_textures, texture_id);
-    fine_profile.guard_import_ticks += svcGetSystemTick() - started;
+    const uint64_t elapsed = svcGetSystemTick() - started;
+    fine_profile.guard_import_ticks += elapsed;
+    if (fine_profile.guard_import_event_count < 32U) {
+        uint64_t *event = fine_profile.guard_import_events[fine_profile.guard_import_event_count++];
+        event[0] = fine_profile.rendered_frames + 1U;
+        event[1] = texture_id;
+        event[2] = elapsed;
+        event[3] = status;
+        event[4] = dam_scene_textures.texture_count;
+    }
     return status == GE_3DS_SCENE_TEXTURE_OK
         || status == GE_3DS_SCENE_TEXTURE_PARTIAL;
 }
@@ -8345,13 +8555,12 @@ static bool refresh_stage_guard_overlay_impl(
             for (batch_index = range->batch_offset;
                     batch_index < range->batch_offset + range->batch_count;
                     ++batch_index) {
-                GeDamRoomDrawBatch batch = segment->batches[batch_index];
-                batch.coordinate_space = GE_DAM_ROOM_COORDINATE_EYE;
                 segment->batches[batch_index].coordinate_space =
                     GE_DAM_ROOM_COORDINATE_EYE;
-                batch.first_vertex += segment->vertex_offset;
-                dynamic_scene->overlay_batches[
-                    segment->batch_offset + batch_index] = batch;
+                GeDamRoomDrawBatch *batch = &dynamic_scene->overlay_batches[
+                    segment->batch_offset + batch_index];
+                *batch = segment->batches[batch_index];
+                batch->first_vertex += segment->vertex_offset;
             }
             if (range->batch_count != 0U) {
                 objects->overlay_status =
@@ -8634,6 +8843,30 @@ fail:
     return false;
 }
 
+/* The model cache changes only eye/world positions for a pose publication.
+ * Keep every immutable source, shade, texture and padding byte in place. A
+ * fresh scene installation or any static change uses the full copy below. */
+static bool copy_stage_articulated_vertices(
+    const GeOriginalModelSceneCache *cache, bool force_copy,
+    GeDamRoomWorldVertex *destination,
+    const GeDamRoomWorldVertex *source, size_t vertex_count)
+{
+    bool pose_only = !force_copy && cache->publication_range_count != 0U;
+    for (size_t i = 0U; i < cache->publication_range_count; ++i)
+        if (cache->publication_ranges[i].static_data_changed) pose_only = false;
+    if (pose_only) {
+        for (size_t i = 0U; i < vertex_count; ++i) {
+            memcpy(destination[i].processed.eye, source[i].processed.eye,
+                sizeof(destination[i].processed.eye));
+            memcpy(destination[i].world, source[i].world,
+                sizeof(destination[i].world));
+        }
+    } else {
+        memcpy(destination, source, vertex_count * sizeof(*source));
+    }
+    return pose_only;
+}
+
 static bool refresh_stage_articulated_objects(
     RuntimeStageOrdinaryObjects *objects, Vertex *gpu_destination,
     bool *updated)
@@ -8789,19 +9022,25 @@ static bool refresh_stage_articulated_objects(
             ++objects->articulated_scene_unchanged_count;
             continue;
         }
-        memcpy(objects->preview->dynamic_scene.overlay_vertices
-                + vertex_offset,
-            publication->vertices, vertex_count * sizeof(*publication->vertices));
-        for (part_index = 0U; part_index < batch_count; ++part_index) {
-            GeDamRoomDrawBatch batch = publication->batches[part_index];
-            batch.first_vertex += vertex_offset;
-            objects->preview->dynamic_scene.overlay_batches[
-                batch_offset + part_index] = batch;
+        const bool pose_only = copy_stage_articulated_vertices(
+            &publication->cache, publication->force_copy,
+            objects->preview->dynamic_scene.overlay_vertices + vertex_offset,
+            publication->vertices, vertex_count);
+        if (pose_only) {
+            objects->overlay_status = ge_dam_dynamic_scene_commit_overlay_rooms(
+                &objects->preview->dynamic_scene, batch_offset,
+                publication->batches, batch_count);
+        } else {
+            for (part_index = 0U; part_index < batch_count; ++part_index) {
+                GeDamRoomDrawBatch batch = publication->batches[part_index];
+                batch.first_vertex += vertex_offset;
+                objects->preview->dynamic_scene.overlay_batches[
+                    batch_offset + part_index] = batch;
+            }
+            objects->overlay_status =
+                ge_dam_dynamic_scene_commit_overlay_batches(
+                    &objects->preview->dynamic_scene, batch_offset, batch_count);
         }
-        objects->overlay_status =
-            ge_dam_dynamic_scene_commit_overlay_batches(
-                &objects->preview->dynamic_scene,
-                batch_offset, batch_count);
         if (objects->overlay_status != GE_DAM_DYNAMIC_SCENE_OK)
             return false;
         {
@@ -8814,7 +9053,7 @@ static bool refresh_stage_articulated_objects(
             if (!upload_dam_gpu_world_scene_range(
                     objects->preview, gpu_destination,
                     room_vertex_count + vertex_offset, vertex_count,
-                    room_batch_count + batch_offset, batch_count, false))
+                    room_batch_count + batch_offset, batch_count, pose_only ? 2U : 0U))
                 return false;
         }
         publication->force_copy = false;
@@ -9018,6 +9257,7 @@ static bool refresh_stage_windowed_door_shading(
                     || batch->vertex_count > scene->overlay_vertex_count - segment->vertex_offset - batch->first_vertex)
                 return false;
             GeGbiRenderState shading;
+            Ge3dsShadeCache shade_cache;
             size_t active_matrix = SIZE_MAX;
             bool changed = false;
             ++fine_profile.glass_shading_work[0];
@@ -9031,11 +9271,12 @@ static bool refresh_stage_windowed_door_shading(
                             preview->original_camera_view, preview->original_camera_look_at,
                             &batch->material, &shading)) return false;
                     active_matrix = matrix;
+                    ge_3ds_shade_cache_reset(&shade_cache, &shading);
                 }
                 const size_t overlay = segment->vertex_offset + local;
                 GeDamRoomWorldVertex *source = &scene->overlay_vertices[overlay];
                 GeGbiProcessedVertex shaded = source->processed;
-                if (ge_gbi_vertex_shade(&shading, &source->source, &shaded)
+                if (ge_3ds_shade_cached(&shade_cache, &source->source, &shaded)
                         != GE_GBI_VERTEX_PROCESS_OK) return false;
                 /* Keep the retained moving-door publication coherent as well
                  * as both scene copies; only shade/ST changes, never XYZ. */
@@ -9088,6 +9329,8 @@ static bool refresh_stage_glass_shading(
                     entry->definition, preview->original_camera_view,
                     preview->original_camera_look_at, &batch->material, &shading))
                 return false;
+            Ge3dsShadeCache shade_cache;
+            ge_3ds_shade_cache_reset(&shade_cache, &shading);
             ++fine_profile.glass_shading_work[0];
             fine_profile.glass_shading_work[1] += batch->vertex_count;
             if (batch->first_vertex > scene->overlay_vertex_count
@@ -9098,7 +9341,7 @@ static bool refresh_stage_glass_shading(
                     vertex < batch->first_vertex + batch->vertex_count; ++vertex) {
                 GeDamRoomWorldVertex *source = &scene->overlay_vertices[vertex];
                 GeGbiProcessedVertex shaded = source->processed;
-                if (ge_gbi_vertex_shade(&shading, &source->source, &shaded)
+                if (ge_3ds_shade_cached(&shade_cache, &source->source, &shaded)
                         != GE_GBI_VERTEX_PROCESS_OK) return false;
                 if (memcmp(&source->processed, &shaded, sizeof(shaded)) != 0) {
                     source->processed = shaded;
@@ -9197,14 +9440,25 @@ static bool refresh_stage_live_overlays(
             - objects->preview->dynamic_scene.overlay_vertex_count;
         overlay_scene_batch_base = objects->preview->batch_count
             - objects->preview->dynamic_scene.overlay_batch_count;
-        if (door_updated && !upload_dam_gpu_world_scene_range(
-                objects->preview, gpu_destination,
-                overlay_scene_vertex_base
-                    + objects->door_overlay.vertex_offset,
-                objects->door_overlay.vertex_count,
-                overlay_scene_batch_base
-                    + objects->door_overlay.batch_offset,
-                objects->door_overlay.batch_count, false)) return false;
+        if (door_updated) {
+            /* Clipped doors change authored ST as well as position. Carry
+             * the cache's exact dirty ranges through UV remapping. */
+            for (size_t range_index = 0U;
+                    range_index < objects->door_scene_cache.publication_range_count;
+                    ++range_index) {
+                const GeOriginalModelScenePublicationRange *range =
+                    &objects->door_scene_cache.publication_ranges[range_index];
+                if (!upload_dam_gpu_world_scene_range(
+                        objects->preview, gpu_destination,
+                        overlay_scene_vertex_base + objects->door_overlay.vertex_offset
+                            + range->vertex_offset,
+                        range->vertex_count,
+                        overlay_scene_batch_base + objects->door_overlay.batch_offset
+                            + range->batch_offset,
+                        range->batch_count, range->static_data_changed ? 1U : 2U))
+                    return false;
+            }
+        }
         if (guard_updated && objects->guard_overlay.vertex_count != 0U) {
             const uint64_t upload_start = svcGetSystemTick();
             size_t range_index;
@@ -9274,13 +9528,18 @@ static void publish_stage_ordinary_visibility(
     size_t index;
     if (objects == NULL || !objects->scene_ready || objects->preview == NULL
             || !objects->preview->original_camera_ready) return;
+    GeOriginalPropActiveSet active_storage;
+    const GeOriginalPropActiveSet *active =
+        ge_original_prop_state_snapshot_active(&active_storage) ? &active_storage : NULL;
+    /* This pass changes renderer flags/matrices, never active-list links.
+     * Share one current snapshot across ordinary props, doors and audits. */
     for (index = 0U; index < objects->entry_count; ++index) {
         RuntimeStageOrdinaryEntry *entry = &objects->entries[index];
         if (!entry->root_active) continue;
-        (void)ge_original_prop_state_publish_scene_visibility(
+        (void)ge_original_prop_state_publish_scene_visibility_with_active_set(
             entry->prop,
             dam_visibility_contains_room(objects->preview, entry->room),
-            objects->preview->original_camera_view);
+            objects->preview->original_camera_view, active);
     }
     for (index = 0U; index < objects->interactive.entry_count; ++index) {
         const GeOriginalStageInteractiveEntry *entry =
@@ -9290,11 +9549,11 @@ static void publish_stage_ordinary_visibility(
         if (entry == NULL || !entry->constructed
                 || entry->type != PROPDEF_DOOR || entry->room < 0
                 || entry->room > UINT8_MAX) continue;
-        (void)ge_original_prop_state_publish_scene_visibility(
+        (void)ge_original_prop_state_publish_scene_visibility_with_active_set(
             entry->prop,
             dam_visibility_contains_room(
                 objects->preview, (uint8_t)entry->room),
-            objects->preview->original_camera_view);
+            objects->preview->original_camera_view, active);
     }
     /* Camera/residency publication already evaluates the authored guard room
      * set before rebuilding object scenes.  Repeating that full snapshot /
@@ -9307,21 +9566,19 @@ static void publish_stage_ordinary_visibility(
         const size_t guard_count =
             ge_original_stage_guard_runtime_count(objects->guards);
         for (index = 0U; index < guard_count; ++index) {
-            GeOriginalStageGuardSnapshot snapshot;
+            uint8_t room, visible;
             GeOriginalCharacterSceneState scene_state = {0};
             void *prop = NULL;
             void *chr = NULL;
-            if (!ge_original_stage_guard_runtime_snapshot(
-                    objects->guards, index, &snapshot)
+            if (!ge_original_stage_guard_runtime_room_visibility(
+                    objects->guards, index, &room, &visible)
                     || !ge_original_stage_guard_runtime_actor(
                         objects->guards, index, &prop, &chr)) continue;
             ++objects->guard_visibility_publish_calls;
-            if (snapshot.visible != 0U)
+            if (visible != 0U)
                 ++objects->guard_visibility_publish_visible_requests;
-            if (snapshot.active_linked != 0U)
+            if (ge_original_prop_state_active_set_contains(active, prop))
                 ++objects->guard_visibility_publish_active_requests;
-            if ((snapshot.prop_flags & PROPFLAG_ENABLED) != 0U)
-                ++objects->guard_visibility_publish_enabled_requests;
             /* The unchanged chrTick -> posIsOnScreen path has already
              * evaluated rendered rooms, fog and frustum and owns both fields.
              * Portal residency below is renderer-side only; writing ONSCREEN
@@ -9329,6 +9586,8 @@ static void publish_stage_ordinary_visibility(
             if (ge_original_prop_state_observe_character_scene_state(
                     prop, &scene_state))
                 ++objects->guard_visibility_publish_successes;
+            if ((scene_state.flags & PROPFLAG_ENABLED) != 0U)
+                ++objects->guard_visibility_publish_enabled_requests;
             if ((scene_state.flags & PROPFLAG_ONSCREEN) != 0U)
                 ++objects->guard_visibility_publish_onscreen_outputs;
         }
@@ -10039,6 +10298,86 @@ static void renderer_prepare_batch_runs(const GeDamRoomDrawBatch *batches,
     }
 }
 
+/* Prepare precisely the already-authorized contiguous runs in immutable
+ * geometry. The room boundary also belongs to the plan: membership is tested
+ * once for the anchor, so no run may cross into another room. Publication
+ * replaces this optional metadata; overlays retain their scalar traversal. */
+static void renderer_update_world_batch_runs(RuntimeDamPreview *preview,
+    size_t first_batch)
+{
+    /* Overlay publication can update the owned scene before the preview's
+     * summary counts catch up. Derive the immutable prefix from its owner,
+     * not a mixture of an old preview count and a new overlay count. */
+    const bool canonical = preview->dynamic_scene.initialized
+        && preview->dynamic_scene.room_ranges != NULL
+        && preview->source_vertices == preview->dynamic_scene.vertices
+        && preview->batches == preview->dynamic_scene.batches;
+    const size_t batches = canonical ? preview->dynamic_scene.scene.batch_count
+        : preview->batch_count;
+    const size_t count = batches >= preview->dynamic_scene.overlay_batch_count
+        ? batches - preview->dynamic_scene.overlay_batch_count : 0U;
+    /* Room replacement allocates new ranges before freeing the old ones;
+     * overlay changes preserve them, and stage initialization clears this
+     * preview. The identity therefore describes the immutable publication. */
+    const uintptr_t room_identity = canonical
+        ? (uintptr_t)preview->dynamic_scene.room_ranges : 0U;
+    if (count == preview->gpu_batch_run_count
+            && ((room_identity != 0U
+                    && room_identity == preview->gpu_batch_run_room_identity)
+                || (room_identity == 0U && first_batch >= count))) return;
+    const uint64_t prepare_started = svcGetSystemTick();
+    if (count != preview->gpu_batch_run_count) {
+        uint32_t *ends = count != 0U && count <= UINT32_MAX
+                && count <= SIZE_MAX / sizeof(*ends)
+            ? realloc(preview->gpu_batch_run_ends, count * sizeof(*ends)) : NULL;
+        if (ends == NULL) {
+            free(preview->gpu_batch_run_ends);
+            preview->gpu_batch_run_ends = NULL;
+            preview->gpu_batch_run_count = 0U;
+            preview->gpu_batch_run_room_identity = 0U;
+            return;
+        }
+        preview->gpu_batch_run_ends = ends;
+        preview->gpu_batch_run_count = count;
+    }
+    preview->gpu_batch_run_room_identity = room_identity;
+    for (size_t cursor = count; cursor != 0U;) {
+        const size_t i = --cursor;
+        preview->gpu_batch_run_ends[i] = i + 1U < count
+                && preview->batches[i].room_id == preview->batches[i + 1U].room_id
+                && dam_batches_compatible(&preview->batches[i], &preview->batches[i + 1U])
+            ? preview->gpu_batch_run_ends[i + 1U] : (uint32_t)(i + 1U);
+    }
+    const uint64_t elapsed = svcGetSystemTick() - prepare_started;
+    ++fine_profile.world_run_prepare[0];
+    fine_profile.world_run_prepare[1] += elapsed;
+    if (elapsed > fine_profile.world_run_prepare[2]) {
+        fine_profile.world_run_prepare[2] = elapsed;
+        fine_profile.world_run_prepare[3] = fine_profile.rendered_frames + 1U;
+    }
+}
+
+/* The streaming diagnostics already count exact adjacent material groups.
+ * Reuse the prepared run to avoid paying the same full comparisons twice
+ * at a room transition. Different-room boundaries still use the original
+ * comparison: room identity is a traversal constraint, not a material group. */
+static size_t renderer_count_world_material_groups(const RuntimeDamPreview *preview)
+{
+    size_t groups = preview->batch_count != 0U ? 1U : 0U;
+    for (size_t i = 1U; i < preview->batch_count;) {
+        if (preview->gpu_batch_run_count <= preview->batch_count
+                && i - 1U < preview->gpu_batch_run_count
+                && preview->gpu_batch_run_ends[i - 1U] > i) {
+            i = preview->gpu_batch_run_ends[i - 1U];
+            continue;
+        }
+        if (!dam_batches_compatible(&preview->batches[i - 1U], &preview->batches[i]))
+            ++groups;
+        ++i;
+    }
+    return groups;
+}
+
 /* Snapshot only membership of the original visible-room publication, once
  * per world draw. Preserve its ordered list for portal/streaming/gameplay
  * users; this byte map is read-only renderer scratch, never a visibility
@@ -10175,6 +10514,22 @@ cache_visibility:
     }
     if (visibility_cache != NULL && source_index < visibility_cache_count)
         visibility_cache[source_index] = visible ? 1U : 2U;
+    return visible;
+}
+
+static bool renderer_world_batch_profiled(
+    const RuntimeDamPreview *preview, size_t source_index,
+    uint8_t *visibility_cache, size_t visibility_cache_count,
+    const GeDrawBatchClipContext clip_contexts[3],
+    const uint8_t room_classifications[UINT8_MAX + 1U])
+{
+    const bool sampled = world_submission_detail_enabled
+        && (fine_profile.rendered_frames & 15U) == 0U;
+    const uint64_t start = sampled ? svcGetSystemTick() : 0U;
+    const bool visible = renderer_world_batch_may_draw(preview, source_index,
+        visibility_cache, visibility_cache_count, clip_contexts, room_classifications);
+    if (sampled)
+        fine_profile.world_submission_detail_ticks[0] += svcGetSystemTick() - start;
     return visible;
 }
 
@@ -11522,6 +11877,7 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
             }
         }
     }
+    renderer_update_world_batch_runs(preview, batch_offset);
     if (vertex_count != 0U) {
         if (preview->gpu_dirty_vertex_count == 0U) {
             preview->gpu_dirty_vertex_offset = vertex_offset;
@@ -12093,15 +12449,8 @@ static bool update_original_dam_camera(
                 preview->source_vertex_count = published->vertex_count;
                 preview->batch_count = published->batch_count;
                 preview->scene_textures = &dam_scene_textures;
-                preview->material_groups = published->batch_count != 0U
-                    ? 1U : 0U;
-                for (axis = 1U; axis < published->batch_count; ++axis) {
-                    if (!dam_batches_compatible(
-                            &preview->batches[axis - 1U],
-                            &preview->batches[axis])) {
-                        ++preview->material_groups;
-                    }
-                }
+                renderer_update_world_batch_runs(preview, 0U);
+                preview->material_groups = renderer_count_world_material_groups(preview);
                 dynamic_projected = true;
                 visual_probe_record_stream_phase(preview, 13U,
                     transaction.room);
@@ -12957,7 +13306,7 @@ static bool initialize_original_frontend_model(
             parts[part_index].primary_offset,
             parts[part_index].secondary_offset,
             parts[part_index].segment4_offset,
-            0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
+            NULL, NULL, 0U, 0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
         };
         for (diagonal = 0U; diagonal < 4U; ++diagonal)
             inputs[part_index].matrix[diagonal][diagonal] = 1.0f;
@@ -13090,7 +13439,7 @@ static bool prepare_original_frontend_pitem_scene(
                 parts[part_index].primary_offset,
                 parts[part_index].secondary_offset,
                 parts[part_index].segment4_offset,
-                0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
+                NULL, NULL, 0U, 0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
             };
             for (diagonal = 0U; diagonal < 4U; ++diagonal)
                 inputs[part_index].matrix[diagonal][diagonal] = 1.0f;
@@ -13537,7 +13886,7 @@ static bool prepare_original_frontend_wallet(
                 parts[input_index].primary_offset,
                 parts[input_index].secondary_offset,
                 parts[input_index].segment4_offset,
-                0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
+                NULL, NULL, 0U, 0U, 0U, 0U, {{0}}, NULL, 0U, {{0}}, {0},
             };
             if (snapshot->menu == MENU_MISSION_SELECT
                     && instance_index == 0U
@@ -14872,21 +15221,15 @@ static void draw_original_frontend_list(
         ? &original_gameplay_hud_font_texture
         : &original_hud_font_texture);
     configure_original_font_texture_environment(texture_environment);
-    if (menu != MENU_GOLDENEYE_LOGO
-            && menu != MENU_LEGAL_SCREEN
-            && menu != MENU_NINTENDO_LOGO
-            && menu != MENU_RAREWARE_LOGO
-            && menu != MENU_EYE_INTRO
-            && menu != MENU_DISPLAY_CAST
-            && runtime != NULL && runtime->wallet_ready) {
-        C3D_DrawArrays(GPU_TRIANGLES,
-            ORIGINAL_HUD_VERTEX_OFFSET
-                + draw_list->background_vertex_count,
-            draw_list->box_vertex_count
-                - draw_list->background_vertex_count);
-    } else {
+    if (menu == MENU_GOLDENEYE_LOGO
+            || menu == MENU_LEGAL_SCREEN
+            || menu == MENU_NINTENDO_LOGO
+            || menu == MENU_RAREWARE_LOGO
+            || menu == MENU_EYE_INTRO
+            || menu == MENU_DISPLAY_CAST
+            || runtime == NULL || !runtime->wallet_ready) {
         C3D_DrawArrays(GPU_TRIANGLES, ORIGINAL_HUD_VERTEX_OFFSET,
-                       draw_list->box_vertex_count);
+                       draw_list->background_vertex_count);
     }
     if ((menu == MENU_GOLDENEYE_LOGO
                 || menu == MENU_LEGAL_SCREEN
@@ -15259,6 +15602,13 @@ static void draw_original_frontend_list(
         ? &original_gameplay_hud_font_texture
         : &original_hud_font_texture);
     configure_original_font_texture_environment(texture_environment);
+    /* frontSetupMenuBackground/modelRender precedes the menu's selection
+     * boxes, sliders and erase panel. Drawing these before the wallet made
+     * its opaque paper overwrite them. Keep the overlays above the model
+     * and below their text, with the font's solid white texel restored. */
+    C3D_DrawArrays(GPU_TRIANGLES,
+        ORIGINAL_HUD_VERTEX_OFFSET + draw_list->background_vertex_count,
+        draw_list->box_vertex_count - draw_list->background_vertex_count);
     {
         const size_t normal_glyph_count=draw_list->tab_glyph_vertex_count!=0U
             ? draw_list->tab_glyph_vertex_offset-draw_list->box_vertex_count
@@ -15454,7 +15804,9 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
     while (aptMainLoop()) {
         GePortInput input = read_input(cstick_available);
         GeOriginalFrontendSnapshot snapshot;
-        Ge3dsOriginalFrontendLine lines[GE_ORIGINAL_FRONTEND_MAX_LINES];
+        /* Snapshot lines fill only their applicable fields. Clear optional
+         * tab/color/value placement state on every page/frame. */
+        Ge3dsOriginalFrontendLine lines[GE_ORIGINAL_FRONTEND_MAX_LINES] = {0};
         char formatted[GE_ORIGINAL_FRONTEND_MAX_LINES][192];
         char mission_header[3][128];
         char statistics_supplemental[3][160];
@@ -16313,6 +16665,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                           const GeOriginalDamMissionExitSnapshot *fade_snapshot)
 {
     uint64_t phase_ticks[5];
+    const bool sample_submission = world_submission_detail_enabled
+        && (fine_profile.rendered_frames & 15U) == 0U;
     phase_ticks[0] = svcGetSystemTick();
     GePicaTextureRectangleDraw gun_sight_draw = {0};
     size_t gun_sight_vertex_count = 0U;
@@ -16747,7 +17101,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                 continue;
             }
             if (gpu_world_render
-                    && !renderer_world_batch_may_draw(
+                    && !renderer_world_batch_profiled(
                         dam_preview, source_index,
                         world_batch_visibility_cache,
                         visibility_cache_count, clip_contexts, room_frustum)) {
@@ -16770,26 +17124,48 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                             != next_batch->coordinate_space) {
                     break;
                 }
-                if (gpu_world_render && !renderer_world_batch_may_draw(
-                        dam_preview, next_source,
-                        world_batch_visibility_cache,
-                        visibility_cache_count, clip_contexts, room_frustum)) {
-                    /* This exact authored range has a unanimous homogeneous
-                     * clip outcode. It can sit inside a later merged range
-                     * only under the SAME projection: it cannot produce a
-                     * fragment under any material state in this draw. */
-                    scanned_vertex_end += next_batch->vertex_count;
-                    next++;
-                    continue;
+                /* The anchor batch already proved this draw visible. With
+                 * identical material/texture/projection, the GPU can clip
+                 * subsequent triangles in the same draw. CPU culling is
+                 * only needed to cross an incompatible material's range. */
+                const bool sample_merge = sample_submission
+                    && (fine_profile.world_merge_detail[1]++ & 63U) == 0U;
+                const uint64_t merge_start = sample_merge ? svcGetSystemTick() : 0U;
+                const bool compatible = gpu_world_render
+                        && dam_preview->gpu_batch_run_count <= draw_batch_count
+                        && source_index < dam_preview->gpu_batch_run_count
+                        && next_source < dam_preview->gpu_batch_run_ends[source_index]
+                    ? true : dam_batch_materials_compatible(batch, next_batch);
+                if (sample_merge) {
+                    fine_profile.world_merge_detail[0] += svcGetSystemTick() - merge_start;
+                    ++fine_profile.world_merge_detail[2];
                 }
-                if (!dam_batch_materials_compatible(
-                        batch, next_batch)) break;
-                scanned_vertex_end += camera_render
-                    ? dam_preview->render_batches[next].vertex_count
-                    : next_batch->vertex_count;
+                if (!compatible) {
+                    if (gpu_world_render && !renderer_world_batch_profiled(
+                            dam_preview, next_source,
+                            world_batch_visibility_cache,
+                            visibility_cache_count, clip_contexts, room_frustum)) {
+                        scanned_vertex_end += next_batch->vertex_count;
+                        next++;
+                        continue;
+                    }
+                    break;
+                }
+                if (gpu_world_render && dam_preview->gpu_batch_run_count <= draw_batch_count
+                        && next_source < dam_preview->gpu_batch_run_count) {
+                    const size_t end = dam_preview->gpu_batch_run_ends[next_source];
+                    const GeDamRoomDrawBatch *last = &dam_preview->batches[end - 1U];
+                    scanned_vertex_end = last->first_vertex + last->vertex_count;
+                    merged_authored_batches += end - next;
+                    next = end;
+                } else {
+                    scanned_vertex_end += camera_render
+                        ? dam_preview->render_batches[next].vertex_count
+                        : next_batch->vertex_count;
+                    merged_authored_batches++;
+                    next++;
+                }
                 vertex_count = scanned_vertex_end - first_vertex;
-                merged_authored_batches++;
-                next++;
             }
 
             if (gpu_world_render) {
@@ -16810,6 +17186,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     coordinate_projection = batch_projection;
                 }
             }
+            const uint64_t material_start = sample_submission ? svcGetSystemTick() : 0U;
             if (world_material_cache.valid
                     && memcmp(&world_material_cache.material,
                               &batch->material,
@@ -16841,10 +17218,15 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     == GE_3DS_MATERIAL_OK
                     && material_result.state.draw_enabled != 0U;
             }
+            if (sample_submission)
+                fine_profile.world_submission_detail_ticks[1] += svcGetSystemTick() - material_start;
             if (material_draw_enabled) {
+                const uint64_t draw_start = sample_submission ? svcGetSystemTick() : 0U;
                 C3D_DrawArrays(GPU_TRIANGLES,
                                DAM_ROOM_VERTEX_OFFSET + first_vertex,
                                vertex_count);
+                if (sample_submission)
+                    fine_profile.world_submission_detail_ticks[2] += svcGetSystemTick() - draw_start;
                 fine_profile.world_draw_calls++;
                 fine_profile.world_authored_batches +=
                     merged_authored_batches;
@@ -16853,6 +17235,10 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         }
     }
     phase_ticks[2] = svcGetSystemTick();
+    if (sample_submission) {
+        fine_profile.world_submission_detail_ticks[3] += phase_ticks[2] - phase_ticks[1];
+        ++fine_profile.world_submission_detail_ticks[4];
+    }
     if(guard_muzzle_flash_vertex_count!=0U&&dam_preview!=NULL
             &&dam_preview->gpu_world_ready){
         size_t flash;
@@ -18009,6 +18395,11 @@ int main(void)
                                  NULL, NULL, NULL) == GE_TEXTURE_CACHE_OK;
 
 start_stage_runtime:
+    /* A probe bypasses the frontend, so gameplay must initialize its music
+     * here just as it does on subsequent stage loads. Use the same decision
+     * for both audio ownership and the actual frontend dispatch. */
+    run_start_frontend = run_start_frontend
+        && !runtime_diagnostics_requested(stage_assets);
     memset(&original_music_sync, 0, sizeof(original_music_sync));
     original_music_sync.track[0] = INT32_MIN;
     original_music_sync.track[1] = INT32_MIN;
@@ -18071,7 +18462,7 @@ start_stage_runtime:
     original_frontend_runtime.rareware_mesh = &rareware_mesh;
     original_frontend_runtime.rareware_front = &rareware_front_model;
     original_frontend_runtime.rareware_body = &rareware_body_model;
-    if (run_start_frontend && !runtime_diagnostics_requested(stage_assets)) {
+    if (run_start_frontend) {
         if (!assets_mounted || !texture_cache_ready
                 || !initialize_original_frontend_model(
                     &original_frontend_runtime, &asset_pack, &texture_cache,
@@ -18133,6 +18524,7 @@ start_stage_runtime:
         g_randomSeed = header->random_seed;
         g_chrObjRandomSeed = header->character_random_seed;
     }
+    const uint64_t setup_initial_rng[2] = {g_randomSeed, g_chrObjRandomSeed};
     (void)initialize_dam_prop_state(&dam_objects);
     ge_original_effect_buffers_reset_single_player();
     initialize_original_stage_intro(&dam_collision, &dam_intro,
@@ -18376,11 +18768,6 @@ start_stage_runtime:
             publish_stage_ordinary_visibility(
                 &stage_ordinary_objects, true);
         }
-        /* Exclude one-time asset relocation/topology bootstrap from the live
-         * cumulative combat profile. The callback is observational only. */
-        ge_original_model_scene_cache_bind_profile_clock(
-            &stage_ordinary_objects.guard_scene_cache,
-            runtime_profile_clock, NULL);
         if (initialize_stage_active_props(
                 &stage_ordinary_objects, &dam_intro)) {
             ge_original_door_interaction_bind(
@@ -18442,6 +18829,41 @@ start_stage_runtime:
                (unsigned long)input_probe.target_frames);
         }
     }
+    world_submission_detail_enabled = false;
+    if (input_probe.enabled) {
+        memcpy(input_probe.initial_rng, setup_initial_rng, sizeof(setup_initial_rng));
+        if (!input_probe_load_retraces(&input_probe)) {
+            printf("Invalid input-probe retrace replay.\n");
+            goto cleanup_runtime;
+        }
+        FILE *detail = fopen(INPUT_DETAIL_PATH, "rb");
+        if (detail != NULL) {
+            input_probe.deep_profile = fgetc(detail) == '1';
+            fclose(detail);
+        }
+        ge_original_props_profile_bind(input_probe.deep_profile ? runtime_profile_clock : NULL, NULL);
+        ge_audio_abi_profile_bind(input_probe.deep_profile ? runtime_profile_clock : NULL, NULL);
+        ge_3ds_alloc_profile_enable(input_probe.deep_profile);
+        ge_original_gameplay_services_bind_audio_profile(input_probe.deep_profile ? runtime_profile_clock : NULL, NULL);
+    }
+    /* Per-input geometry clocks are deep diagnostics, just like per-opcode
+     * audio clocks. Outer frame/guard/first-person timing remains available. */
+    ge_original_model_scene_cache_bind_profile_clock(
+        &stage_ordinary_objects.guard_scene_cache,
+        input_probe.deep_profile ? runtime_profile_clock : NULL, NULL);
+    if (input_probe.enabled) {
+        FILE *profile = fopen(WORLD_PROFILE_PATH, "rb");
+        if (profile != NULL) {
+            world_submission_detail_enabled = fgetc(profile) == '1';
+            fclose(profile);
+        }
+    }
+    if (input_probe.enabled) {
+        input_probe.timings = calloc(input_probe.target_frames,
+                                     sizeof(*input_probe.timings));
+        if (input_probe.timings != NULL)
+            input_probe.timing_capacity = input_probe.target_frames;
+    }
     clip_stage_ready = verify_clip_stage();
     audio_abi_ready = verify_audio_abi_stage();
     ge_original_gameplay_services_bind_audio(
@@ -18450,10 +18872,36 @@ start_stage_runtime:
     scheduler_active = ge_retrace_scheduler_init(&scheduler, NULL, NULL) == 0
         && ge_retrace_scheduler_start(&scheduler, 16667U) == 0;
     previous_time = osGetTime();
+    uint32_t last_submit_vblank = C3D_FrameCounter(0);
 
     while (aptMainLoop()) {
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
+        const uint64_t frame_start_ticks = input_probe.enabled ? svcGetSystemTick() : 0U;
+        const uint64_t frame_counters_before[15] = {
+            fine_profile.frame_begin_ticks, fine_profile.music_render_ticks,
+            fine_profile.gameplay_phase_ticks[0], fine_profile.guard_scene_ticks,
+            fine_profile.renderer_phase_ticks[1], fine_profile.renderer_draw_ticks,
+            fine_profile.gameplay_phase_ticks[6],
+            stage_ordinary_objects.guard_scene_cache.profile_vertex_transform_ticks,
+            fine_profile.guard_gpu_upload_ticks, fine_profile.guard_replace_ticks,
+            fine_profile.guard_import_ticks, fine_profile.guard_visibility_publish_ticks,
+            fine_profile.first_person_phase_ticks[0] + fine_profile.first_person_phase_ticks[1]
+                + fine_profile.first_person_phase_ticks[2] + fine_profile.first_person_phase_ticks[3],
+            fine_profile.guard_overlay_commit_ticks, fine_profile.world_gpu_flush_ticks,
+        };
+        const uint64_t detail_before[18] = {
+            fine_profile.gameplay_phase_ticks[1], fine_profile.gameplay_phase_ticks[2],
+            fine_profile.gameplay_phase_ticks[3], fine_profile.gameplay_phase_ticks[5],
+            ge_original_props_profile[0], ge_original_props_profile[1], ge_original_props_profile[2],
+            ge_original_props_profile[3], ge_original_props_profile[4], ge_original_props_profile[5],
+            stage_ordinary_objects.guard_scene_cache.topology_rebuilds,
+            dam_preview.dynamic_scene.generation, stage_ordinary_objects.overlay_full_rebuilds,
+            ge_original_props_profile[6], ge_original_props_profile[7], ge_original_props_profile[8], ge_original_props_profile[9],
+            ge_original_gameplay_services_audio_decode_ticks()
+        };
+        uint32_t alloc_before[6];
+        ge_3ds_alloc_profile_snapshot(alloc_before);
         const u64 current_time = osGetTime();
         const u64 elapsed_milliseconds = current_time - previous_time;
         u64 simulation_start;
@@ -18461,6 +18909,9 @@ start_stage_runtime:
         u64 gpu_elapsed_milliseconds = 0U;
         const double elapsed = (double)elapsed_milliseconds / 1000.0;
         unsigned ticks;
+        unsigned elapsed_retraces = 0U;
+        uint64_t present_wait_ticks = 0U;
+        uint32_t previous_gpu_us = 0U;
         GeRetracePumpReport retrace_report;
 #if defined(GE_DAM_FULL_PROPS_LIVE)
         bool guard_runtime_updated = false;
@@ -18552,11 +19003,17 @@ start_stage_runtime:
         }
 
         if (original_frontend_runtime.ramrom_active) {
+            elapsed_retraces = original_frontend_runtime.ramrom_block.speed_frames;
             ticks = ge_port_advance_retraces(
                 &port,
                 original_frontend_runtime.ramrom_block.speed_frames,
                 &input);
             original_frontend_runtime.ramrom_block_ready = 0U;
+        } else if (input_probe.enabled && input_probe.replay_retraces != NULL) {
+            /* Diagnostic replay retains every recorded canonical retrace delta.
+             * Live gameplay continues to use the elapsed-time scheduler. */
+            elapsed_retraces = input_probe.replay_retraces[input_probe.displayed_frames];
+            ticks = ge_port_advance_retraces(&port, elapsed_retraces, &input);
         } else if (scheduler_active
                 && ge_retrace_scheduler_pump(
                     &scheduler, elapsed_milliseconds * 1000U,
@@ -18566,12 +19023,14 @@ start_stage_runtime:
                 ? UINT_MAX
                 : (unsigned)retrace_report.generated_ticks;
             scheduler_ticks += retrace_report.generated_ticks;
+            elapsed_retraces = retrace_frames;
             ticks = ge_port_advance_retraces(
                 &port, retrace_frames, &input);
         } else {
             /* The elapsed-time accumulator remains a safe fallback if the
              * native retrace service could not be started. */
             ticks = ge_port_advance_bounded(&port, elapsed, &input, 1U);
+            elapsed_retraces = ticks;
         }
         if (audio_active) {
             ge_3ds_audio_pump();
@@ -18592,6 +19051,8 @@ start_stage_runtime:
             const uint64_t frame_begin_start = svcGetSystemTick();
             C3D_FrameBegin(0);
             fine_profile.frame_begin_ticks += svcGetSystemTick() - frame_begin_start;
+            if (input_probe.enabled)
+                previous_gpu_us = (uint32_t)(C3D_GetDrawingTime() * 1000.0f);
         }
 
         {
@@ -18629,9 +19090,11 @@ start_stage_runtime:
                 const uint64_t music_start = svcGetSystemTick();
                 const bool render_music = audio_active && original_music != NULL;
                 const GeAudioAbiResult music_status = render_music
-                    ? ge_original_music_runtime_tick_60hz(original_music) : GE_AUDIO_ABI_OK;
+                    ? ge_original_music_runtime_begin_tick_60hz(original_music) : GE_AUDIO_ABI_OK;
+                uint64_t music_call_ticks = 0U;
                 if (render_music) {
                     const uint64_t music_ticks = svcGetSystemTick() - music_start;
+                    music_call_ticks = music_ticks;
                     fine_profile.music_render_ticks += music_ticks;
                     ++fine_profile.music_render_calls;
                     if (music_ticks > fine_profile.music_render_peak_ticks)
@@ -18947,6 +19410,22 @@ start_stage_runtime:
                     input_probe_capture_armour(&input_probe);
                     ++input_probe.simulation_frames;
                 }
+                if (original_music != NULL) {
+                    const uint64_t music_wait_start = svcGetSystemTick();
+                    const GeAudioAbiResult completed_music =
+                        ge_original_music_runtime_finish(original_music);
+                    const uint64_t music_join_ticks = svcGetSystemTick() - music_wait_start;
+                    fine_profile.music_render_ticks += music_join_ticks;
+                    music_call_ticks += music_join_ticks;
+                    if (music_call_ticks > fine_profile.music_render_peak_ticks)
+                        fine_profile.music_render_peak_ticks = music_call_ticks;
+                    if (completed_music != GE_AUDIO_ABI_OK) {
+                        printf("Original music completion failed.\n");
+                        (void)ge_3ds_audio_bind_secondary(NULL);
+                        ge_original_music_runtime_close(original_music);
+                        original_music = NULL;
+                    }
+                }
                 fine_profile.gameplay_phase_ticks[0] +=
                     svcGetSystemTick() - original_tick_profile_start;
             }
@@ -18958,8 +19437,8 @@ start_stage_runtime:
                 boss_state.requested_stage != LEVELID_NONE;
         }
 #if defined(GE_DAM_FULL_PROPS_LIVE)
-        if (dam_stage && (dam_objects.objective_runtime.bound
-                || stage_ordinary_objects.objective_runtime.bound))
+        if (dam_objects.objective_runtime.bound
+                || stage_ordinary_objects.objective_runtime.bound)
             display_objective_status_text_on_status_change();
 #endif
 #if defined(GE_DAM_FULL_PROPS_LIVE)
@@ -19470,7 +19949,8 @@ start_stage_runtime:
             const bool first_person_updated = update_first_person_scene(
                     &first_person_models, &first_person_scene,
                     &dam_preview, &texture_cache,
-                    (Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET);
+                    (Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET,
+                    input_probe.deep_profile);
             frame_profile.first_person_ms +=
                 osGetTime() - first_person_start;
             if (first_person_updated) {
@@ -19493,6 +19973,18 @@ start_stage_runtime:
                           &first_person_scene, &fade_snapshot);
             fine_profile.renderer_draw_ticks +=
                 svcGetSystemTick() - fine_start;
+            /* Submit at most once per display interval. A short frame after
+             * a long one must not replace it before the next scanout. If a
+             * boundary already elapsed, submit immediately rather than adding
+             * another VBlank of delay. Canonical elapsed-retrace dispatch above
+             * remains authoritative; RAMROM keeps its authored cadence. */
+            if (!original_frontend_runtime.ramrom_active) {
+                const uint64_t wait_start = svcGetSystemTick();
+                while (C3D_FrameCounter(0) == last_submit_vblank)
+                    gspWaitForVBlank();
+                present_wait_ticks = svcGetSystemTick() - wait_start;
+            }
+            last_submit_vblank = C3D_FrameCounter(0);
             fine_start = svcGetSystemTick();
             C3D_FrameEnd(0);
             fine_profile.frame_end_ticks +=
@@ -19537,6 +20029,67 @@ start_stage_runtime:
                 visual_probe_tour.gpu_total_ms += gpu_elapsed_milliseconds;
             }
             if (input_probe.enabled) {
+                if (input_probe.timing_count < input_probe.timing_capacity) {
+                    RuntimeInputProbeTiming *timing =
+                        &input_probe.timings[input_probe.timing_count++];
+                    const uint64_t detail_after[18] = {
+                        fine_profile.gameplay_phase_ticks[1], fine_profile.gameplay_phase_ticks[2],
+                        fine_profile.gameplay_phase_ticks[3], fine_profile.gameplay_phase_ticks[5],
+                        ge_original_props_profile[0], ge_original_props_profile[1], ge_original_props_profile[2],
+                        ge_original_props_profile[3], ge_original_props_profile[4], ge_original_props_profile[5],
+                        stage_ordinary_objects.guard_scene_cache.topology_rebuilds,
+                        dam_preview.dynamic_scene.generation, stage_ordinary_objects.overlay_full_rebuilds,
+            ge_original_props_profile[6], ge_original_props_profile[7], ge_original_props_profile[8], ge_original_props_profile[9],
+            ge_original_gameplay_services_audio_decode_ticks()
+                    };
+                    for (size_t i = 0U; i < 18U; ++i) timing->detail[i] = detail_after[i] - detail_before[i];
+                    uint32_t alloc_after[6]; ge_3ds_alloc_profile_snapshot(alloc_after);
+                    for (size_t i = 0U; i < 6U; ++i) timing->allocations[i] = alloc_after[i] - alloc_before[i];
+                    if ((input_probe.timing_count - 1U) % 60U == 0U) {
+                        timing->checkpoint_rng[0] = g_randomSeed;
+                        timing->checkpoint_rng[1] = g_chrObjRandomSeed;
+                        memcpy(timing->checkpoint_player, dam_intro.player.camera_position, 3U*sizeof(float));
+                        memcpy(timing->checkpoint_player+3, dam_intro.player.camera_look, 3U*sizeof(float));
+                        ge_original_dam_guard_player_vitals_snapshot(
+                            &timing->checkpoint_player[6], &timing->checkpoint_player[7]);
+                        uint64_t hash = UINT64_C(14695981039346656037);
+                        for (size_t i = 0; i < ge_original_stage_guard_runtime_count(stage_ordinary_objects.guards); ++i) {
+                            GeOriginalStageGuardSnapshot guard;
+                            if (!ge_original_stage_guard_runtime_snapshot(stage_ordinary_objects.guards, i, &guard)) continue;
+                            uint32_t values[12] = {(uint32_t)guard.chr_id, guard.action_type, guard.ai_offset,
+                                guard.chr_flags, guard.prop_flags, (uint32_t)guard.firecount[0], (uint32_t)guard.firecount[1]};
+                            memcpy(values+7, guard.position, 3U*sizeof(float));
+                            memcpy(values+10, &guard.damage, sizeof(float));
+                            memcpy(values+11, &guard.animation_frame, sizeof(float));
+                            for (size_t j=0; j<12; ++j) { hash ^= values[j]; hash *= UINT64_C(1099511628211); }
+                        }
+                        timing->checkpoint_guard_hash = hash;
+                    }
+                    timing->ticks[0] = svcGetSystemTick() - frame_start_ticks - present_wait_ticks;
+                    timing->present_wait_ticks = present_wait_ticks;
+                    timing->previous_gpu_us = previous_gpu_us;
+                    timing->submit_vblank = last_submit_vblank;
+                    timing->ticks[1] = input_probe.timing_previous_start != 0U
+                        ? frame_start_ticks - input_probe.timing_previous_start : 0U;
+                    const uint64_t counters[15] = {
+                        fine_profile.frame_begin_ticks, fine_profile.music_render_ticks,
+                        fine_profile.gameplay_phase_ticks[0], fine_profile.guard_scene_ticks,
+                        fine_profile.renderer_phase_ticks[1], fine_profile.renderer_draw_ticks,
+                        fine_profile.gameplay_phase_ticks[6],
+                        stage_ordinary_objects.guard_scene_cache.profile_vertex_transform_ticks,
+                        fine_profile.guard_gpu_upload_ticks, fine_profile.guard_replace_ticks,
+                        fine_profile.guard_import_ticks, fine_profile.guard_visibility_publish_ticks,
+                        fine_profile.first_person_phase_ticks[0] + fine_profile.first_person_phase_ticks[1]
+                            + fine_profile.first_person_phase_ticks[2] + fine_profile.first_person_phase_ticks[3],
+                        fine_profile.guard_overlay_commit_ticks, fine_profile.world_gpu_flush_ticks,
+                    };
+                    for (size_t field = 0U; field < 15U; ++field)
+                        timing->ticks[field + 2U] = counters[field] - frame_counters_before[field];
+                    timing->retraces = elapsed_retraces;
+                    timing->world_sampled = world_submission_detail_enabled
+                        && ((fine_profile.rendered_frames - 1U) & 15U) == 0U;
+                    input_probe.timing_previous_start = frame_start_ticks;
+                }
                 ++input_probe.displayed_frames;
                 input_probe.displayed_total_ms += displayed_frame_ms;
                 if (displayed_frame_ms > input_probe.displayed_peak_ms)
@@ -19671,6 +20224,16 @@ start_stage_runtime:
     }
 
 cleanup_runtime:
+    (void)ge_original_music_runtime_finish(original_music);
+    ge_3ds_music_worker_close();
+    ge_original_props_profile_bind(NULL, NULL);
+    ge_3ds_alloc_profile_enable(0);
+    ge_original_gameplay_services_bind_audio_profile(NULL, NULL);
+    free(input_probe.replay_retraces);
+    input_probe.replay_retraces = NULL;
+    free(input_probe.timings);
+    input_probe.timings = NULL;
+    input_probe.timing_capacity = input_probe.timing_count = 0U;
     if (scheduler_active) {
         (void)ge_retrace_scheduler_stop(&scheduler);
     }
@@ -19691,6 +20254,7 @@ cleanup_runtime:
     }
     free(dam_preview.render_batches);
     free(dam_preview.gpu_batch_bounds);
+    free(dam_preview.gpu_batch_run_ends);
     ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);
     close_dam_world_objects(&dam_objects);
     close_stage_ordinary_objects(&stage_ordinary_objects);

@@ -7,6 +7,7 @@ trap 'rm -rf "${test_dir}"' EXIT
 
 compiler="${CC:-cc}"
 common_flags=(
+    -O2
     -std=c11
     -Wall
     -Wextra
@@ -34,7 +35,11 @@ objects=()
 
 for source in "${sources[@]}"; do
     object="${test_dir}/$(basename "${source%.c}").o"
-    "${compiler}" "${common_flags[@]}" -c "${repo_dir}/${source}" -o "${object}"
+    source_flags=(-O2)
+    if [[ "${source}" == port/src/ge_audio_abi.c ]]; then
+        source_flags=(-O3)
+    fi
+    "${compiler}" "${common_flags[@]}" "${source_flags[@]}" -c "${repo_dir}/${source}" -o "${object}"
     objects+=("${object}")
 done
 

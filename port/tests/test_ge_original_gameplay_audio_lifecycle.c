@@ -115,6 +115,80 @@ GeOriginalPp7FireStatus ge_original_pp7_fire_tick(void)
     return GE_ORIGINAL_PP7_FIRE_IDLE;
 }
 
+static void render_cached_shot(GeAudioOutput *output, int16_t captured[3200])
+{
+    ALSoundState *voice = sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, 0x2e, NULL);
+    assert(voice != NULL);
+    float pitch = 0.8f; uint32_t bits; memcpy(&bits, &pitch, sizeof(bits));
+    sndCreatePostEvent(voice, AL_SNDP_PAN_EVT, 29);
+    sndCreatePostEvent(voice, AL_SNDP_VOL_EVT, 17000);
+    sndCreatePostEvent(voice, AL_SNDP_PITCH_EVT, (s32)bits);
+    size_t frames = 0;
+    for (unsigned i=0; i<3; ++i) {
+        ge_original_gameplay_services_tick();
+        size_t queued = ge_audio_output_queued(output);
+        assert(frames + queued <= 1600);
+        assert(ge_audio_output_read(output, captured+frames*2, queued) == queued);
+        frames += queued;
+    }
+    assert(frames == 1600);
+    sndDeactivate(voice);
+}
+
+static void test_pcm_cache(GeOriginalSfxBank *bank, GeAudioOutput *output)
+{
+    int16_t cold[3200], warm[3200];
+    GeOriginalGameplayServiceStats a, b;
+    ge_original_gameplay_services_bind_audio(bank, output);
+    ge_audio_output_reset(output);
+    ge_original_gameplay_services_snapshot(&a);
+    render_cached_shot(output, cold);
+    render_cached_shot(output, warm);
+    assert(memcmp(cold, warm, sizeof(cold)) == 0);
+    int audible = 0;
+    for (size_t i=0; i<3200; ++i) audible |= cold[i] != 0;
+    assert(audible);
+    ge_original_gameplay_services_snapshot(&b);
+    assert(b.sound_cache_misses == a.sound_cache_misses+1);
+    assert(b.sound_cache_hits == a.sound_cache_hits+1);
+
+    /* Overlapping voices borrow immutable PCM, but own playback/owner state.
+     * Cache pressure may evict idle samples only. */
+    ALSoundState *owner1=NULL, *owner2=NULL;
+    ALSoundState *one=sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, 0x2e, (ALSoundState *)&owner1);
+    ALSoundState *two=sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, 0x2e, (ALSoundState *)&owner2);
+    assert(one && two && one!=two);
+    sndDeactivate(one);
+    assert(!owner1 && owner2==two && sndGetPlayingState(two)==SOUND_STATE_PLAYING);
+    for (unsigned id=1; id<=bank->sound_count; ++id) {
+        ALSoundState *other=sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, (s16)id, NULL);
+        assert(other != NULL);
+        sndDeactivate(other);
+        ge_original_gameplay_services_snapshot(&b);
+        assert(b.sound_cache_bytes<=GE_ORIGINAL_SFX_CACHE_BYTE_LIMIT);
+        if (b.sound_cache_evictions>a.sound_cache_evictions+8) break;
+    }
+    assert(b.sound_cache_evictions>a.sound_cache_evictions);
+    assert(owner2==two);
+    ge_original_gameplay_services_tick();
+    ge_audio_output_reset(output);
+
+    /* A bank rebound at the same address must invalidate hits without
+     * freeing a retired sample still borrowed by a playing voice. */
+    ge_original_gameplay_services_bind_audio(bank, output);
+    ge_original_gameplay_services_snapshot(&a);
+    one=sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, 0x2e, NULL);
+    ge_original_gameplay_services_snapshot(&b);
+    assert(b.sound_cache_misses==a.sound_cache_misses+1);
+    ge_original_gameplay_services_tick();
+    sndDeactivate(two); sndDeactivate(one);
+    assert(!owner2);
+    ge_original_gameplay_services_bind_audio(NULL, NULL);
+    ge_original_gameplay_services_snapshot(&b);
+    assert(b.sound_cache_bytes==0);
+    assert(b.sound_cache_peak_bytes<=GE_ORIGINAL_SFX_CACHE_BYTE_LIMIT);
+}
+
 int main(int argc, char **argv)
 {
     unsigned char *control;
@@ -213,6 +287,7 @@ int main(int argc, char **argv)
     assert(stats.settings_persist_failures == 1U);
     assert(stats.unsupported_object_calls == 1U);
 
+    test_pcm_cache(&bank, &output);
     ge_original_gameplay_services_bind_audio(NULL, NULL);
     ge_original_gameplay_services_bind_model_loader(NULL, NULL);
     ge_original_gameplay_services_reset();

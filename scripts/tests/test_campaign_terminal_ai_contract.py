@@ -141,6 +141,16 @@ def main() -> None:
     assert "cosf(gBondViewCutscene->verta)" in posend
     assert "sinf(gBondViewCutscene->theta)" in posend
 
+    # The shared objective runtime owns status messages in every solo stage.
+    # Keep the live frontend from accidentally retaining a Dam-only gate.
+    main_source = (REPO / "platform/3ds/source/main.c").read_text()
+    assert re.search(
+        r"if\s*\(dam_objects\.objective_runtime\.bound\s*"
+        r"\|\|\s*stage_ordinary_objects\.objective_runtime\.bound\)\s*"
+        r"display_objective_status_text_on_status_change\(\);",
+        main_source,
+    ), "Campaign objective HUD must dispatch for every bound stage runtime"
+
     assert direct_stage_count == 20
     assert global_jump_stage_count == 1
     assert fade_stage_count == 20

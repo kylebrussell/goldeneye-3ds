@@ -51,9 +51,19 @@ ge_original_model_scene.o ge_original_first_person_scene.o \
 ge_original_stage_guard_runtime.o ge_original_stage_active_props.o \
 ge_original_bond_live.o ge_original_bond_camera_live.o \
 ge_original_gun_live.o: CFLAGS += -O3
+# The scalar audio interpreter is covered by complete PCM/state golden tests.
+# Keep strict integer semantics while optimizing its inner synthesis loops.
+ge_audio_abi.o: CFLAGS += -O3
+# The SFX decoder has the same bounded integer inner loops and is checked
+# against every original sample plus wide/aliasing fallback cases.
+ge_original_sfx_bank.o: CFLAGS += -O3
 title3.o: CFLAGS += -DGE_PORT_GUNBARREL_HOLE_SLICE
 ASFLAGS     := -g $(ARCH)
 LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+# Exact short GPU command encoding; all other cases retain libctru.
+LDFLAGS     += -Wl,--wrap=GPUCMD_Add
+ge_3ds_gpu_commands.o: CFLAGS += -O3
+LDFLAGS     += -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 LDFLAGS     += -Wl,-u,ge_dam_setup_world_mission_monitor_render_tick
 LDFLAGS     += -Wl,-u,ge_original_global_ai_find \
                -Wl,-u,ge_original_global_ai_count
@@ -216,6 +226,13 @@ LDFLAGS     += -Wl,-u,ge_original_character_model_provider_create \
                -Wl,-u,ge_original_stage_guard_runtime_append_scene
 LIBS        := -lcitro3d -lctru -lm
 LIBDIRS     := $(CTRULIB)
+# The exact draw encoder uses this SDK's internal context declaration.
+# Fail closed on an SDK archive change until its ABI/protocol is reverified.
+CITRO3D_DRAW_ABI_SHA := 3f34eff859c1f1e60ebe597b6df9cf5e5e74563d9e64ca01a7b3292fde63016a
+ifneq ($(shell sha256sum $(CTRULIB)/lib/libcitro3d.a | cut -d' ' -f1),$(CITRO3D_DRAW_ABI_SHA))
+$(error Citro3D archive changed: reverify vendor/citro3d-1.7.1/internal.h and exact draw-command tests)
+endif
+ge_3ds_draw_arrays.o: CFLAGS += -O3
 
 GE_DAM_FULL_PROPS_AUDIT ?= 0
 GE_DAM_FULL_PROPS_LIVE ?= 1

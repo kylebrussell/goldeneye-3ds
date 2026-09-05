@@ -30,6 +30,7 @@ assert "refresh_stage_windowed_door_shading(objects, gpu_destination)" in main
 
 test = r'''
 #include "ge_scene_part_replace.h"
+#include "ge_3ds_shade_cache.h"
 #include "ge_original_door_runtime.h"
 #include <assert.h>
 #include <stdbool.h>
@@ -151,6 +152,6 @@ with tempfile.TemporaryDirectory(prefix="ge-door-shading-") as directory:
     (path / "test.c").write_text(test)
     subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic",
                     "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                    "-I", str(repo / "port/include"), str(path / "test.c"),
+                    "-I", str(repo / "port/include"), "-I", str(repo / "platform/3ds/include"), str(path / "test.c"),
                     "-o", str(path / "test")], check=True)
     subprocess.run([str(path / "test")], check=True)

@@ -11,7 +11,7 @@ source = (repo / "platform/3ds/source/main.c").read_text()
 vertex = re.search(r"typedef struct Vertex\s*\{.*?\} Vertex;", source, re.S).group(0)
 table = re.search(r"static const float renderer_normalized_color\[.*?\};", source, re.S).group(0)
 control = re.search(r"#ifndef GE_3DS_EXPERIMENT_COLOR_LOOKUP.*?#endif", source, re.S).group(0)
-assert "#define GE_3DS_EXPERIMENT_COLOR_LOOKUP 0" in control
+assert "#define GE_3DS_EXPERIMENT_COLOR_LOOKUP 1" in control
 start = source.index("static void renderer_upload_world_vertices(")
 end = source.index("static DVLB_s *shader_dvlb;", start)
 helper = source[start:end]

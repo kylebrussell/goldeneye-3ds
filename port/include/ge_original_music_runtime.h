@@ -52,6 +52,14 @@ GeAudioAbiResult ge_original_music_runtime_render(
 /* GoldenEye's scheduler sends the audio client every even 60 Hz retrace. */
 GeAudioAbiResult ge_original_music_runtime_tick_60hz(
         GeOriginalMusicRuntime *runtime);
+/* Main-thread producer with an optional 3DS interpreter worker. Finish before
+ * consuming the music ring. Layer mutation and close drain any pending job;
+ * the ordinary render/tick APIs remain synchronous. Only one job is borrowed
+ * at a time, and the runtime owns its commands, PCM and output until finish. */
+GeAudioAbiResult ge_original_music_runtime_begin_tick_60hz(
+        GeOriginalMusicRuntime *runtime);
+GeAudioAbiResult ge_original_music_runtime_finish(
+        GeOriginalMusicRuntime *runtime);
 void ge_original_music_runtime_stats(
         const GeOriginalMusicRuntime *runtime,
         GeOriginalMusicRuntimeStats *stats);

@@ -28,6 +28,13 @@ typedef struct GeOriginalModelSceneInput {
     /* Some DLCOLLISION models bind their native vertex array as segment 4;
      * plain DL models keep segment-5 vertex addresses and use NO_LIST here. */
     uint32_t segment4_offset;
+    /* Optional runtime vertex array for segment 4, decoded by the adapter.
+     * Door clipping changes only XYZ and ST; other attributes must match ROM.
+     * Borrowed for this call only. The cache owns topology/address mappings,
+     * hashes current bytes for publication, and never retains this pointer. */
+    const void *segment4_vertices;
+    int (*segment4_read_vertex)(const void *, size_t, GeGbiVertex *);
+    size_t segment4_vertex_count;
     uint32_t room_id;
     /* modelRender supplies this state immediately before invoking a world
      * model's primary/secondary display lists.  The display lists themselves

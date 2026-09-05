@@ -1315,11 +1315,10 @@ GeDamDynamicSceneStatus ge_dam_dynamic_scene_commit_overlay_batches(
         return GE_DAM_DYNAMIC_SCENE_INVALID_ARGUMENT;
     }
     for (index = 0U; index < batch_count; ++index) {
-        GeDamRoomDrawBatch published =
-            cache->overlay_batches[overlay_batch_offset + index];
-        published.first_vertex += room_vertex_count;
-        cache->batches[room_batch_count + overlay_batch_offset + index] =
-            published;
+        GeDamRoomDrawBatch *published =
+            &cache->batches[room_batch_count + overlay_batch_offset + index];
+        *published = cache->overlay_batches[overlay_batch_offset + index];
+        published->first_vertex += room_vertex_count;
     }
     cache->scene.triangle_count = cache->scene.triangle_count
         - old_triangles + new_triangles;

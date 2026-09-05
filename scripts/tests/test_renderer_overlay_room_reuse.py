@@ -76,13 +76,17 @@ typedef struct RuntimeDamPreview {
     Ge3dsSceneTextures *scene_textures;
     GeDrawBatchWorldBounds *gpu_batch_bounds;
     size_t gpu_batch_bounds_capacity;
+    uint32_t *gpu_batch_run_ends;
+    size_t gpu_batch_run_count;
+    uintptr_t gpu_batch_run_room_identity;
     size_t gpu_dirty_vertex_offset, gpu_dirty_vertex_count;
     size_t gpu_uploaded_vertex_count;
     uint64_t gpu_uploaded_scene_generation;
     uint64_t gpu_overlay_only_uploads, gpu_room_vertices_reused;
 } RuntimeDamPreview;
 static size_t writes;
-static struct { uint64_t texture_uv_work[4]; } fine_profile;
+static struct { uint64_t texture_uv_work[4], world_run_prepare[4], rendered_frames; } fine_profile;
+static uint64_t svcGetSystemTick(void) {return 0;}
 const Ge3dsSceneTextureSlot *ge_3ds_scene_textures_find(
     const Ge3dsSceneTextures *scene, uint16_t id)
 {
@@ -121,6 +125,8 @@ static void renderer_upload_world_vertices(const GeDamRoomWorldVertex *source,
     Vertex *destination, size_t count, bool map)
 { writes+=count; upload_vertices_impl(source,destination,count,map); }
 ''' + "\n".join(function(name) for name in (
+    "dam_batch_materials_compatible", "dam_batches_compatible",
+    "renderer_update_world_batch_runs",
     "upload_dam_gpu_world_scene_range", "upload_dam_gpu_world_scene",
     "dam_gpu_room_prefix_is_current", "upload_dam_gpu_scene_after_overlay")) + r'''
 int main(void)
@@ -233,6 +239,7 @@ int main(void)
     assert(b.gpu_dirty_vertex_offset==510 && b.gpu_dirty_vertex_count==3);
     assert(!upload_dam_gpu_world_scene_range(&b,actual,0,0,0,0,4U));
     free(a.gpu_batch_bounds);free(b.gpu_batch_bounds);
+    free(a.gpu_batch_run_ends);free(b.gpu_batch_run_ends);
     printf("240 actual adapter overlay transitions: %zu full vs %zu partial vertex writes; exact full buffers, room bounds, UVs, colors and empty/shrink/growth/fallback counts\n",full_writes,partial_writes);
 }
 '''

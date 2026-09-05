@@ -100,6 +100,8 @@ GeOriginalDoorSceneStatus ge_original_door_scene_prepare(
     publication->input.primary_offset = GE_DOOR_MODEL_PRIMARY_LIST_OFFSET;
     publication->input.secondary_offset = GE_ORIGINAL_MODEL_SCENE_NO_LIST;
     publication->input.segment4_offset = GE_DOOR_MODEL_VERTEX_OFFSET;
+    publication->input.world_zbuffer_enabled =
+        (((const ObjectRecord *)door_definition)->flags2 & 0x10000) == 0;
     publication->input.room_id = (uint32_t)(uint16_t)publication->runtime.room;
     memcpy(publication->input.matrix, publication->runtime.matrix,
            sizeof(publication->input.matrix));

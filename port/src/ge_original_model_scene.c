@@ -13,6 +13,8 @@ typedef struct GeOriginalModelSceneContext {
     size_t vertex_cursor;
     size_t batch_cursor;
     size_t triangle_count;
+    uint32_t *vertex_addresses;
+    uint32_t slot_vertex_addresses[GE_GBI_VERTEX_CACHE_SIZE];
     uint16_t *matrix_indices;
     size_t matrix_index_capacity;
     uint16_t slot_matrix_indices[GE_GBI_VERTEX_CACHE_SIZE];
@@ -40,6 +42,18 @@ static void write_u16_be(uint8_t *bytes, uint16_t value)
 {
     bytes[0] = (uint8_t)(value >> 8);
     bytes[1] = (uint8_t)value;
+}
+
+static void encode_override_vertex(uint8_t bytes[16], const GeGbiVertex *vertex)
+{
+    write_u16_be(bytes, (uint16_t)vertex->x);
+    write_u16_be(bytes + 2U, (uint16_t)vertex->y);
+    write_u16_be(bytes + 4U, (uint16_t)vertex->z);
+    write_u16_be(bytes + 6U, vertex->flag);
+    write_u16_be(bytes + 8U, (uint16_t)vertex->texture_s);
+    write_u16_be(bytes + 10U, (uint16_t)vertex->texture_t);
+    bytes[12] = vertex->red; bytes[13] = vertex->green;
+    bytes[14] = vertex->blue; bytes[15] = vertex->alpha;
 }
 
 static int encode_segment3_matrices(const GeOriginalModelSceneInput *input,
@@ -112,9 +126,11 @@ static int collect_model_draw(const GeGbiPipelineEvent *event,
             context->status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
             return 0;
         }
-        for (index = 0U; index < count; index++)
-            context->slot_matrix_indices[first + index] =
-                context->active_matrix_index;
+        for (index = 0U; index < count; index++) {
+            context->slot_matrix_indices[first + index] = context->active_matrix_index;
+            context->slot_vertex_addresses[first + index] =
+                event->action.data.vertices.address.raw + (uint32_t)index * 16U;
+        }
         return 1;
     }
     if (event->action.kind != GE_GBI_STATE_ACTION_DRAW_TRIANGLES) return 1;
@@ -222,6 +238,9 @@ static int collect_model_draw(const GeGbiPipelineEvent *event,
                         context->slot_matrix_indices[slot];
                 }
 
+                if (context->vertex_addresses != NULL)
+                    context->vertex_addresses[output_index - 1U] =
+                        context->slot_vertex_addresses[slot];
                 destination->source = *source;
                 destination->processed = event->processed_vertex_cache[slot];
                 for (axis = 0U; axis < 3U; ++axis) {
@@ -263,7 +282,7 @@ static GeOriginalModelSceneStatus execute_lists(
     size_t *triangle_count,
     size_t *commands_visited,
     uint16_t *matrix_indices,
-    size_t matrix_index_capacity)
+    size_t matrix_index_capacity, uint32_t *vertex_addresses)
 {
     static const uint8_t identity_matrix_be[64] = {
         0x00,0x01,0x00,0x00, 0,0,0,0, 0,0,0,0, 0,0,0,0,
@@ -278,6 +297,7 @@ static GeOriginalModelSceneStatus execute_lists(
     GeGbiAddress roots[4];
     size_t root_count = 0U;
     size_t list_index;
+    uint8_t *vertex_segment = NULL;
     uint8_t *matrix_segment = NULL;
     size_t matrix_segment_size = 0U;
 
@@ -337,6 +357,26 @@ static GeOriginalModelSceneStatus execute_lists(
                 return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
             }
     }
+    if (input->segment4_vertex_count != 0U) {
+        vertex_segment = malloc(input->segment4_vertex_count * 16U);
+        if (vertex_segment == NULL) {
+            free(matrix_segment);
+            return GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
+        }
+        for (size_t vertex = 0U; vertex < input->segment4_vertex_count; ++vertex) {
+            GeGbiVertex value = {0};
+            if (!input->segment4_read_vertex(input->segment4_vertices, vertex, &value)) {
+                free(vertex_segment);
+                free(matrix_segment);
+                return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+            }
+            encode_override_vertex(vertex_segment + vertex * 16U, &value);
+        }
+        (void)ge_gbi_memory_map_set_segment(&memory, 4U, vertex_segment,
+            input->segment4_vertex_count * 16U);
+    }
+    context.vertex_addresses = vertex_addresses;
+    memset(context.slot_vertex_addresses, 0, sizeof(context.slot_vertex_addresses));
     context.input = input;
     context.storage = storage;
     context.sequence_count = root_count;
@@ -353,6 +393,7 @@ static GeOriginalModelSceneStatus execute_lists(
     pipeline = ge_gbi_pipeline_execute_sequence(
         &memory, roots, root_count, GE_GBI_BYTE_ORDER_BIG_ENDIAN,
         &traversal, collect_model_draw, &context);
+    free(vertex_segment);
     free(matrix_segment);
     if (context.status != GE_ORIGINAL_MODEL_SCENE_OK) return context.status;
     if (pipeline.status != GE_GBI_PIPELINE_OK
@@ -377,6 +418,15 @@ static int input_valid(const GeOriginalModelSceneInput *input,
             || (storage->vertex_capacity != 0U && storage->vertices == NULL)
             || (storage->batch_capacity != 0U && storage->batches == NULL))
         return 0;
+    if ((input->segment4_vertices == NULL) != (input->segment4_vertex_count == 0U)
+            || (input->segment4_read_vertex == NULL) != (input->segment4_vertex_count == 0U)
+            || input->segment4_vertex_count > SIZE_MAX / 16U
+            || (input->segment4_vertex_count != 0U
+                && (input->segment4_offset == GE_ORIGINAL_MODEL_SCENE_NO_LIST
+                    || input->segment4_offset >= input->blob_size
+                    || input->segment4_vertex_count >
+                        (input->blob_size - input->segment4_offset) / 16U)))
+        return 0;
     if ((input->segment3_matrices == NULL)
             != (input->segment3_matrix_count == 0U))
         return 0;
@@ -394,7 +444,7 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
     const GeDamRoomSceneStorage *storage,
     uint16_t *matrix_indices, size_t matrix_index_capacity,
     const GeOriginalModelScene *query,
-    GeOriginalModelScene *scene)
+    GeOriginalModelScene *scene, uint32_t *vertex_addresses)
 {
     const GeDamRoomSceneStorage empty = {NULL, 0U, NULL, 0U};
     const GeDamRoomSceneStorage *actual_storage =
@@ -435,7 +485,7 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
         commands = expected.commands_visited;
     } else {
         status = execute_lists(input, actual_storage, offsets, UINT8_C(0),
-            &vertices, &batches, &triangles, &commands, NULL, 0U);
+            &vertices, &batches, &triangles, &commands, NULL, 0U, NULL);
         if (status != GE_ORIGINAL_MODEL_SCENE_OK) {
             scene->status = status;
             return status;
@@ -460,7 +510,7 @@ static GeOriginalModelSceneStatus ge_original_model_scene_build_internal(
     commands = 0U;
     status = execute_lists(input, actual_storage, offsets, UINT8_C(1),
         &vertices, &batches, &triangles, &commands,
-        matrix_indices, matrix_index_capacity);
+        matrix_indices, matrix_index_capacity, vertex_addresses);
     if (status != GE_ORIGINAL_MODEL_SCENE_OK) {
         scene->status = status;
         return status;
@@ -486,7 +536,7 @@ GeOriginalModelSceneStatus ge_original_model_scene_build(
     GeOriginalModelScene *scene)
 {
     return ge_original_model_scene_build_internal(
-        input, storage, NULL, 0U, NULL, scene);
+        input, storage, NULL, 0U, NULL, scene, NULL);
 }
 
 GeOriginalModelSceneStatus ge_original_model_scene_build_preflighted(
@@ -503,7 +553,7 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_preflighted(
         return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     }
     return ge_original_model_scene_build_internal(
-        input, storage, NULL, 0U, query, scene);
+        input, storage, NULL, 0U, query, scene, NULL);
 }
 
 GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template(
@@ -515,7 +565,7 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template(
     if (matrix_indices == NULL && matrix_index_capacity != 0U)
         return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     return ge_original_model_scene_build_internal(
-        input, storage, matrix_indices, matrix_index_capacity, NULL, scene);
+        input, storage, matrix_indices, matrix_index_capacity, NULL, scene, NULL);
 }
 
 GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template_preflighted(
@@ -533,7 +583,7 @@ GeOriginalModelSceneStatus ge_original_model_scene_build_matrix_template_preflig
         return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     }
     return ge_original_model_scene_build_internal(
-        input, storage, matrix_indices, matrix_index_capacity, query, scene);
+        input, storage, matrix_indices, matrix_index_capacity, query, scene, NULL);
 }
 
 static uint64_t cache_hash_u64(uint64_t hash, uint64_t value)
@@ -559,6 +609,7 @@ static uint64_t cache_topology_signature(
         hash = cache_hash_u64(hash, input->primary_offset);
         hash = cache_hash_u64(hash, input->secondary_offset);
         hash = cache_hash_u64(hash, input->segment4_offset);
+        hash = cache_hash_u64(hash, input->segment4_vertex_count);
         hash = cache_hash_u64(hash, input->segment3_matrix_count);
         hash = cache_hash_u64(hash, (uint64_t)input->world_zbuffer_enabled
             | (uint64_t)input->parent_setup_enabled << 8);
@@ -612,6 +663,8 @@ typedef struct GeOriginalModelSceneTopologyComponent {
     uint32_t primary_offset;
     uint32_t secondary_offset;
     uint32_t segment4_offset;
+    size_t segment4_vertex_count;
+    uint32_t *vertex_addresses;
     size_t segment3_matrix_count;
     uint8_t world_zbuffer_enabled;
     uint8_t parent_setup_enabled;
@@ -620,6 +673,7 @@ typedef struct GeOriginalModelSceneTopologyComponent {
     GeDamRoomWorldVertex *vertices;
     GeDamRoomDrawBatch *batches;
     uint16_t *matrix_indices;
+    uint16_t maximum_matrix_index;
     uint32_t *transform_sources;
 } GeOriginalModelSceneTopologyComponent;
 
@@ -632,6 +686,7 @@ static int cache_component_matches(
         && component->primary_offset == input->primary_offset
         && component->secondary_offset == input->secondary_offset
         && component->segment4_offset == input->segment4_offset
+        && component->segment4_vertex_count == input->segment4_vertex_count
         && component->segment3_matrix_count == input->segment3_matrix_count
         && component->world_zbuffer_enabled
             == input->world_zbuffer_enabled
@@ -658,6 +713,7 @@ static void cache_component_free(
     GeOriginalModelSceneTopologyComponent *component)
 {
     if (component == NULL) return;
+    free(component->vertex_addresses);
     free(component->vertices);
     free(component->batches);
     free(component->matrix_indices);
@@ -746,6 +802,7 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
     GeDamRoomWorldVertex *vertices = NULL;
     GeDamRoomDrawBatch *batches = NULL;
     uint16_t *matrix_indices = NULL;
+    uint32_t *vertex_addresses = NULL;
     uint32_t *transform_sources = NULL;
     GeDamRoomSceneStorage storage;
     GeOriginalModelSceneStatus status;
@@ -759,7 +816,11 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
         return GE_ORIGINAL_MODEL_SCENE_OK;
     }
     cache->topology_component_misses++;
-    status = ge_original_model_scene_build(input, NULL, &query);
+    GeOriginalModelSceneInput immutable = *input;
+    immutable.segment4_vertices = NULL;
+    immutable.segment4_read_vertex = NULL;
+    immutable.segment4_vertex_count = 0U;
+    status = ge_original_model_scene_build(&immutable, NULL, &query);
     if (!((status == GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED)
                 || (status == GE_ORIGINAL_MODEL_SCENE_OK
                     && query.required_vertex_count == 0U
@@ -778,8 +839,10 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
             query.required_vertex_count * sizeof(*matrix_indices));
         transform_sources = malloc(
             query.required_vertex_count * sizeof(*transform_sources));
-        if (vertices == NULL || matrix_indices == NULL
-                || transform_sources == NULL) goto no_memory;
+        if (input->segment4_vertex_count != 0U)
+            vertex_addresses = malloc(query.required_vertex_count * sizeof(*vertex_addresses));
+        if (vertices == NULL || matrix_indices == NULL || transform_sources == NULL
+                || (input->segment4_vertex_count != 0U && vertex_addresses == NULL)) goto no_memory;
     }
     if (query.required_batch_count != 0U) {
         batches = malloc(query.required_batch_count * sizeof(*batches));
@@ -789,8 +852,9 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
         vertices, query.required_vertex_count,
         batches, query.required_batch_count,
     };
-    status = ge_original_model_scene_build_matrix_template_preflighted(
-        input, &query, &storage, matrix_indices, query.required_vertex_count, &built);
+    status = ge_original_model_scene_build_internal(
+        &immutable, &storage, matrix_indices, query.required_vertex_count,
+        &query, &built, vertex_addresses);
     if (status != GE_ORIGINAL_MODEL_SCENE_OK
             || built.vertex_count != query.required_vertex_count
             || built.batch_count != query.required_batch_count
@@ -823,6 +887,8 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
     component->primary_offset = input->primary_offset;
     component->secondary_offset = input->secondary_offset;
     component->segment4_offset = input->segment4_offset;
+    component->segment4_vertex_count = input->segment4_vertex_count;
+    component->vertex_addresses = vertex_addresses;
     component->segment3_matrix_count = input->segment3_matrix_count;
     component->world_zbuffer_enabled = input->world_zbuffer_enabled;
     component->parent_setup_enabled = input->parent_setup_enabled;
@@ -832,10 +898,15 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
     component->vertices = vertices;
     component->batches = batches;
     component->matrix_indices = matrix_indices;
+    component->maximum_matrix_index = 0U;
+    for (size_t vertex = 0U; vertex < built.vertex_count; ++vertex)
+        if (matrix_indices[vertex] > component->maximum_matrix_index)
+            component->maximum_matrix_index = matrix_indices[vertex];
     component->transform_sources = transform_sources;
     cache->topology_transform_maps_built++;
     payload_bytes = sizeof(*component)
         + built.vertex_count * sizeof(*vertices)
+        + (vertex_addresses != NULL ? built.vertex_count * sizeof(*vertex_addresses) : 0U)
         + built.vertex_count * sizeof(*matrix_indices)
         + built.vertex_count * sizeof(*transform_sources)
         + built.batch_count * sizeof(*batches);
@@ -847,6 +918,7 @@ static GeOriginalModelSceneStatus cache_get_or_build_component(
 no_memory:
     status = GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED;
 failed:
+    free(vertex_addresses);
     free(transform_sources);
     free(matrix_indices);
     free(batches);
@@ -1341,6 +1413,17 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
         input_hash = cache_hash_u64(
             input_hash,
             cache->input_quantized_matrix_hashes[input_index]);
+        for (size_t vertex = 0U; vertex < input->segment4_vertex_count; ++vertex) {
+            GeGbiVertex value = {0};
+            uint8_t bytes[16];
+            if (!input->segment4_read_vertex(input->segment4_vertices, vertex, &value))
+                return GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+            encode_override_vertex(bytes, &value);
+            for (size_t byte = 0U; byte < sizeof(bytes); ++byte) {
+                input_hash ^= bytes[byte];
+                input_hash *= UINT64_C(1099511628211);
+            }
+        }
         cache->input_publication_signatures[input_index] = input_hash;
         /* The retained per-input signature already covers room, placement,
          * outer matrix and the quantized joint bank. Fold it into the ordered
@@ -1371,6 +1454,36 @@ static void cache_transform_vertex(
         value += matrix[3][axis];
         transformed[axis] = value;
     }
+}
+
+/* Immutable model components published directly in segment space need only
+ * the existing quantized joint transform and position stores. Select this
+ * path once per input, leaving mutable-vertex/outer-placement behavior in
+ * the general loop. The existing exact XYZ/matrix duplicate map is reused. */
+static size_t cache_publish_segment_vertices(
+    const GeOriginalModelSceneTopologyComponent *component,
+    const float (*matrices)[4][4], GeDamRoomWorldVertex *vertices,
+    size_t vertex_count)
+{
+    size_t duplicates = 0U;
+    for (size_t index = 0U; index < vertex_count; ++index) {
+        GeDamRoomWorldVertex *destination = &vertices[index];
+        const uint32_t prior = component->transform_sources[index];
+        if ((size_t)prior < index) {
+            memcpy(destination->processed.eye, vertices[prior].processed.eye,
+                   sizeof(destination->processed.eye));
+            memcpy(destination->world, vertices[prior].world,
+                   sizeof(destination->world));
+            ++duplicates;
+        } else {
+            float transformed[4];
+            cache_transform_vertex(matrices[component->matrix_indices[index]],
+                &component->vertices[index].source, transformed);
+            memcpy(destination->processed.eye, transformed, sizeof(transformed));
+            memcpy(destination->world, transformed, sizeof(destination->world));
+        }
+    }
+    return duplicates;
 }
 
 typedef struct GeModelPublishedInput {
@@ -1426,6 +1539,9 @@ static GeOriginalModelSceneStatus cache_build_impl(
     scene->status = GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     if (cache == NULL || (input_count != 0U && inputs == NULL))
         return scene->status;
+    const GeDamRoomSceneStorage empty_validation = {0};
+    for (input_index = 0U; input_index < input_count; ++input_index)
+        if (!input_valid(&inputs[input_index], &empty_validation)) return scene->status;
     build_start = cache_profile_now(cache);
     if (cache->profile_clock != NULL) cache->profile_build_calls++;
     cache->build_attempts++;
@@ -1547,6 +1663,18 @@ static GeOriginalModelSceneStatus cache_build_impl(
             && input->position[1] == 0.0f
             && input->position[2] == 0.0f;
 
+        /* Matrix indices belong to immutable decoded component geometry.
+         * Its maximum proves every vertex index once per input, including
+         * after bank/count changes, instead of rechecking triangle corners. */
+        if (query->required_vertex_count != 0U
+                && (size_t)component->maximum_matrix_index >=
+                    (input->segment3_matrices != NULL
+                        ? input->segment3_matrix_count : 1U)) {
+            cache->topology_ready = UINT8_C(0);
+            status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+            goto done;
+        }
+
         if (reuse_input_publication) {
             cache->published_input_publication_signatures[input_index] =
                 cache->input_publication_signatures[input_index];
@@ -1569,7 +1697,7 @@ static GeOriginalModelSceneStatus cache_build_impl(
          * Publish it once, then change only positions below. This retains
          * every byte (including padding) without one large struct copy per
          * flattened triangle vertex. */
-        if (!reuse_component_storage) {
+        if (!reuse_component_storage || input->segment4_vertex_count != 0U) {
             if (query->required_vertex_count != 0U)
                 memcpy(storage->vertices + vertex_cursor, component->vertices,
                     query->required_vertex_count * sizeof(*storage->vertices));
@@ -1578,12 +1706,50 @@ static GeOriginalModelSceneStatus cache_build_impl(
             if (!reuse_publication_storage)
                 cache->cross_topology_static_vertices_reused += query->required_vertex_count;
         }
-        for (local_vertex = 0U;
+        if (publish_segment_space && input->segment4_vertex_count == 0U
+                && query->required_vertex_count != 0U) {
+            duplicate_vertices = cache_publish_segment_vertices(component,
+                input_matrices, storage->vertices + vertex_cursor,
+                query->required_vertex_count);
+        } else for (local_vertex = 0U;
                 local_vertex < query->required_vertex_count; ++local_vertex) {
             const GeDamRoomWorldVertex *source =
                 &component->vertices[local_vertex];
             GeDamRoomWorldVertex *destination =
                 &storage->vertices[vertex_cursor + local_vertex];
+            GeDamRoomWorldVertex dynamic_source;
+            if (input->segment4_vertex_count != 0U) {
+                const uint32_t address = component->vertex_addresses[local_vertex];
+                if ((address >> 24) == 4U) {
+                    const size_t offset = address & 0xffffffU;
+                    if ((offset & 15U) != 0U || offset / 16U >= input->segment4_vertex_count) {
+                        status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+                        goto done;
+                    }
+                    dynamic_source = *source;
+                    if (!input->segment4_read_vertex(input->segment4_vertices,
+                            offset / 16U, &dynamic_source.source)) {
+                        status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+                        goto done;
+                    }
+                    dynamic_source.source.cache_slot = source->source.cache_slot;
+                    /* Clipping preserves flag and color/normal bytes. */
+                    if (dynamic_source.source.flag != source->source.flag
+                            || memcmp(&dynamic_source.source.red, &source->source.red, 4U) != 0) {
+                        status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
+                        goto done;
+                    }
+                    source = &dynamic_source;
+                    destination->source = source->source;
+                    destination->processed.object[0] = source->source.x;
+                    destination->processed.object[1] = source->source.y;
+                    destination->processed.object[2] = source->source.z;
+                    if (!destination->processed.texture_generated) {
+                        destination->processed.texture[0] = source->source.texture_s;
+                        destination->processed.texture[1] = source->source.texture_t;
+                    }
+                }
+            }
             const uint16_t source_matrix =
                 component->matrix_indices[local_vertex];
             const uint32_t transform_source =
@@ -1591,14 +1757,8 @@ static GeOriginalModelSceneStatus cache_build_impl(
             float transformed[4];
             size_t axis;
             size_t row;
-            if ((size_t)source_matrix >=
-                    (input->segment3_matrices != NULL
-                        ? input->segment3_matrix_count : 1U)) {
-                cache->topology_ready = UINT8_C(0);
-                status = GE_ORIGINAL_MODEL_SCENE_INVALID_LAYOUT;
-                goto done;
-            }
-            if ((size_t)transform_source < local_vertex) {
+            if (input->segment4_vertex_count == 0U
+                    && (size_t)transform_source < local_vertex) {
                 const GeDamRoomWorldVertex *prior = &storage->vertices[
                     vertex_cursor + (size_t)transform_source];
                 memcpy(destination->processed.eye, prior->processed.eye,
@@ -1675,7 +1835,8 @@ static GeOriginalModelSceneStatus cache_build_impl(
                 ? &cache->publication_ranges[
                     cache->publication_range_count - 1U] : NULL;
             const uint8_t static_changed =
-                reuse_component_storage ? UINT8_C(0) : UINT8_C(1);
+                reuse_component_storage && input->segment4_vertex_count == 0U
+                    ? UINT8_C(0) : UINT8_C(1);
             if (range != NULL && range->static_data_changed == static_changed
                     && range->vertex_offset + range->vertex_count
                         == vertex_cursor
@@ -1711,8 +1872,10 @@ static GeOriginalModelSceneStatus cache_build_impl(
     cache->cached_builds++;
 done:
     /* Never advertise partially transformed output to a GPU consumer. */
-    if (status != GE_ORIGINAL_MODEL_SCENE_OK)
+    if (status != GE_ORIGINAL_MODEL_SCENE_OK) {
         cache->publication_range_count = 0U;
+        cache->publication_ready = 0U;
+    }
     cache_profile_add(&cache->profile_build_ticks, build_start,
                       cache_profile_now(cache));
     scene->status = status;

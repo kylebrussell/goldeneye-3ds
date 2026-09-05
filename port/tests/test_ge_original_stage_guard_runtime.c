@@ -472,6 +472,26 @@ static void assert_authored_stan_binding(
            &&setup->bound_pad_stan_count==resolvable_boundpads);
 }
 
+typedef struct AttachmentTextureAudit { const ModelFileHeader *header; size_t next; } AttachmentTextureAudit;
+static int audit_attachment_texture(void *context, uint16_t image_id)
+{
+    AttachmentTextureAudit *audit = context;
+    while (audit->next < (size_t)audit->header->numtextures
+            && audit->header->Textures[audit->next].TextureID > UINT16_MAX) ++audit->next;
+    assert(audit->next < (size_t)audit->header->numtextures);
+    assert(audit->header->Textures[audit->next++].TextureID == image_id);
+    return 1;
+}
+static void audit_attachment_dependencies(GeOriginalPitemModelProvider *models,
+    int32_t model_id, const Model *model)
+{
+    AttachmentTextureAudit audit = {model->obj, 0U};
+    assert(ge_original_pitem_model_visit_texture_ids(models, model_id, &audit, audit_attachment_texture));
+    while (audit.next < (size_t)audit.header->numtextures
+            && audit.header->Textures[audit.next].TextureID > UINT16_MAX) ++audit.next;
+    assert(audit.next == (size_t)audit.header->numtextures);
+}
+
 static size_t audit_stage_guard_construction(
     GeAssetPack *pack,const GeStageAssetDescriptor *stage,
     const GeOriginalStageGuardRuntimeServices *services)
@@ -717,6 +737,7 @@ static size_t audit_stage_guard_construction(
             assert(ge_original_stage_guard_runtime_hat_snapshot(
                 runtime,index,&hat));
             assert(hat.model_id>=0&&hat.model_id<340);
+            audit_attachment_dependencies(weapon_models, hat.model_id, hat.model_instance);
             campaign_hat_models[hat.model_id]=1U;
             record=hat.hat_record;prop=hat.prop_record;
             for(guard_index=0U;guard_index<guard_count;++guard_index){

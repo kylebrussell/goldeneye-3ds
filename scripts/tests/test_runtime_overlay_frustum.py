@@ -27,7 +27,8 @@ def main() -> None:
         assert "dam_preview->" + matrix in context_setup
     assert context_setup.count("ge_draw_batch_clip_context_init(") == 3
     assert "source_index >= room_batch_count" not in body
-    assert source.count("renderer_world_batch_may_draw(") == 3
+    assert source.count("renderer_world_batch_may_draw(") == 2
+    assert render.count("renderer_world_batch_profiled(") == 2
     assert "ge_draw_batch_world_visibility_prepared(" in body
     assert "GE_DRAW_BATCH_FIRST_VERTEX_VISIBLE" in body
     assert "GE_DRAW_BATCH_BOUNDS_CULLED" in body

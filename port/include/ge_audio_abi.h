@@ -54,6 +54,12 @@ typedef struct GeAudioAbiState {
     size_t commands_executed;
 } GeAudioAbiState;
 
+/* Optional diagnostic clock. Successful opcode times are nested in music time. */
+typedef uint64_t (*GeAudioAbiProfileClock)(void *context);
+void ge_audio_abi_profile_bind(GeAudioAbiProfileClock clock, void *context);
+void ge_audio_abi_profile_totals(uint64_t ticks[16], uint64_t calls[16]);
+void ge_audio_abi_profile_pcm(uint64_t *hash, uint64_t *bytes);
+
 void ge_audio_abi_init(GeAudioAbiState *state);
 
 /*

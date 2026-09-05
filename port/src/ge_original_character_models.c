@@ -957,11 +957,18 @@ int ge_original_character_model_instance_scene_parts(
         + (instance->head != NULL ? instance->head->node_count : 0U) + 1U;
     while (node != NULL && visited++ < limit) {
         GeOriginalCharacterModelScenePart part;
-        int found = resource_part_for_node(
-            instance->body, instance->body_nodes, node, &part);
-        if (!found)
+        int found = 0;
+        /* Only display-list nodes can yield a part. Keep relation updates
+         * and traversal unchanged, but avoid two linear resource searches
+         * for every non-draw node. Count-only queries need no descriptor. */
+        if ((node->Opcode & 0xffU) == MODELNODE_OPCODE_DLCOLLISION) {
+            GeOriginalCharacterModelScenePart *output = parts != NULL ? &part : NULL;
             found = resource_part_for_node(
-                instance->head, instance->head_nodes, node, &part);
+                instance->body, instance->body_nodes, node, output);
+            if (!found)
+                found = resource_part_for_node(
+                    instance->head, instance->head_nodes, node, output);
+        }
         if (found) {
             if (parts != NULL) {
                 if (count >= part_capacity) return 0;

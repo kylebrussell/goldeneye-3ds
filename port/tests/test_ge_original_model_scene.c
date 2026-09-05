@@ -814,9 +814,16 @@ static void exercise_dirty_publication_ranges(const char *path)
         assert(range->batch_offset == index * 2U * batches_per_input);
         assert(range->batch_count == batches_per_input);
         assert(range->static_data_changed == 0U);
-        memcpy(direct.vertices + range->vertex_offset,
-               storage.vertices + range->vertex_offset,
-               range->vertex_count * sizeof(*storage.vertices));
+        /* A pose-only publication must leave every other byte unchanged;
+         * articulated upload relies on this stronger cache contract. */
+        for (size_t vertex = range->vertex_offset;
+                vertex < range->vertex_offset + range->vertex_count; ++vertex) {
+            memcpy(direct.vertices[vertex].processed.eye,
+                storage.vertices[vertex].processed.eye,
+                sizeof(direct.vertices[vertex].processed.eye));
+            memcpy(direct.vertices[vertex].world, storage.vertices[vertex].world,
+                sizeof(direct.vertices[vertex].world));
+        }
         memcpy(direct.batches + range->batch_offset,
                storage.batches + range->batch_offset,
                range->batch_count * sizeof(*storage.batches));
@@ -1163,9 +1170,33 @@ static void exercise_exact_size_publication(const char *path)
         "same-size material update; rejected output untouched, final bytes exact");
 }
 
+static void exercise_empty_display_list(void)
+{
+    const uint8_t end_list[8] = {0xb8, 0, 0, 0, 0, 0, 0, 0};
+    GeOriginalModelSceneInput input = {0};
+    input.blob = end_list;
+    input.blob_size = sizeof(end_list);
+    input.secondary_offset = GE_ORIGINAL_MODEL_SCENE_NO_LIST;
+    input.segment4_offset = GE_ORIGINAL_MODEL_SCENE_NO_LIST;
+    for (size_t axis = 0; axis < 4; ++axis) input.matrix[axis][axis] = 1.0f;
+    GeOriginalModelSceneCache cache = {0};
+    GeOriginalModelScene scene;
+    GeDamRoomSceneStorage empty = {0};
+    for (size_t frame = 0; frame < 3; ++frame) {
+        input.room_id = (uint8_t)frame;
+        assert(ge_original_model_scene_cache_build_exact(
+            &cache, &input, 1U, &empty, &scene) == GE_ORIGINAL_MODEL_SCENE_OK);
+        assert(scene.vertex_count == 0U && scene.batch_count == 0U);
+        assert(cache.publication_range_count == 0U);
+    }
+    ge_original_model_scene_cache_close(&cache);
+    puts("empty display-list publication: changed identity inputs with NULL storage passed");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 4);
+    exercise_empty_display_list();
     exercise(argv[1], GE_ORIGINAL_MODEL62_BLOB_SIZE,
              UINT32_C(0x5c8), UINT32_C(0x6b8),
              GE_ORIGINAL_MODEL_SCENE_NO_LIST);

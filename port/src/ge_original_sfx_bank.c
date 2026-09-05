@@ -2,6 +2,9 @@
 
 #include <math.h>
 #include <string.h>
+#if defined(__ARM_FEATURE_SAT)
+#include <arm_acle.h>
+#endif
 
 enum {
     GE_BANK_VERSION = 0x4231,
@@ -43,8 +46,11 @@ static int16_t saturate_s64(int64_t value)
 
 static int64_t floor_divide_2048(int64_t value)
 {
-    if (value >= 0) return value / 2048;
-    return -(((-value) + 2047) / 2048);
+    /* Fixed-point ADPCM requires floor division. All supported native/host
+     * targets use arithmetic right shift, including both ARM11 models. */
+    _Static_assert((-INT64_C(1) >> 1) == -INT64_C(1),
+        "ADPCM requires arithmetic signed right shift");
+    return value >> 11U;
 }
 
 static int16_t residual(uint8_t nibble, uint8_t scale)
@@ -71,6 +77,58 @@ static void decode_group(int16_t *destination, const int16_t *residuals,
         destination[sample] = saturate_s64(
             floor_divide_2048(accumulator));
     }
+}
+
+static int16_t saturate_s32(int32_t value)
+{
+#if defined(__ARM_FEATURE_SAT)
+    return (int16_t)__ssat(value, 16);
+#else
+    if (value > INT16_MAX) return INT16_MAX;
+    if (value < INT16_MIN) return INT16_MIN;
+    return (int16_t)value;
+#endif
+}
+
+static int narrow_predictor(const int16_t *codebook)
+{
+    uint32_t feedback_sum = 0U;
+    for (size_t sample = 0U; sample < 8U; ++sample) {
+        const int32_t first = codebook[sample];
+        const int32_t second = codebook[8U + sample];
+        const uint32_t first_abs = (uint32_t)(first < 0 ? -first : first);
+        const uint32_t second_abs = (uint32_t)(second < 0 ? -second : second);
+        /* Every history/residual sample has magnitude <=32768. Include
+         * the residual's 2048 scale and every product in each partial sum:
+         * 32768 * (2048 + 63487) < INT32_MAX. Unusual/extreme codebooks
+         * retain the original 64-bit accumulator. */
+        if (first_abs + second_abs + feedback_sum > 63487U) return 0;
+        feedback_sum += second_abs;
+    }
+    return 1;
+}
+
+static void decode_group_narrow(
+        int16_t *destination, const int16_t *residuals,
+        const int16_t *codebook, int16_t last_first, int16_t last_second)
+{
+    for (size_t sample = 0U; sample < 8U; ++sample) {
+        int32_t accumulator = (int32_t)residuals[sample] * 2048;
+        accumulator += (int32_t)codebook[sample] * last_first;
+        accumulator += (int32_t)codebook[8U + sample] * last_second;
+        for (size_t previous = 0U; previous < sample; ++previous)
+            accumulator += (int32_t)codebook[8U + previous]
+                * residuals[sample - 1U - previous];
+        destination[sample] = saturate_s32(accumulator >> 11U);
+    }
+}
+
+static int memory_overlaps(const void *left, size_t left_size,
+                           const void *right, size_t right_size)
+{
+    const uintptr_t a = (uintptr_t)left, b = (uintptr_t)right;
+    if (left_size == 0U || right_size == 0U) return 0;
+    return a >= b ? a - b < right_size : b - a < left_size;
 }
 
 GeOriginalSfxBankStatus ge_original_sfx_bank_init(
@@ -191,28 +249,44 @@ GeOriginalSfxBankStatus ge_original_sfx_bank_decode(
     }
     if (pcm == NULL || pcm_capacity_frames < output_frames)
         return GE_ORIGINAL_SFX_BANK_OUTPUT_TOO_SMALL;
+    /* Only the current predictor is retained: constant stack space and no
+     * allocation. A caller may decode over its control storage, so disable
+     * reuse in that case and observe every original per-block reload. */
+    int16_t book[GE_ADPCM_PREDICTOR_SAMPLES];
+    uint32_t last_predictor = UINT32_MAX;
+    int narrow = 0;
+    const int book_reusable = output_frames <= SIZE_MAX / sizeof(*pcm)
+        && !memory_overlaps(pcm,
+        output_frames * sizeof(*pcm), ctl, bank->control_size);
     for (frame = 0U; frame < frame_count; frame++) {
         const uint8_t *encoded = bank->samples + sample_offset
             + frame * GE_ADPCM_FRAME_BYTES;
         const uint8_t scale = encoded[0] >> 4U;
         const uint32_t predictor = encoded[0] & 0x0fU;
-        int16_t book[GE_ADPCM_PREDICTOR_SAMPLES];
         int16_t residuals[GE_ADPCM_FRAME_SAMPLES];
         size_t sample;
         if (predictor >= predictors)
             return GE_ORIGINAL_SFX_BANK_INVALID_FORMAT;
-        for (sample = 0U; sample < GE_ADPCM_PREDICTOR_SAMPLES; sample++)
-            book[sample] = load_be_s16(ctl + book_offset + 8U
-                + (predictor * GE_ADPCM_PREDICTOR_SAMPLES + sample) * 2U);
+        if (!book_reusable || predictor != last_predictor) {
+            for (sample = 0U; sample < GE_ADPCM_PREDICTOR_SAMPLES; sample++)
+                book[sample] = load_be_s16(ctl + book_offset + 8U
+                    + (predictor * GE_ADPCM_PREDICTOR_SAMPLES + sample) * 2U);
+            narrow = narrow_predictor(book);
+            last_predictor = predictor;
+        }
         for (sample = 0U; sample < GE_ADPCM_FRAME_SAMPLES; sample++) {
             const uint8_t packed = encoded[1U + sample / 2U];
             residuals[sample] = residual(
                 (sample & 1U) == 0U ? packed >> 4U : packed & 0x0fU,
                 scale);
         }
-        decode_group(history, residuals, book, history[14], history[15]);
-        decode_group(history + 8U, residuals + 8U, book,
-                     history[6], history[7]);
+        if (narrow) {
+            decode_group_narrow(history, residuals, book, history[14], history[15]);
+            decode_group_narrow(history + 8U, residuals + 8U, book, history[6], history[7]);
+        } else {
+            decode_group(history, residuals, book, history[14], history[15]);
+            decode_group(history + 8U, residuals + 8U, book, history[6], history[7]);
+        }
         memcpy(pcm + frame * GE_ADPCM_FRAME_SAMPLES,
                history, sizeof(history));
     }

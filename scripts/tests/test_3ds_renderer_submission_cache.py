@@ -81,9 +81,12 @@ merge = world[world.index("while (next < draw_batch_count)"):]
 # A rejected range may only bridge a draw under the same projection that
 # proved it invisible. Also don't spend clip-test work on an invisible room.
 assert merge.index("batch->coordinate_space") < merge.index(
-    "renderer_world_batch_may_draw(")
+    "renderer_world_batch_profiled(")
 assert merge.index("if (!next_room_visible") < merge.index(
-    "renderer_world_batch_may_draw(")
+    "renderer_world_batch_profiled(")
+profiled_visibility = function_body(source, "renderer_world_batch_profiled")
+assert profiled_visibility.count("renderer_world_batch_may_draw(") == 1
+assert "return visible;" in profiled_visibility
 
 # Runtime results expose actual applications, exact cache hits, and texture
 # lookups separately for both passes so a replay can measure the real win.

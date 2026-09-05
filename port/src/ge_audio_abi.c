@@ -2,6 +2,36 @@
 
 #include <limits.h>
 #include <string.h>
+#if defined(__ARM_FEATURE_SAT)
+#include <arm_acle.h>
+#endif
+
+static GeAudioAbiProfileClock ge_abi_profile_clock;
+static void *ge_abi_profile_context;
+static uint64_t ge_abi_profile_ticks[16], ge_abi_profile_calls[16];
+static uint64_t ge_abi_pcm_hash, ge_abi_pcm_bytes;
+
+void ge_audio_abi_profile_bind(GeAudioAbiProfileClock clock, void *context)
+{
+    ge_abi_pcm_hash = UINT64_C(14695981039346656037);
+    ge_abi_pcm_bytes = 0U;
+    ge_abi_profile_clock = clock;
+    ge_abi_profile_context = context;
+    memset(ge_abi_profile_ticks, 0, sizeof(ge_abi_profile_ticks));
+    memset(ge_abi_profile_calls, 0, sizeof(ge_abi_profile_calls));
+}
+
+void ge_audio_abi_profile_pcm(uint64_t *hash, uint64_t *bytes)
+{
+    *hash = ge_abi_pcm_hash;
+    *bytes = ge_abi_pcm_bytes;
+}
+
+void ge_audio_abi_profile_totals(uint64_t ticks[16], uint64_t calls[16])
+{
+    memcpy(ticks, ge_abi_profile_ticks, sizeof(ge_abi_profile_ticks));
+    memcpy(calls, ge_abi_profile_calls, sizeof(ge_abi_profile_calls));
+}
 
 enum {
     GE_ABI_SPNOOP = 0,
@@ -106,8 +136,18 @@ static int16_t ge_audio_abi_load_s16(const uint8_t *bytes)
 
 static void ge_audio_abi_store_u16(uint8_t *bytes, uint16_t value)
 {
+    /* DMEM is big-endian, but need not be aligned. memcpy gives the target
+     * compiler an exact two-byte store without type-punning or an alignment
+     * promise. It preserves odd addresses and overlapping command buffers. */
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    const uint16_t encoded = __builtin_bswap16(value);
+    memcpy(bytes, &encoded, sizeof(encoded));
+#elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    memcpy(bytes, &value, sizeof(value));
+#else
     bytes[0] = (uint8_t)(value >> 8U);
     bytes[1] = (uint8_t)value;
+#endif
 }
 
 static uint32_t ge_audio_abi_load_u32(const uint8_t *bytes)
@@ -133,6 +173,11 @@ static void ge_audio_abi_store_s16(uint8_t *bytes, int16_t value)
 
 static int16_t ge_audio_abi_saturate(int32_t value)
 {
+#if defined(__ARM_FEATURE_SAT)
+    /* ARM11 (both 3DS models) clamps to the same signed 16-bit range in
+     * one instruction. Arithmetic, rounding and sample order stay intact. */
+    return (int16_t)__ssat(value, 16);
+#else
     if (value > INT16_MAX) {
         return INT16_MAX;
     }
@@ -140,6 +185,7 @@ static int16_t ge_audio_abi_saturate(int32_t value)
         return INT16_MIN;
     }
     return (int16_t)value;
+#endif
 }
 
 static int16_t ge_audio_abi_saturate_s64(int64_t value)
@@ -154,20 +200,37 @@ static int16_t ge_audio_abi_saturate_s64(int64_t value)
 }
 
 typedef struct GeAudioAbiRamp {
-    int64_t value;
-    int64_t step;
-    int64_t target;
+    int32_t value;
+    int32_t step;
+    int32_t target;
 } GeAudioAbiRamp;
 
 static int16_t ge_audio_abi_ramp_step(GeAudioAbiRamp *ramp)
 {
-    ramp->value += ramp->step;
-    if ((ramp->step <= 0 && ramp->value <= ramp->target)
-            || (ramp->step > 0 && ramp->value >= ramp->target)) {
+    /* Compare the distance before adding: the old 64-bit add then clamp
+     * always lands between the initial value and target. Unsigned distance
+     * represents the full INT32_MIN..INT32_MAX span without overflow,
+     * including a saved INT32_MIN step. An unclamped sum therefore fits. */
+    const int reached = ramp->step > 0
+        ? ramp->value >= ramp->target
+            || (uint32_t)ramp->target - (uint32_t)ramp->value <= (uint32_t)ramp->step
+        : ramp->value <= ramp->target
+            || (uint32_t)ramp->value - (uint32_t)ramp->target <= 0U - (uint32_t)ramp->step;
+    if (reached) {
         ramp->value = ramp->target;
         ramp->step = 0;
+    } else {
+        ramp->value += ramp->step;
     }
     return (int16_t)(ramp->value >> 16U);
+}
+
+static void ge_audio_abi_mix_sample(uint8_t *destination,
+        int16_t source, int16_t gain)
+{
+    const int32_t current = ge_audio_abi_load_s16(destination);
+    const int32_t mixed = current + (((int32_t)source * gain) >> 15U);
+    ge_audio_abi_store_s16(destination, ge_audio_abi_saturate(mixed));
 }
 
 static GeAudioAbiResult ge_audio_abi_envmixer(
@@ -189,6 +252,8 @@ static GeAudioAbiResult ge_audio_abi_envmixer(
             state, state_address);
     uint8_t *saved_state;
     GeAudioAbiRamp ramps[2];
+    int16_t gains[4] = {0};
+    int gains_stable = 0;
     int16_t dry = state->envelope_dry;
     int16_t wet = state->envelope_wet;
     size_t output_count = auxiliary ? 4U : 2U;
@@ -214,9 +279,9 @@ static GeAudioAbiResult ge_audio_abi_envmixer(
 
     if ((flags & GE_ABI_FLAG_INIT) != 0U) {
         for (output = 0U; output < 2U; ++output) {
-            ramps[output].value = (int64_t)state->envelope_volume[output]
+            ramps[output].value = (int32_t)state->envelope_volume[output]
                     * 65536;
-            ramps[output].target = (int64_t)state->envelope_target[output]
+            ramps[output].target = (int32_t)state->envelope_target[output]
                     * 65536;
             ramps[output].step = state->envelope_rate[output] / 8;
         }
@@ -231,31 +296,56 @@ static GeAudioAbiResult ge_audio_abi_envmixer(
         ramps[1].value = (int32_t)ge_audio_abi_load_u32(saved_state + 36U);
     }
 
-    for (sample = 0U; sample < sample_count; ++sample) {
+    for (sample = 0U; sample < sample_count && !gains_stable; ++sample) {
         const int16_t source = ge_audio_abi_load_s16(state->dmem
                 + state->dmem_input + sample * sizeof(int16_t));
-        const int16_t left_volume = ge_audio_abi_ramp_step(&ramps[0]);
-        const int16_t right_volume = ge_audio_abi_ramp_step(&ramps[1]);
-        const int16_t gains[4] = {
-            ge_audio_abi_saturate(((int32_t)left_volume * dry + 0x4000)
-                    >> 15U),
-            ge_audio_abi_saturate(((int32_t)right_volume * dry + 0x4000)
-                    >> 15U),
-            ge_audio_abi_saturate(((int32_t)left_volume * wet + 0x4000)
-                    >> 15U),
-            ge_audio_abi_saturate(((int32_t)right_volume * wet + 0x4000)
-                    >> 15U),
-        };
+        {
+            const int16_t left_volume = ge_audio_abi_ramp_step(&ramps[0]);
+            const int16_t right_volume = ge_audio_abi_ramp_step(&ramps[1]);
+            gains[0] = ge_audio_abi_saturate(
+                    ((int32_t)left_volume * dry + 0x4000) >> 15U);
+            gains[1] = ge_audio_abi_saturate(
+                    ((int32_t)right_volume * dry + 0x4000) >> 15U);
+            if (auxiliary) {
+                gains[2] = ge_audio_abi_saturate(
+                        ((int32_t)left_volume * wet + 0x4000) >> 15U);
+                gains[3] = ge_audio_abi_saturate(
+                        ((int32_t)right_volume * wet + 0x4000) >> 15U);
+            }
+            /* Once both ramps stop, further ramp steps and gain multiplies
+             * return the same values for the rest of this command. */
+            gains_stable = ramps[0].step == 0 && ramps[1].step == 0;
+        }
+        /* Preserve source-before-output and dry-left/right, wet-left/right
+         * write order, including when any of the DMEM buffers overlap. */
+        ge_audio_abi_mix_sample(state->dmem + outputs[0] + sample * 2U,
+                source, gains[0]);
+        ge_audio_abi_mix_sample(state->dmem + outputs[1] + sample * 2U,
+                source, gains[1]);
+        if (auxiliary) {
+            ge_audio_abi_mix_sample(state->dmem + outputs[2] + sample * 2U,
+                    source, gains[2]);
+            ge_audio_abi_mix_sample(state->dmem + outputs[3] + sample * 2U,
+                    source, gains[3]);
+        }
+    }
 
-        for (output = 0U; output < output_count; ++output) {
-            uint8_t *destination = state->dmem + outputs[output]
-                    + sample * sizeof(int16_t);
-            const int32_t current = ge_audio_abi_load_s16(destination);
-            const int32_t mixed = current
-                    + (((int32_t)source * gains[output]) >> 15U);
-
-            ge_audio_abi_store_s16(destination,
-                    ge_audio_abi_saturate(mixed));
+    /* The first loop includes the sample that clamps the final ramp. The
+     * remaining samples consume the same stable gains without ramp checks. */
+    for (; sample < sample_count; ++sample) {
+        const int16_t source = ge_audio_abi_load_s16(state->dmem
+                + state->dmem_input + sample * sizeof(int16_t));
+        /* Preserve source-before-output and dry-left/right, wet-left/right
+         * write order, including when any of the DMEM buffers overlap. */
+        ge_audio_abi_mix_sample(state->dmem + outputs[0] + sample * 2U,
+                source, gains[0]);
+        ge_audio_abi_mix_sample(state->dmem + outputs[1] + sample * 2U,
+                source, gains[1]);
+        if (auxiliary) {
+            ge_audio_abi_mix_sample(state->dmem + outputs[2] + sample * 2U,
+                    source, gains[2]);
+            ge_audio_abi_mix_sample(state->dmem + outputs[3] + sample * 2U,
+                    source, gains[3]);
         }
     }
 
@@ -356,20 +446,23 @@ static GeAudioAbiResult ge_audio_abi_polef(
     return GE_AUDIO_ABI_OK;
 }
 
+/* The ABI's signed fixed-point filters require floor division. ARM11 and
+ * the host validation targets use arithmetic right shift (also used by the
+ * mixer and pole filter above). Pin that requirement instead of expanding
+ * negative values into 64-bit negation/carry/division in every sample. */
+_Static_assert((-INT64_C(1) >> 1) == -INT64_C(1),
+        "audio filters require arithmetic signed right shift");
+_Static_assert((-INT32_C(1) >> 1) == -INT32_C(1),
+        "audio filters require arithmetic signed right shift");
+
 static int64_t ge_audio_abi_floor_divide_2048(int64_t value)
 {
-    if (value >= 0) {
-        return value / 2048;
-    }
-    return -((-value + 2047) / 2048);
+    return value >> 11U;
 }
 
-static int64_t ge_audio_abi_floor_divide_32768(int64_t value)
+static int32_t ge_audio_abi_floor_divide_32768(int32_t value)
 {
-    if (value >= 0) {
-        return value / 32768;
-    }
-    return -((-value + 32767) / 32768);
+    return value >> 15U;
 }
 
 static int ge_audio_abi_resample_input_range(
@@ -421,7 +514,7 @@ static GeAudioAbiResult ge_audio_abi_resample(
     uint32_t initial_phase = 0U;
     uint32_t pitch_step = (uint32_t)pitch << 1U;
     uint32_t phase;
-    int64_t input_position;
+    int32_t input_position;
     size_t output_sample;
 
     if (!ge_audio_abi_dmem_range(state->dmem_output, output_bytes)) {
@@ -449,31 +542,16 @@ static GeAudioAbiResult ge_audio_abi_resample(
         initial_phase = ge_audio_abi_load_u16(saved_state + 8U);
     }
 
-    /* Preflight all filter taps and the four samples persisted afterward. */
-    phase = initial_phase;
-    input_position = -GE_ABI_RESAMPLE_HISTORY_SAMPLES;
-    for (output_sample = 0U; output_sample < output_samples;
-            ++output_sample) {
-        size_t tap;
-        uint32_t advanced_phase;
-
-        for (tap = 0U; tap < 4U; ++tap) {
-            if (!ge_audio_abi_resample_input_range(
-                    state, input_position + (int64_t)tap)) {
-                return GE_AUDIO_ABI_DMEM_RANGE;
-            }
-        }
-        advanced_phase = phase + pitch_step;
-        input_position += (int64_t)(advanced_phase >> 16U);
-        phase = advanced_phase & 0xffffU;
-    }
-    for (output_sample = 0U;
-            output_sample < GE_ABI_RESAMPLE_HISTORY_SAMPLES;
-            ++output_sample) {
-        if (!ge_audio_abi_resample_input_range(
-                state, input_position + (int64_t)output_sample)) {
-            return GE_AUDIO_ABI_DMEM_RANGE;
-        }
+    /* Unsigned pitch makes the source position monotonic from history[-4].
+     * The final persisted history ends at the greatest sample touched by
+     * this command (including zero pitch/count). Validate that endpoint
+     * before writing anything, instead of rewalking every filter tap. */
+    input_position = -GE_ABI_RESAMPLE_HISTORY_SAMPLES
+        + (int32_t)(((uint64_t)initial_phase
+            + (uint64_t)output_samples * pitch_step) >> 16U);
+    if (!ge_audio_abi_resample_input_range(state,
+            input_position + GE_ABI_RESAMPLE_HISTORY_SAMPLES - 1)) {
+        return GE_AUDIO_ABI_DMEM_RANGE;
     }
 
     phase = initial_phase;
@@ -481,23 +559,39 @@ static GeAudioAbiResult ge_audio_abi_resample(
     for (output_sample = 0U; output_sample < output_samples;
             ++output_sample) {
         size_t coefficient = ((phase & 0xfc00U) >> 8U);
-        int64_t accumulator = 0;
+        const int16_t *weights = ge_audio_abi_resample_lut + coefficient;
+        int32_t accumulator;
         uint32_t advanced_phase;
-        size_t tap;
 
-        for (tap = 0U; tap < 4U; ++tap) {
-            accumulator += (int32_t)ge_audio_abi_resample_input(
-                    state, history, input_position + (int64_t)tap)
-                    * ge_audio_abi_resample_lut[coefficient + tap];
+        /* Every LUT row has sum(abs(coefficients)) <= 34117. Even with
+         * full-scale signed samples, all partial sums fit in int32_t.
+         * Once past the four history samples, all taps are contiguous
+         * DMEM bytes; keep the history boundary out of that hot path.
+         * Load all taps before writing, preserving overlapping buffers. */
+        if (input_position >= 0) {
+            const uint8_t *input = state->dmem + state->dmem_input
+                    + (size_t)input_position * sizeof(int16_t);
+            accumulator = (int32_t)ge_audio_abi_load_s16(input) * weights[0]
+                    + (int32_t)ge_audio_abi_load_s16(input + 2U) * weights[1]
+                    + (int32_t)ge_audio_abi_load_s16(input + 4U) * weights[2]
+                    + (int32_t)ge_audio_abi_load_s16(input + 6U) * weights[3];
+        } else {
+            size_t tap;
+            accumulator = 0;
+            for (tap = 0U; tap < 4U; ++tap) {
+                accumulator += (int32_t)ge_audio_abi_resample_input(
+                        state, history, input_position + (int32_t)tap)
+                        * weights[tap];
+            }
         }
         ge_audio_abi_store_s16(
                 state->dmem + state->dmem_output
                         + output_sample * sizeof(int16_t),
-                ge_audio_abi_saturate_s64(
+                ge_audio_abi_saturate(
                         ge_audio_abi_floor_divide_32768(accumulator)));
 
         advanced_phase = phase + pitch_step;
-        input_position += (int64_t)(advanced_phase >> 16U);
+        input_position += (int32_t)(advanced_phase >> 16U);
         phase = advanced_phase & 0xffffU;
     }
 
@@ -521,6 +615,39 @@ static int16_t ge_audio_abi_adpcm_residual(uint8_t nibble, uint8_t scale)
     unsigned effective_scale = scale < 12U ? scale : 12U;
 
     return (int16_t)(signed_nibble * (int16_t)(1U << effective_scale));
+}
+
+static int ge_audio_abi_adpcm_narrow_predictor(const int16_t *codebook)
+{
+    uint32_t feedback_sum = 0U;
+    for (size_t sample = 0U; sample < 8U; ++sample) {
+        const int32_t first = codebook[sample];
+        const int32_t second = codebook[8U + sample];
+        const uint32_t first_abs = (uint32_t)(first < 0 ? -first : first);
+        const uint32_t second_abs = (uint32_t)(second < 0 ? -second : second);
+        /* Every history/residual sample has magnitude <=32768. Include
+         * the residual's 2048 scale and every product in each partial sum:
+         * 32768 * (2048 + 63487) < INT32_MAX. Unusual/extreme codebooks
+         * retain the original 64-bit accumulator. */
+        if (first_abs + second_abs + feedback_sum > 63487U) return 0;
+        feedback_sum += second_abs;
+    }
+    return 1;
+}
+
+static void ge_audio_abi_adpcm_group_narrow(
+        int16_t *destination, const int16_t *residuals,
+        const int16_t *codebook, int16_t last_first, int16_t last_second)
+{
+    for (size_t sample = 0U; sample < 8U; ++sample) {
+        int32_t accumulator = (int32_t)residuals[sample] * 2048;
+        accumulator += (int32_t)codebook[sample] * last_first;
+        accumulator += (int32_t)codebook[8U + sample] * last_second;
+        for (size_t previous = 0U; previous < sample; ++previous)
+            accumulator += (int32_t)codebook[8U + previous]
+                * residuals[sample - 1U - previous];
+        destination[sample] = ge_audio_abi_saturate(accumulator >> 11U);
+    }
 }
 
 static void ge_audio_abi_adpcm_group(
@@ -590,6 +717,8 @@ static GeAudioAbiResult ge_audio_abi_adpcm(
     }
 
     /* Validate every predictor before the output or saved state is changed. */
+    uint16_t checked_predictors = 0U;
+    uint16_t narrow_predictors = 0U;
     for (frame = 0U; frame < frame_count; ++frame) {
         uint8_t header = state->dmem[state->dmem_input
                 + frame * GE_ABI_ADPCM_FRAME_BYTES];
@@ -598,6 +727,13 @@ static GeAudioAbiResult ge_audio_abi_adpcm(
 
         if (predictor_end > state->adpcm_codebook_bytes) {
             return GE_AUDIO_ABI_CODEBOOK_RANGE;
+        }
+        const uint16_t bit = (uint16_t)(1U << (header & 0x0fU));
+        if ((checked_predictors & bit) == 0U) {
+            checked_predictors |= bit;
+            if (ge_audio_abi_adpcm_narrow_predictor(state->adpcm_codebook
+                    + (header & 0x0fU) * GE_ABI_ADPCM_PREDICTOR_SAMPLES))
+                narrow_predictors |= bit;
         }
     }
 
@@ -637,10 +773,17 @@ static GeAudioAbiResult ge_audio_abi_adpcm(
 
             residuals[sample] = ge_audio_abi_adpcm_residual(nibble, scale);
         }
-        ge_audio_abi_adpcm_group(history, residuals, codebook,
-                history[14], history[15]);
-        ge_audio_abi_adpcm_group(history + 8U, residuals + 8U, codebook,
-                history[6], history[7]);
+        if ((narrow_predictors & (1U << predictor)) != 0U) {
+            ge_audio_abi_adpcm_group_narrow(history, residuals, codebook,
+                    history[14], history[15]);
+            ge_audio_abi_adpcm_group_narrow(history + 8U, residuals + 8U, codebook,
+                    history[6], history[7]);
+        } else {
+            ge_audio_abi_adpcm_group(history, residuals, codebook,
+                    history[14], history[15]);
+            ge_audio_abi_adpcm_group(history + 8U, residuals + 8U, codebook,
+                    history[6], history[7]);
+        }
 
         for (sample = 0U; sample < GE_ABI_ADPCM_FRAME_SAMPLES; ++sample) {
             ge_audio_abi_store_s16(
@@ -681,6 +824,8 @@ GeAudioAbiResult ge_audio_abi_execute(
         uint32_t word1 = commands[index].word1;
         uint8_t opcode = (uint8_t)(word0 >> 24U);
 
+        const uint64_t profile_start = ge_abi_profile_clock != NULL
+            ? ge_abi_profile_clock(ge_abi_profile_context) : 0U;
         switch (opcode) {
         case GE_ABI_SPNOOP:
             break;
@@ -938,6 +1083,11 @@ GeAudioAbiResult ge_audio_abi_execute(
             return GE_AUDIO_ABI_UNSUPPORTED_COMMAND;
         }
 
+        if (ge_abi_profile_clock != NULL) {
+            ge_abi_profile_ticks[opcode] +=
+                ge_abi_profile_clock(ge_abi_profile_context) - profile_start;
+            ++ge_abi_profile_calls[opcode];
+        }
         state->commands_executed++;
     }
     return GE_AUDIO_ABI_OK;
@@ -975,6 +1125,13 @@ GeAudioAbiResult ge_audio_abi_execute_and_queue(
             frame_count * 2U * sizeof(int16_t));
     if (samples == NULL) {
         return GE_AUDIO_ABI_ADDRESS_UNMAPPED;
+    }
+    if (ge_abi_profile_clock != NULL) {
+        const size_t bytes = frame_count * 2U * sizeof(int16_t);
+        for (size_t index = 0; index < bytes; ++index)
+            ge_abi_pcm_hash = (ge_abi_pcm_hash ^ samples[index])
+                * UINT64_C(1099511628211);
+        ge_abi_pcm_bytes += bytes;
     }
     while (frame_offset < frame_count) {
         size_t index;

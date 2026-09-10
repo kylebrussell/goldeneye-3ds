@@ -128,7 +128,8 @@ FULL_PROPS_FUNCTIONS = (
     # the live exact visibility, bullet-hit, and STAN slices.
     ("lightfixture", "check_if_imageID_is_light"),
     ("bg", "addToByteSetMaxSize15"),
-    ("bg", "bgTestRayIntersectionInRoom"),
+    # Native BG geometry owns the ray/bullet bodies and persistent room
+    # vertices. Visibility's fixed 0x50 room publication has no pointers.
     # stan.o now owns these unchanged bodies for the live canonical
     # init_pathtable_something nearest-tile fallback.
     # Exact background/STAN services reached by handles_projectile_motion.
@@ -136,7 +137,6 @@ FULL_PROPS_FUNCTIONS = (
     # link- and sanitizer-closed.
     ("bg", "bgFindRoomsAlongSegment"),
     ("bg", "bgCopyVisibleRoomsToList"),
-    ("bg", "bgTestBulletHitBackground"),
     ("bg", "get_room_data_float2"),
     ("stan", "stanFindTileBelowPos"),
     ("propobj", "projectileSetSticky"),
@@ -394,7 +394,6 @@ def render(repo: Path, full_props: bool = False) -> str:
             "#define door7F054FB4 ge_original_door_runtime_tick_slice",
             "#define sub_GAME_7F03CFE8 ge_door_collision_sub_GAME_7F03CFE8",
             "#define ZeroCoord ge_original_zero_coord",
-            "#define g_BgRoomInfo ge_bg_visibility_room_info",
             "#define room_data_float1 ge_bg_visibility_level_scale",
             "#define room_data_float2 ge_bg_visibility_inverse_level_scale",
             "#define list_visible_rooms_in_cur_global_vis_packet ge_bg_visibility_global_rooms",
@@ -409,7 +408,6 @@ def render(repo: Path, full_props: bool = False) -> str:
             "extern void ge_original_door_runtime_tick_slice(DoorRecord *door);",
             "extern f32 ge_door_collision_sub_GAME_7F03CFE8(PropRecord *prop);",
             "extern coord3d ge_original_zero_coord;",
-            "extern s_room_info ge_bg_visibility_room_info[MAXROOMCOUNT];",
             "extern f32 ge_bg_visibility_level_scale;",
             "extern f32 ge_bg_visibility_inverse_level_scale;",
             "extern char ge_bg_visibility_global_rooms[0x98];",
@@ -451,7 +449,6 @@ def render(repo: Path, full_props: bool = False) -> str:
                 sources["objective_status2"], "mtxLoadRandomRotation"),
             function_declaration(
                 sources["objective_status2"], "sub_GAME_7F057DF8"),
-            definition_text(sources["bg"], r"^struct HitThingSub\s*\{"),
         ))
         for name in (
             "objFree", "sub_GAME_7F042EB4", "projectileFree",
@@ -598,13 +595,6 @@ def render(repo: Path, full_props: bool = False) -> str:
             r"^s32 dword_CODE_bss_8007B9DC;",
         ):
             pieces.append(definition_text(sources["stan"], pattern))
-        for pattern in (
-            r"^BoundVec D_80044868\s*=",
-            r"^BoundVec D_80044874\s*=",
-            r"^BoundVec D_80044880\s*=",
-            r"^BoundVec D_8004488C\s*=",
-        ):
-            pieces.append(definition_text(sources["bg"], pattern))
     selected_functions = FUNCTIONS + (FULL_PROPS_FUNCTIONS if full_props else ())
     pieces.extend(selected_function_text(sources[source], name)
                   for source, name in selected_functions)

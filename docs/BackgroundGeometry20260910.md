@@ -1,0 +1,97 @@
+# Native background collision and breakable lights
+
+`ge_original_bg_geometry` owns all authored converted room point tables and
+primary/secondary display lists for a stage. It does not borrow renderer
+residency, visibility's fixed 0x50 room table, or caller input buffers.
+
+The generated slice retains the original `bgBuildRoomVtxBounds`, room ray
+intersection, bullet background hit, ray/bbox and double-precision triangle
+intersection algorithms. It also retains the complete original light fixture
+registration, darkening, proximity and shard-spawning closure. Its external
+`glassCreateShard` call links to the canonical explosion/glass owner. The focused
+host harness records that call boundary; it does not claim to test the complete
+glass simulation or hardware rendering.
+
+## Native representation
+
+- `s_room_info` contains actual native pointers to persistent geometry and
+  original per-VTX batch bounds. `ge_original_bg_geometry_native_rooms()` and
+  `ge_original_bg_geometry_room_count()` supply the held-item bbox closure.
+- Authored Gfx commands retain their big-endian eight-byte layout. All CPU
+  accesses use explicit byte reads and eight-byte steps; host `sizeof(Gfx)` is
+  never used to traverse these streams.
+- Native `Vertex` includes pointer unions and is larger than GPU `Vtx` on a
+  64-bit host. Separate native collision Vertex and 16-byte Vtx arrays prevent
+  array-stride aliasing. Collision outputs retain real native vertex pointers.
+- Original signed distance overflow is represented with explicit 32-bit
+  wrapping arithmetic. Repeated-index zero-area TRI4 padding is rejected before
+  forming invalid cache-offset pointers. The original Archives 0x4fd exclusion
+  remains; an all-filtered hit returns false without publishing the original
+  function's otherwise uninitialized output. Unselected maximum-score results
+  likewise cannot publish uninitialized native pointers.
+- The original light code's raw indices differ from the background code's
+  `vtxoff` subtraction. Both exact access patterns are validated before any
+  light callback can run, including the light loop's four TRI4 slots.
+
+Room texture provenance comes from the authored Rare texture command. The
+original `texHandleType0..4` load order leaves the base texture as the final
+image. **Review checkpoint:** final emitted tile format/depth is being closed
+with the original tile-state cache; base header format alone is insufficient
+when the cache suppresses a render-tile command after a palette load. The checked-in format table was generated
+from all 2,698 original US image headers, using `texInflateZlib`'s eight-bit
+format or `texInflateNonZlib`'s first four-bit format and the exact original
+`g_TexFormatGbiMappings` / `g_TexFormatDepths`. No pixel data is included.
+
+The parser rejects unsupported list calls, matrices, expanded RDP image/tile
+commands without this provenance, invalid Rare IDs/types, malformed GBI,
+unloaded triangle cache indices and invalid native light accesses. All stage
+descriptors tested below use the supported original authored streams. Resource
+bounds are 139 rooms, 32 MiB owned buffers, 32,767 commands per list, the original
+100 fixture slots and original 512-entry circular darkened-vertex table.
+
+## Integration contract
+
+1. After stage asset resolution and before native object/player constructors,
+   load with `ge_original_bg_geometry_load(pack, stage, world, room_bounds,
+   &report)`. Require success for every gameplay stage. Log stage key,
+   `report.status` and `report.failed_room` on failure.
+2. Bind the owner and pass it with `ge_original_bg_geometry_light_break` to
+   `ge_original_player_held_items_bind_lights`. The callback uses only a live
+   primary-list triangle token returned by the bound geometry. Require the
+   native owner before beginning a held-item tick.
+3. After the local room scene is imported/refreshed, call
+   `ge_original_bg_geometry_apply_scene` with the room batch prefix, excluding
+   overlays. It validates immutable point provenance, copies persistent native
+   colours through the existing exact GBI processing path, and reports changed
+   vertices. Upload that changed room prefix using the renderer's existing
+   vertex conversion. Apply at the local scene boundary; canonical collision
+   and light state never depend on eye draws or renderer loads.
+4. Unbind the held-light callback and geometry, then close the owner after
+   native stage object cleanup. Returned hit tokens expire at close.
+
+The scheduler support extractor no longer defines the old background ray and
+bullet functions or aliases the native `s_room_info` to visibility's pointerless
+table. The native geometry wrapper supplies `bgTestBulletHitBackground`.
+Main, held-item extraction and Makefile hooks are integrated by their owners.
+
+## Verification
+
+`bash scripts/test_bg_geometry.sh [complete-original-asset-pack.gepack]` runs
+native and short-enum builds with AddressSanitizer and UndefinedBehaviorSanitizer.
+Focused coverage includes native pointers above 4 GiB, original light distance
+bias, TRI4 subtriangle identity, Archives filtering, exact vertex darkening,
+original shard calls, repeat-hit idempotence, renderer reload persistence,
+invalid hit tokens, malformed scene provenance and failed-construction rollback.
+
+The complete coordinator pack exercised all 21 solo stages and all 11 MP arena
+descriptors: all authored rooms load and publish bounds, centroid rays traverse
+actual triangle commands, all primary light triangles call the original light
+body, and every room's GBI scene passes provenance validation. Both ABI builds
+pass. Peak fixture usage is Bunker2's 64/100. Peak owned buffer bytes are Silo's
+3,412,296; MP peak is Facility's 1,996,632. These are host buffer measurements,
+not device memory or frame-time measurements.
+
+`bash scripts/test_dam_guard_bg_collision.sh` still passes its retained original
+background/STAN focused harness and now verifies the scheduler yields collision
+ownership to this module. Regenerating texture metadata from the original split
+images reproduces the checked-in table byte-for-byte.

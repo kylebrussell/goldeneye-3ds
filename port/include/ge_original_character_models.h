@@ -81,6 +81,13 @@ GeOriginalCharacterModelProvider *ge_original_character_model_provider_create(
 void ge_original_character_model_provider_destroy(
     GeOriginalCharacterModelProvider *provider);
 
+/* Includes every physical slot, including storage not yet instantiated.
+ * Borrowed addresses remain valid until provider destruction. No allocation,
+ * topology update or animation tick is performed. */
+size_t ge_original_character_model_physical_capacity(const GeOriginalCharacterModelProvider *provider);
+int ge_original_character_model_physical_instance(const GeOriginalCharacterModelProvider *provider,
+    size_t slot, const void **model, size_t *bytes, int *active);
+
 size_t ge_original_character_model_dependency_count(void);
 int ge_original_character_model_dependency_metadata(
     size_t dependency_index, GeOriginalCharacterModelMetadata *metadata);

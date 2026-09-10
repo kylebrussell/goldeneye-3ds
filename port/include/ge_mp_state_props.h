@@ -23,7 +23,7 @@ typedef struct GeMpStatePropsOwner {
     GeOriginalPropPoolStorage storage;
     uint64_t ids[600],pool_id,allocations_observed;
     GeMpStateStatus fault;
-    uint8_t live;
+    uint8_t live,stage_ended;
 } GeMpStatePropsOwner;
 typedef struct GeMpPropValues {
     uint8_t type,flags,rooms[4];
@@ -57,9 +57,11 @@ typedef struct GeMpStatePropsSnapshot {
  * Optional native callbacks acquire/release E3 on every allocation/free.
  * Registry failures invalidate this domain without changing native behavior. */
 GeMpStateStatus ge_mp_state_props_begin(GeMpStatePropsOwner *,GeMpRegistry *);
-/* After complete native cleanup, before next reset. Releases residual IDs and
- * unbinds even on error; returns INCOMPLETE when live props remain or an
- * observed lifecycle failed, so callers must surface failure. */
+/* After native cleanup, before next reset. Individual removal can free every
+ * prop, or ge_original_prop_state_end can retire the whole stage pool after
+ * its consumers close. That distinct event validates the physical free list
+ * and observed allocation history before retiring residual IDs. End unbinds
+ * even on error; missed lifecycle events still return INCOMPLETE. */
 GeMpStateStatus ge_mp_state_props_end(GeMpStatePropsOwner *);
 GeMpStateStatus ge_mp_state_props_export(const GeMpStatePropsOwner *,
     const GeMpStatePropsProviders *,GeMpStatePropsSnapshot *);

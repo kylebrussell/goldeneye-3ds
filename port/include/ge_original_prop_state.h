@@ -43,6 +43,12 @@ int ge_original_prop_state_active_set_contains(
  */
 int ge_original_prop_state_reset(GeOriginalPropState *state,
                                  uint32_t room_capacity);
+/* End the whole stage's pool lifetime after all consumers/resource owners
+ * have closed. This unpublishes pool/list/room storage; it neither calls
+ * chrpropFree nor rewrites any PropRecord. The statistics owner may already
+ * be zeroed, but its address must match the most recent reset. Returns zero
+ * for a wrong owner or an already closed pool. Reset begins the next lifetime. */
+int ge_original_prop_state_end(GeOriginalPropState *state);
 
 /* Typed callbacks matching GeOriginalDamWorldProviders. */
 void *ge_original_prop_state_allocate(void *context, void *definition);

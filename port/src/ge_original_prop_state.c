@@ -39,6 +39,7 @@ s32 g_MaxNumRooms;
 static s16 ge_room_prop_list_block_indices[GE_ORIGINAL_PROP_ROOM_CAPACITY];
 static struct roomproplistblock ge_room_prop_list_blocks[BSS_8007161C_LEN];
 static GeOriginalPropState *ge_prop_state;
+static uint32_t ge_prop_room_capacity;
 static uint64_t ge_prop_pool_lifetime, ge_prop_reset_allocation_serial;
 static int ge_prop_allocation_serial_available;
 
@@ -48,7 +49,7 @@ static int ge_prop_pointer_in_pool(const void *opaque_prop)
     const uintptr_t first = (uintptr_t)&g_Props[0];
     const uintptr_t end = (uintptr_t)&g_Props[MAX_PROPS];
 
-    return address >= first && address < end
+    return ge_prop_state != NULL && address >= first && address < end
         && (address - first) % sizeof(g_Props[0]) == 0U;
 }
 
@@ -71,6 +72,7 @@ int ge_original_prop_state_reset(GeOriginalPropState *state,
     memset(state, 0, sizeof(*state));
     state->room_capacity = room_capacity;
     ge_prop_state = state;
+    ge_prop_room_capacity = room_capacity;
     g_MaxNumRooms = (s32)room_capacity;
 
     memset(g_Props, 0, sizeof(g_Props));
@@ -96,6 +98,24 @@ int ge_original_prop_state_reset(GeOriginalPropState *state,
     return 1;
 }
 
+int ge_original_prop_state_end(GeOriginalPropState *state)
+{
+    if (state == NULL || state != ge_prop_state) return 0;
+    /* This is the port's stage-arena lifetime boundary, not a native
+     * individual removal. Observe the still-published pool before retiring
+     * its views; owned models/definitions must already be closed. */
+    ge_original_prop_observe_stage_end();
+    ge_prop_state = NULL;
+    ge_prop_room_capacity = 0;
+    g_MaxNumRooms = 0;
+    g_ActivePropsHead = NULL;
+    g_ActivePropsTail = NULL;
+    g_FreeProps = NULL;
+    RoomPropListBlockIndices = NULL;
+    RoomPropListBlocks = NULL;
+    return 1;
+}
+
 int ge_original_prop_state_pool_storage(GeOriginalPropPoolStorage *storage)
 {
     uint64_t serial;
@@ -103,12 +123,12 @@ int ge_original_prop_state_pool_storage(GeOriginalPropPoolStorage *storage)
             || !ge_original_prop_allocation_serial(&serial)
             || RoomPropListBlockIndices!=ge_room_prop_list_block_indices
             || RoomPropListBlocks!=ge_room_prop_list_blocks
-            || g_MaxNumRooms!=(s32)ge_prop_state->room_capacity)return 0;
+            || g_MaxNumRooms!=(s32)ge_prop_room_capacity)return 0;
     storage->props=g_Props;storage->active_head=g_ActivePropsHead;
     storage->active_tail=g_ActivePropsTail;storage->free_head=g_FreeProps;
     storage->room_heads=ge_room_prop_list_block_indices;
     storage->room_blocks=ge_room_prop_list_blocks;
-    storage->prop_capacity=MAX_PROPS;storage->room_capacity=ge_prop_state->room_capacity;
+    storage->prop_capacity=MAX_PROPS;storage->room_capacity=ge_prop_room_capacity;
     storage->room_head_capacity=GE_ORIGINAL_PROP_ROOM_CAPACITY;
     storage->room_block_capacity=BSS_8007161C_LEN;
     storage->lifetime=ge_prop_pool_lifetime;

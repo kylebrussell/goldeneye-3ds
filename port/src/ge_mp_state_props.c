@@ -26,7 +26,7 @@ static const GeMpRegistryEntry *entry(const GeMpRegistry *r,uint32_t k)
 {size_t i;for(i=0;i<r->count;++i)if(r->entries[i].key==k)return &r->entries[i];return NULL;}
 static GeMpStateStatus native_valid(const GeMpStatePropsOwner *owner,GeOriginalPropPoolStorage *s)
 {
-    if(!owner || !owner->live || bound!=owner)return GE_MP_STATE_STALE;
+    if(!owner || !owner->live || owner->stage_ended || bound!=owner)return GE_MP_STATE_STALE;
     if(owner->fault!=GE_MP_STATE_OK)return GE_MP_STATE_INCOMPLETE;
     if(!ge_original_prop_state_pool_storage(s) || s->props!=owner->storage.props
             || s->room_heads!=owner->storage.room_heads || s->room_blocks!=owner->storage.room_blocks
@@ -104,6 +104,34 @@ void ge_mp_state_props_freeing(void *prop)
 }
 void ge_mp_state_props_resetting(void)
 {if(bound)bound->fault=GE_MP_STATE_INCOMPLETE;}
+void ge_mp_state_props_stage_ending(void)
+{
+    GeOriginalPropPoolStorage now;
+    GeMpStateStatus status;
+    uint8_t free_slots[600]={0};
+    const PropRecord *prop;
+    unsigned slot,i;
+    if(!bound)return;
+    status=native_valid(bound,&now);
+    if(status!=GE_MP_STATE_OK){bound->fault=GE_MP_STATE_INCOMPLETE;return;}
+    /* A whole-stage release must not conceal a missed individual free or
+     * allocation. Inspect only pool links, never the already retired unions. */
+    for(prop=now.free_head;prop;prop=prop->prev) {
+        if(!slot_of(bound,prop,&slot) || free_slots[slot] || bound->ids[slot]) {
+            bound->fault=GE_MP_STATE_INCOMPLETE;return;
+        }
+        free_slots[slot]=1;
+    }
+    for(i=0;i<600;++i)if(!free_slots[i] && !bound->ids[i]) {
+        bound->fault=GE_MP_STATE_INCOMPLETE;return;
+    }
+    for(i=0;i<600;++i)if(bound->ids[i]) {
+        status=ge_mp_registry_release(bound->registry,bound->ids[i]);
+        if(status!=GE_MP_STATE_OK){bound->fault=status;return;}
+        bound->ids[i]=0;
+    }
+    bound->stage_ended=1;
+}
 GeMpStateStatus ge_mp_state_props_end(GeMpStatePropsOwner *owner)
 {
     unsigned i;GeMpStateStatus result=GE_MP_STATE_OK,status;

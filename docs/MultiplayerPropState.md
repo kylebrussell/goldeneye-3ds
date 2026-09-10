@@ -24,11 +24,19 @@ and one E5 key, acquires E5, and binds the optional observers. The registry
 needs 601 entries in addition to every other domain's entries. E3 entries
 remain defined while free; their generations persist across reuse.
 
-Call `ge_mp_state_props_end(&owner)` after complete native object/player/effect
-cleanup and before the next reset. End releases any residual IDs and unbinds
-even on failure. Remaining live IDs, a missed lifecycle callback or a reset
-while bound returns failure; callers must surface it. It cannot silently
-repair history or turn an incomplete lifecycle into a successful snapshot.
+After object/player/effect consumers have closed, call
+`ge_original_prop_state_end(&native_state)` to retire the stage pool, then
+`ge_mp_state_props_end(&owner)` before the next reset. The distinct arena-end
+event validates the bound pool lifetime, allocation serial and exact physical
+free-list membership against observed IDs. It retires residual allocated
+identities without calling `chrpropFree` or rewriting any `PropRecord`.
+This supports the frontend's whole-stage resource ownership, including viewer
+props and partial constructors that remain allocated at stage exit. A caller
+that individually frees every prop can also end the exporter successfully.
+Exporter end unbinds even on failure. Residual IDs without an arena-end event,
+a missed lifecycle callback or a reset while bound still return failure;
+callers must surface it. Arena end cannot silently repair missed history or
+turn an incomplete lifecycle into a successful snapshot.
 A monotonic local allocation serial rejects late binding even after all prior
 allocations have been freed. Local pool lifetime and serial guards are not
 encoded simulation state; the registry generations carry allocation history.
@@ -38,7 +46,9 @@ The wrapper observes successful allocations after the native free-head pop.
 The canonical free slice invokes an observer before changing free links.
 Both native grenade and covert-modem constructor rollback helpers invoke the
 same observer before their unchanged free bodies. Reset observes before
-mutating storage. Registry failures invalidate the domain but do not cancel
+mutating storage; stage end observes before unpublishing its pool/list/room
+views. Export and actor lookup become stale after arena end. Registry failures
+invalidate the domain but do not cancel
 or replace canonical gameplay operations. On ELF and Mach-O, weak no-op
 observer definitions keep standalone/unbound solo slices linkable; linking
 this domain replaces them with strong observers. The missing-serial fallback
@@ -127,6 +137,15 @@ union exclusion, missed free/reset/late-begin and registry exhaustion failures.
 Fixture-only typed payload comparisons are not game-state checkpoints: the
 fixture confirms a full-state hash remains INCOMPLETE with the output digest
 unchanged.
+
+`scripts/test_original_prop_stage_end.sh` additionally runs native pool
+allocation, activation, room insertion and individual release across 2/4/2
+rosters. It retires a stage with already freed model/object/player resource
+boundaries and an unactivated partial constructor; all physical prop bytes
+must remain unchanged. It verifies generation advancement, stale old IDs,
+closed allocation/views, empty partial-load teardown, and failures for exact
+native allocate/free bodies deliberately missing observation, plus reset
+without end. See `StagePropTeardown.md` for the audited frontend call order.
 
 Focused strict ARM compilation passes for the exporter, state getter/source
 wrapper and both modified rollback owners. Host original multiplayer spawn

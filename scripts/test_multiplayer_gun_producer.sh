@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+gameplay=${GE_TEST_GUN_GAMEPLAY:-0}
 build_dir="${repo_dir}/build/host-tests/multiplayer-gun-producer"
+if [[ ${gameplay} == 1 ]]; then build_dir="${repo_dir}/build/host-tests/multiplayer-gun-gameplay"; fi
 pack=${1:-"${repo_dir}/build/host-tests/multiplayer-gun-producer/guns.gepack"}
 mkdir -p "${build_dir}/empty-assets"
 if [[ $# == 0 && ! -f ${pack} ]]; then
@@ -18,7 +20,11 @@ fi
 for name in gun_update_and_fire gun_pose_helpers gun_casing multiplayer_gun_fixture; do
     script="${repo_dir}/scripts/extract_${name}_slice.py"
     if [[ ${name} == multiplayer_gun_fixture ]]; then script="${repo_dir}/scripts/extract_${name}.py"; fi
-    python3 "${script}" "${repo_dir}" "${build_dir}/${name}.c"
+    if [[ ${gameplay} == 1 && ${name} == multiplayer_gun_fixture ]]; then
+        python3 "${script}" "${repo_dir}" "${build_dir}/${name}.c" --gameplay
+    else
+        python3 "${script}" "${repo_dir}" "${build_dir}/${name}.c"
+    fi
 done
 python3 "${repo_dir}/scripts/extract_player_gait_model_slice.py" \
     "${repo_dir}/src/game/model.c" "${repo_dir}/src/game/initBondDATAdefaults.c" "${build_dir}/model.c"
@@ -37,24 +43,42 @@ sources=(port/tests/test_ge_original_multiplayer_gun_producer.c
     port/src/ge_asset_pack.c port/src/ge_original_player_gait.c port/src/random_port.c
     src/game/matrixmath.c src/libultra/gu/normalize.c src/libultra/gu/rotate.c
     src/libultra/gu/align.c src/libultra/gu/mtxutil.c)
+generated=(gun_update_and_fire gun_pose_helpers gun_casing multiplayer_gun_fixture model)
+if [[ ${gameplay} == 1 ]]; then
+    if [[ $# != 2 ]]; then echo "Gun gameplay needs first-person.gepack and multiplayer-arena.gepack." >&2; exit 2; fi
+    flags+=(-DGE_TEST_GUN_GAMEPLAY -DGE_PORT_BOND_INPUT_HOST_STATE)
+    python3 "${repo_dir}/scripts/extract_bond_input_live_state_slice.py" "${repo_dir}" "${build_dir}/live_state.c"
+    generated+=(live_state)
+    sources+=(port/tests/ge_original_multiplayer_gun_gameplay_resources.c
+        port/src/ge_original_gameplay_services.c port/src/ge_original_sfx_bank.c
+        port/src/ge_original_covert_modem_fire.c port/src/ge_original_pp7_fire.c
+        port/src/ge_original_covert_modem_projectile.c
+        port/src/ge_original_guard_grenade_object.c port/src/ge_original_covert_modem_object.c
+        port/src/ge_original_guard_bullet_hit.c port/src/ge_original_dam_guards.c
+        port/src/ge_original_guard_grenade_model.c port/src/ge_original_bug_model.c
+        port/src/ge_original_prop_state_source.c port/src/ge_original_objinit_source.c
+        port/src/ge_original_default_object.c
+        port/src/ge_dam_setup_world_materializer.c
+        src/game/quaternion.c port/src/ge_stage_assets.c
+        port/src/ge_stan_collision.c port/src/ge_stan_native.c)
+fi
 objects=()
 for i in "${!sources[@]}"; do
     cc "${flags[@]}" -c "${repo_dir}/${sources[i]}" -o "${build_dir}/source_${i}.o"
     objects+=("${build_dir}/source_${i}.o")
 done
-for name in gun_update_and_fire gun_pose_helpers gun_casing multiplayer_gun_fixture model; do
+for name in "${generated[@]}"; do
     cc "${flags[@]}" -c "${build_dir}/${name}.c" -o "${build_dir}/${name}.o"
     objects+=("${build_dir}/${name}.o")
 done
 cc -fsanitize=address,undefined "${objects[@]}" "${strip[@]}" -lm -o "${build_dir}/test_producer"
-python3 - "${build_dir}" <<'PY'
+python3 - "${gameplay}" "${objects[@]}" <<'PY'
 from pathlib import Path
 import subprocess
 import sys
 
-root = Path(sys.argv[1])
 owners = {}
-for obj in root.glob("*.o"):
+for obj in map(Path,sys.argv[2:]):
     for line in subprocess.check_output(["nm", "-g", str(obj)], text=True).splitlines():
         fields = line.split()
         if len(fields) >= 3 and fields[-2] in ("T", "D", "B", "S"):
@@ -70,8 +94,13 @@ required = {
     "wppksil_stats": "multiplayer_gun_fixture.o",
     "D_8003FDA0": "multiplayer_gun_fixture.o",
 }
+if sys.argv[1] == '1':
+    required.update(gunTickGameplay='live_state.o', gunTickHandState='live_state.o',
+                    gunTickNoise='live_state.o', joyRumblePakStart='multiplayer_gun_fixture.o')
 for symbol, owner in required.items():
     assert owners.get(symbol) == [owner], (symbol, owners.get(symbol), owner)
 print("link audit: actual source-owned gun, beam, casing, model and authored hand/stat producers")
 PY
-ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 "${build_dir}/test_producer" "${pack}"
+args=("${pack}")
+if [[ ${gameplay} == 1 ]]; then args+=("$2"); fi
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 "${build_dir}/test_producer" "${args[@]}"

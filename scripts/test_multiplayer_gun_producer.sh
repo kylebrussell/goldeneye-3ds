@@ -41,6 +41,7 @@ sources=(port/tests/test_ge_original_multiplayer_gun_producer.c
     port/src/ge_original_bond_input_provider.c port/src/ge_original_first_person_assets.c
     port/src/ge_original_first_person_item_model.c
     port/src/ge_asset_pack.c port/src/ge_original_player_gait.c port/src/random_port.c
+    port/src/ge_original_model_callbacks.c
     src/game/matrixmath.c src/libultra/gu/normalize.c src/libultra/gu/rotate.c
     src/libultra/gu/align.c src/libultra/gu/mtxutil.c)
 generated=(gun_update_and_fire gun_pose_helpers gun_casing multiplayer_gun_fixture model)

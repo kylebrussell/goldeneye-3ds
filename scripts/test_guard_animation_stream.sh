@@ -29,6 +29,7 @@ flags=(
 sources=(
     "${work_dir}/model.c"
     "${repo_dir}/port/src/ge_original_player_gait.c"
+    "${repo_dir}/port/src/ge_original_model_callbacks.c"
     "${repo_dir}/port/src/ge_original_player_gait_data_source.c"
     "${repo_dir}/port/src/ge_original_guard_animation_table.c"
     "${repo_dir}/port/src/ge_original_character_models.c"

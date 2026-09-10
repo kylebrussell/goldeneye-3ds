@@ -158,6 +158,7 @@ def main() -> None:
     pieces = [
         "/* Generated from src/game/model.c; do not hand-edit. */",
         '#include "ge_original_player_gait_internal.h"',
+        '#include "ge_original_model_callbacks.h"',
         '#include <math.h>',
         '#include <stdint.h>',
         "typedef int PLAYERFLAG;",
@@ -188,6 +189,17 @@ def main() -> None:
     ]
     for name in FUNCTIONS:
         body = find_function(source, name)
+        if name == "sub_GAME_7F06D490":
+            needle = "((s32 (*)(Model *, coord3d *, coord3d *, f32 *)) model->unka0)(model, &rw->Header.pos, &sp2c, &rw->Header.ground)"
+            if body.count(needle) != 1:
+                raise ValueError("root callback native-ABI adaptation drift")
+            body = body.replace(needle, "GE_PORT_INVOKE_MODEL_ROOT_CALLBACK(model, &rw->Header.pos, &sp2c, &rw->Header.ground)")
+            body = ("#if defined(GE_PORT_MODEL_HOST_RWDATA_ABI) && UINTPTR_MAX > UINT32_MAX\n"
+                    "#define GE_PORT_INVOKE_MODEL_ROOT_CALLBACK ge_original_model_root_callback_invoke\n"
+                    "#else\n"
+                    "#define GE_PORT_INVOKE_MODEL_ROOT_CALLBACK(model, source, destination, ground) \\\n"
+                    "    ((s32 (*)(Model *, coord3d *, coord3d *, f32 *))(model)->unka0)(model, source, destination, ground)\n"
+                    "#endif\n" + body + "\n#undef GE_PORT_INVOKE_MODEL_ROOT_CALLBACK")
         if name == "sub_GAME_7F06DB5C":
             # Retain every original quaternion/auxiliary-matrix branch. The
             # decomp spells a parent/matrix pointer as s32 and calls the

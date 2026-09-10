@@ -186,8 +186,8 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   inputs and a separate positive Facility camera check against the regenerated
   pack. A later forced ARM build at `b822d6e6` retained the core capture symbol
   and passed dependency/input receipt verification. Neither checkpoint includes
-  the later main assembly and exporters; a fresh common-source aggregate and
-  forced build are required for their combined acceptance.
+  the later main assembly and exporters. The newer common-source host/build
+  checkpoint below provides their bounded integration closure.
 - The corrected Dam rerun was blocked before gameplay by the locked Mac UI.
   Only that run's owned emulator process was stopped; its observation records
   no gameplay, mission or timing outcome. The successful corrected-route
@@ -223,3 +223,13 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   progression and live wireless state agreement remain unverified. Private
   evidence is under `build/integration/bg-main-build-760e600c`,
   `mp-props-review`, `mp-state-guns-final` and `mp-core-independent-review`.
+- The complete host aggregate also passes on that same frozen `760e600c`
+  source, with 9,181 copied and hash-verified private inputs. Every top-level
+  optional asset group was present; the raw texture decoder, native texture
+  catalog, positive Facility camera and final test tail ran inside this full
+  suite. Tracked source remained clean. Two generated Cuba metadata files
+  changed during regeneration and have explicit before/after identities; all
+  other copied input bytes stayed unchanged. The immutable closure is under
+  `build/integration/aggregate-host-evidence-760e600c`. Later domain and
+  lifecycle changes require a new common-source run; this receipt does not
+  imply full mission, multiplayer, performance or physical acceptance.

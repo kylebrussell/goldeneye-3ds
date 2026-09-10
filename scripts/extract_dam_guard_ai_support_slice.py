@@ -676,8 +676,10 @@ def main() -> None:
     pieces.append("#endif")
     pieces.append("#if !defined(GE_PORT_DAM_GUARD_AI_HOST_OFFSETS) || "
                   "defined(GE_PORT_DAM_GUARD_AI_SIGHT_TEST)")
+    pieces.append("#ifndef GE_PORT_NATIVE_FOG")
     pieces.append(function_text(
         sources["bgfog"], "fogGetScaledFarFogIntensitySquared"))
+    pieces.append("#endif /* GE_PORT_NATIVE_FOG */")
     pieces.extend((
         "void ge_original_guard_ai_los_trace_snapshot("
         "GeOriginalGuardAiLosStats *stats)\n"

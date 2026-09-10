@@ -517,6 +517,7 @@ def render(repo: Path, full_props: bool = False) -> str:
         sources["file2"], r"^ChrRecord \*g_CurModelChr;"))
     pieces.append(definition_text(
         sources["player"], r"^PLAYER_ID array_PLAYER_IDs\[4\];"))
+    pieces.append("#ifndef GE_PORT_NATIVE_FOG")
     for pattern in (
         r"^s32 g_FogSkyIsEnabled;",
         r"^NearFogRecord \*g_NearFogValuesP;",
@@ -534,6 +535,8 @@ def render(repo: Path, full_props: bool = False) -> str:
             r"^CurrentEnvironmentRecord g_CurrentEnvironment\s*=",
         ):
             pieces.append(definition_text(sources["bgfog"], pattern))
+    pieces.append("#endif /* GE_PORT_NATIVE_FOG */")
+    if full_props:
         for pattern in (
             r"^/\*[^\n]*\*/ struct PropRecord \* D_80030B0C\s*=\s*NULL;",
             r"^/\*[^\n]*\*/ s32 bodypartshot\s*=\s*0xFFFFFFFF;",
@@ -595,8 +598,12 @@ def render(repo: Path, full_props: bool = False) -> str:
         ):
             pieces.append(definition_text(sources["stan"], pattern))
     selected_functions = FUNCTIONS + (FULL_PROPS_FUNCTIONS if full_props else ())
-    pieces.extend(selected_function_text(sources[source], name)
-                  for source, name in selected_functions)
+    for source, name in selected_functions:
+        if source == "bgfog":
+            pieces.append("#ifndef GE_PORT_NATIVE_FOG")
+        pieces.append(selected_function_text(sources[source], name))
+        if source == "bgfog":
+            pieces.append("#endif /* GE_PORT_NATIVE_FOG */")
     pieces.extend((
         "#undef bondviewUpdateFrustumPlanes",
         "#undef OP16_POS_Z_VOL", "#undef OP16_POS_Y_VOL",

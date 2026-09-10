@@ -83,7 +83,16 @@ completion and the original title request at tick 1808 for both rosters. See
 and reproduction. Fixed-tape independent peers, both enum ABIs, repeat-session
 history and other arena/scenario acceptance remain ongoing.
 
-Kind0, E8, E9, EA, EB and EC capture/schema entrypoints are force-retained in the ARM link.
+EF captures the native music transition controls and actual ordered track
+tables. Its identity begins with the stage registry and retires at stage end;
+native program-lifetime values are not reset by export. Main now calls the
+distinct original music-slot reset before the existing stage music initializer.
+Session processing retains the original death-music recovery before limits.
+`NativeMusicState.md` describes the exact fields, audio boundary and source
+checks. Corrected host tapes must match main's startup order and retain the
+Caves random-track RNG step omitted by the earlier combat bootstrap.
+
+Kind0, E8, E9, EA, EB, EC and EF capture/schema entrypoints are force-retained in the ARM link.
 Unresolved native resource references, unowned transitions and retained
 visibility room-cycle/parser-state initialization still prevent complete state
 attestation. Host model callback tokens must resolve to stable callback roles;

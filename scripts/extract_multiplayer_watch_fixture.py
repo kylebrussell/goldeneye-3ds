@@ -21,7 +21,8 @@ def render(root):
     out+=extract_data(player,'array_PLAYER_IDs')+'\n'
     for name in ('get_player_position_in_shuffled','get_nth_player_from_shuffled','shuffle_player_ids'):
         out+=function_text(player,name)+'\n'
-    for name in ('stageMusicID','mission_state'):
+    for name in ('stageMusicID','mission_state','music_slot_active_0',
+                 'music_slot_minutes_0','music_slot_seconds_0'):
         out+=extract_data(music,name)+'\n'
     for name in ('sub_GAME_7F0C0BF0','sub_GAME_7F0C0C10','set_missionstate','sub_GAME_7F0C11FC'):
         body=function_text(music,name)

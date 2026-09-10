@@ -2,6 +2,11 @@
 #define GE_ORIGINAL_MULTIPLAYER_SESSION_H
 #include "ge_original_multiplayer_frontend.h"
 
+/* Exact lvlStageLoad music-slot reset. Call once at stage initialization,
+ * before the original music stage initializer and live player construction.
+ * It does not reset saved pre-watch mission state or select a track. */
+void ge_original_multiplayer_music_stage_reset(void);
+
 #define GE_ORIGINAL_MP_SESSION_CAUSE_TIME 1U
 #define GE_ORIGINAL_MP_SESSION_CAUSE_POINT 2U
 #define GE_ORIGINAL_MP_SESSION_CAUSE_ELIMINATION 4U

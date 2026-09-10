@@ -7,6 +7,7 @@
 #include "game/front.h"
 #include "game/mpmenu.h"
 #include "game/lv.h"
+#include "game/mp_music.h"
 #include <limits.h>
 #include <math.h>
 #include <string.h>
@@ -14,10 +15,16 @@
 extern s32 g_stopPlayFlag, g_gameOverFlag, g_pausedFlag, g_MpTime, g_MpPoint;
 extern struct mp_stage_playercount mp_player_counts[];
 void ge_original_mp_session_decide_exact(s32,s32,s32,s32,uint32_t *,uint32_t *);
+void ge_original_mp_session_music_exact(void);
 
 static struct player *session_players[4];
 static int session_count;
 static GeOriginalMultiplayerSessionState session;
+
+void ge_original_multiplayer_music_stage_reset(void)
+{
+    sub_GAME_7F0C1364();
+}
 
 static GeOriginalMultiplayerSessionStatus validate(int require_session)
 {
@@ -101,6 +108,9 @@ GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_tick(
         return GE_ORIGINAL_MP_SESSION_INVALID_ARGUMENT;
     status=validate(1);
     if(status!=GE_ORIGINAL_MP_SESSION_OK)return status;
+    /* lvlManageMpGame recovers death music before time/point/YOLT limits,
+     * including frames whose gameplay delta is zero. */
+    ge_original_mp_session_music_exact();
     if(session.decision==GE_ORIGINAL_MP_END_RESULTS)
         return ge_original_multiplayer_session_snapshot(state);
     ge_original_mp_session_decide_exact(tick60,elapsed60,g_MpTime,g_MpPoint,&results,&freeze);

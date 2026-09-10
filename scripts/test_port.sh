@@ -51,6 +51,7 @@ bash "${repo_dir}/scripts/test_mp_state_props.sh"
 bash "${repo_dir}/scripts/test_mp_state_objects.sh" -fno-short-enums
 bash "${repo_dir}/scripts/test_mp_state_objects.sh" -fshort-enums
 bash "${repo_dir}/scripts/test_mp_state_models.sh" "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+bash "${repo_dir}/scripts/test_mp_state_music.sh"
 bash "${repo_dir}/scripts/test_mp_state_guns.sh"
 bash "${repo_dir}/scripts/test_mp_state_players.sh"
 bash "${repo_dir}/scripts/test_mp_state_session.sh"

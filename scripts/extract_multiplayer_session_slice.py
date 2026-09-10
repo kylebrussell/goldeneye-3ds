@@ -10,6 +10,7 @@ from extract_multiplayer_regen_slice import block
 def render(repo):
     menu=(repo/'src/game/mpmenu.c').read_text()
     lv=(repo/'src/game/lv.c').read_text()
+    music=(repo/'src/game/mp_music.c').read_text()
     out='''/* Generated canonical multiplayer session state. */
 #include <ultra64.h>
 #include <stdint.h>
@@ -19,9 +20,12 @@ def render(repo):
 #include "game/front.h"
 #include "game/lv.h"
 #include "game/mpmenu.h"
+#include "game/mp_music.h"
 #include "ge_original_multiplayer_session.h"
 extern s32 g_stopPlayFlag, g_gameOverFlag, g_pausedFlag;
 extern s32 g_MpTime; /* lv.c timer slice owns this storage. */
+extern s32 mission_state; /* mp_music.c retained transition owner. */
+extern s32 music_slot_active_0[4], music_slot_minutes_0[4], music_slot_seconds_0[4];
 s32 g_MpPoint = 0xA;
 '''
     for source,names in ((menu,('mpwatchUnpauseGame','mpwatchSetStopPlayFlag','pauseAndLockControls')),
@@ -29,6 +33,10 @@ s32 g_MpPoint = 0xA;
         for name in names:
             body=function_text(source,name)
             out+='\n/* '+name+' sha256 '+hashlib.sha256(body.encode()).hexdigest()+' */\n'+body+'\n'
+    out += '\n' + function_text(music,'get_mission_state') + '\n'
+    out += '\n' + function_text(music,'sub_GAME_7F0C1364') + '\n'
+    recovery,_=block(lv,'if (get_mission_state() == MISSION_STATE_6)')
+    out += '\n/* Native pre-limit death music recovery. */\nvoid ge_original_mp_session_music_exact(void)\n{\n' + recovery + '\n}\n'
     # Observe each unchanged lv.c terminal action. The source itself has no
     # cause field; retain all causes and their source order explicitly.
     time,_=block(lv,'if ((current_time < g_MpTime) && (sp180 >= g_MpTime))')

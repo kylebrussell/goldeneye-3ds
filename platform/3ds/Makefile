@@ -85,7 +85,8 @@ LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema \
            -Wl,-u,ge_mp_state_fog_capture -Wl,-u,ge_mp_state_fog_schema \
            -Wl,-u,ge_mp_state_objects_export -Wl,-u,ge_mp_state_objects_schema \
-           -Wl,-u,ge_mp_state_models_export -Wl,-u,ge_mp_state_models_schema
+           -Wl,-u,ge_mp_state_models_export -Wl,-u,ge_mp_state_models_schema \
+           -Wl,-u,ge_mp_state_music_capture -Wl,-u,ge_mp_state_music_schema
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3
@@ -315,6 +316,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_multiplayer_death_slice.c \
             ge_original_multiplayer_results_slice.c \
             ge_original_multiplayer_session_slice.c \
+            ge_original_multiplayer_setup_slice.c \
             ge_original_multiplayer_watch_slice.c \
             ge_original_multiplayer_watch_render_slice.c \
             ge_original_multiplayer_runtime_slice.c \
@@ -502,10 +504,12 @@ ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
 ge_original_multiplayer_watch.o ge_original_multiplayer_watch_slice.o \
+ge_original_multiplayer_setup.o ge_original_multiplayer_setup_slice.o \
 ge_original_multiplayer_watch_render.o ge_original_multiplayer_watch_render_slice.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
 ge_mp_state_props.o ge_mp_state_guns.o ge_mp_state_players.o ge_mp_state_bg.o \
 ge_mp_state_session.o ge_mp_state_effects.o ge_mp_state_objects.o ge_mp_state_models.o \
+ge_mp_state_model_topology.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
 ge_original_multiplayer_session_slice.o ge_original_multiplayer_stage_reset.o \
 ge_original_player_held_items.o \
@@ -1224,9 +1228,16 @@ ge_original_multiplayer_runtime_slice.c: \
 		$(TOPDIR)/../.. $@
 ge_original_multiplayer_session_slice.c: \
         $(TOPDIR)/../../src/game/lv.c $(TOPDIR)/../../src/game/mpmenu.c \
+        $(TOPDIR)/../../src/game/mp_music.c \
         $(TOPDIR)/../../scripts/extract_multiplayer_session_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_session_slice.py \
 		$(TOPDIR)/../.. $@
+ge_original_multiplayer_setup_slice.c: \
+        $(TOPDIR)/../../scripts/extract_multiplayer_setup_slice.py \
+        $(TOPDIR)/../../scripts/extract_stage_pickup_slice.py \
+        $(TOPDIR)/../../scripts/extract_bond_move_explosion_slice.py \
+        $(TOPDIR)/../../src/game/front.c $(TOPDIR)/../../src/game/options.c
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_setup_slice.py $(TOPDIR)/../.. $@
 ge_original_multiplayer_watch_slice.c: \
         $(TOPDIR)/../../scripts/extract_multiplayer_watch_slice.py \
         $(TOPDIR)/../../scripts/extract_stage_pickup_slice.py \

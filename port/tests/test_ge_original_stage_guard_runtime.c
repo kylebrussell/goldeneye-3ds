@@ -1187,6 +1187,102 @@ static size_t audit_stage_guard_construction(
     return guard_count;
 }
 
+typedef struct PlayerItemPropPool {
+    PropRecord props[3];
+    size_t allocated;
+} PlayerItemPropPool;
+
+static void *allocate_player_item_prop(void *context)
+{
+    PlayerItemPropPool *pool=context;
+    assert(pool->allocated<sizeof(pool->props)/sizeof(pool->props[0]));
+    return &pool->props[pool->allocated++];
+}
+
+static void test_player_item_reused_props(GeAssetPack *pack,
+    const PropRecord *source,const float world_to_view[4][4])
+{
+    PlayerItemPropPool pool={0};
+    GeOriginalStageGuardRuntimeServices services={0};
+    GeOriginalStageSetupRuntime empty_setup={0};
+    GeOriginalPitemModelStats stats;
+    PropRecord viewer={0},*dropped=NULL,*held=NULL,*stale=NULL;
+    WeaponObjRecord reused_objects[2]={{0}};
+    struct player owner={0},*saved_current=g_CurrentPlayer;
+    assert(g_ActivePropsHead==NULL&&g_ActivePropsTail==NULL);
+    GeOriginalCharacterModelProvider *models=ge_original_character_model_provider_create(
+        pack,ge_original_character_model_dependency_count(),1U,NULL);
+    GeOriginalPitemModelProvider *items=ge_original_pitem_model_provider_create(pack,1U,3U,NULL);
+    assert(models!=NULL&&items!=NULL);
+    services.context=&pool;services.allocate_prop=allocate_player_item_prop;
+    GeOriginalStageGuardRuntime *runtime=ge_original_stage_guard_runtime_create(models,1U,&services,NULL);
+    assert(runtime!=NULL);empty_setup.loaded=1;
+    assert(ge_original_stage_guard_runtime_bind_authored_weapons(runtime,&empty_setup,
+        items,load_projectile_models,NULL,NULL)==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+    viewer.pos=source->pos;viewer.stan=source->stan;
+    viewer.rooms[0]=source->rooms[0];viewer.rooms[1]=(s8)-1;
+    owner.prop=&viewer;g_CurrentPlayer=&owner;
+    assert(ge_original_stage_guard_runtime_load_player_body(runtime,&owner,
+        BODY_Formal_Wear,HEAD_Male_Brosnan_Default,0.0f));
+    assert(ge_original_stage_guard_runtime_create_player_item(runtime,viewer.chr,
+        PROP_CHRWPPK,ITEM_WPPK,0U,&dropped)&&dropped==&pool.props[0]);
+    Model *drop_model=dropped->obj->model;
+    ObjectRecord *drop_record=dropped->obj;
+    propobjSetDropped(dropped,DROPTYPE_DEFAULT);assert(objDrop(dropped));
+    assert(viewer.child==NULL&&viewer.chr->weapons_held[GUNRIGHT]==NULL);
+    owner.bodyModel->anim=NULL;
+    assert(ge_original_stage_guard_runtime_load_player_body(runtime,&owner,
+        BODY_Formal_Wear,HEAD_Male_Brosnan_Default,0.25f));
+    assert(ge_original_stage_guard_runtime_create_player_item(runtime,viewer.chr,
+        PROP_CHRWPPK,ITEM_WPPK,0U,&held)&&held==&pool.props[1]);
+    assert(dropped->obj==drop_record&&drop_record->model==drop_model
+        &&drop_model->obj!=NULL&&dropped->parent==NULL
+        &&ge_original_stage_guard_runtime_player_item_count(runtime)==2U);
+
+    /* The canonical free marker retires the native slot. Its pooled prop
+     * may already belong to an unrelated weapon when the next reap runs. */
+    objFreePermanently(drop_record,TRUE);assert(drop_record->prop==NULL);
+    memset(dropped,0,sizeof(*dropped));dropped->type=PROP_TYPE_WEAPON;
+    dropped->obj=(ObjectRecord *)(void *)&reused_objects[0];
+    reused_objects[0].prop=dropped;reused_objects[0].weaponnum=ITEM_AK47;
+    chrpropActivate(dropped);
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
+    ge_original_pitem_model_get_stats(items,&stats);assert(stats.instantiated_models==1U);
+
+    /* Also reject a stale record whose prop identity changed without the
+     * canonical retirement marker. Teardown must not free the new object. */
+    assert(ge_original_stage_guard_runtime_create_player_item(runtime,viewer.chr,
+        PROP_CHRWPPK,ITEM_WPPK,PROPFLAG_WEAPON_LEFTHANDED,&stale)&&stale==&pool.props[2]);
+    ObjectRecord *stale_record=stale->obj;
+    objDetach(stale);assert(viewer.chr->weapons_held[GUNLEFT]==NULL);
+    memset(stale,0,sizeof(*stale));stale->type=PROP_TYPE_WEAPON;
+    stale->obj=(ObjectRecord *)(void *)&reused_objects[1];
+    reused_objects[1].prop=stale;reused_objects[1].weaponnum=ITEM_GRENADE;
+    chrpropActivate(stale);
+    assert(stale_record->prop==stale
+        &&ge_original_stage_guard_runtime_player_item_count(runtime)==1U);
+    PropRecord preserved_props[2];WeaponObjRecord preserved_objects[2];
+    memcpy(&preserved_props[0],dropped,sizeof(*dropped));
+    memcpy(&preserved_props[1],stale,sizeof(*stale));
+    memcpy(preserved_objects,reused_objects,sizeof(reused_objects));
+    size_t free_before=lifecycle_free_calls();
+    ge_original_stage_guard_runtime_destroy(runtime);
+    assert(lifecycle_free_calls()==free_before+1U&&held->parent==NULL
+        &&viewer.child==NULL&&viewer.chr==NULL&&owner.bodyModel==NULL);
+    assert(memcmp(&preserved_props[0],dropped,sizeof(*dropped))==0
+        &&memcmp(&preserved_props[1],stale,sizeof(*stale))==0
+        &&memcmp(preserved_objects,reused_objects,sizeof(reused_objects))==0
+        &&g_ActivePropsHead==dropped&&g_ActivePropsTail==stale);
+    ge_original_pitem_model_get_stats(items,&stats);
+    assert(stats.instantiated_models==0U&&stats.native_instance_bytes==0U);
+    chrpropDelist(dropped);chrpropDelist(stale);
+    assert(g_ActivePropsHead==NULL&&g_ActivePropsTail==NULL);
+    g_CurrentPlayer=saved_current;
+    ge_original_pitem_model_provider_destroy(items);
+    ge_original_character_model_provider_destroy(models);
+    puts("player item ownership: direct drop survives body reload; retired and stale reused props survive teardown");
+}
+
 static void test_player_item_lifecycle(GeOriginalStageGuardRuntime *runtime,
     GeOriginalPitemModelProvider *weapon_models,struct player **owners,size_t count,
     const float world_to_view[4][4],const float view_to_world[4][4])
@@ -2133,6 +2229,7 @@ int main(int argc,char **argv)
     assert(viewer.chr==NULL&&viewer.child==NULL&&stage_player.bodyModel==NULL);
     for(size_t i=0;i<3U;++i)assert(multiplayer_props[i].child==NULL&&multiplayer_props[i].chr==NULL);
     assert(g_ActivePropsHead==NULL&&g_ActivePropsTail==NULL);
+    test_player_item_reused_props(&pack,&viewer,world_to_view);
     ChrRecord unknown={0};size_t fallback_before=lifecycle_grenade_fallback_calls();
     assert(something_with_generating_object(&unknown,PROP_CHRGRENADE,ITEM_GRENADE,0,NULL,NULL)==NULL);
     assert(lifecycle_grenade_fallback_calls()==fallback_before+1U);

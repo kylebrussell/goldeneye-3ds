@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Probe target aim through actual logical mapping/joy and canonical HONEY.
 
-This is controller dispatch evidence, not a complete MoveBond/AI mission run.
-An old horizontal-output mutant must fail the same yaw/strafe assertion.
+This checks controller dispatch and the neutral-head world camera matrix path,
+not a complete MoveBond/AI mission run. Old yaw and pitch producers must fail.
 """
 from pathlib import Path
 import os
@@ -49,6 +49,25 @@ pitch = source[pitch_start:pitch_end].removeprefix("else ")
 move_data = "struct MoveData {" + (repo / "src/bondtypes.h").read_text().split("struct MoveData {", 1)[1].split("};", 1)[0] + "};\n"
 vertical_helpers = "\n".join(find_function(source, name) for name in (
     "sub_GAME_7F07FF74", "bondviewCurrentPlayerUpdateSpeedVerta"))
+matrix_source = (repo / "src/game/matrixmath.c").read_text()
+matrix_helpers = "\n".join(find_function(matrix_source, name) for name in (
+    "matrix_4x4_copy", "matrix_4x4_multiply", "matrix_4x4_multiply_in_place",
+    "matrix_4x4_set_rotation_around_x", "matrix_4x4_set_rotation_around_y",
+    "matrix_4x4_set_basis_and_position", "matrix_4x4_set_basis_and_position_target"))
+camera_body = find_function(source, "bondviewMoveAnimationTick")
+camera_body = camera_body[camera_body.index("    matrix_4x4_set_rotation_around_x("):camera_body.rfind("}")]
+verta = find_function(source, "bondviewApplyVertaTheta")
+normalize = verta[verta.index("    g_CurrentPlayer->vv_verta360 ="):verta.index("    g_CurrentPlayer->vv_cosverta =")]
+advance_pitch = next(line for line in source.splitlines()
+    if "g_CurrentPlayer->vv_verta += g_CurrentPlayer->speedverta * g_GlobalTimerDelta * 3.5f;" in line)
+player_source = (repo / "src/game/player.c").read_text()
+head_basis = "\n".join(line.replace("g_playerPointers[player_num]", "g_CurrentPlayer")
+    for line in player_source.splitlines()
+    if "g_playerPointers[player_num]->headlook.f[" in line
+    or "g_playerPointers[player_num]->headup.f[" in line)
+assert len(head_basis.splitlines()) == 6, "canonical neutral head basis must contain six components"
+math_defines = "\n".join(line for line in (repo / "include/math.h").read_text().splitlines()
+    if line.startswith("#define M_TAU ") or line.startswith("#define DegToRad1Fact("))
 
 fov_define = next(line for line in (repo / "src/fr.h").read_text().splitlines()
     if line.startswith("#define FOV_Y_F "))
@@ -67,10 +86,14 @@ prefix = fov_define + r'''
 #include <string.h>
 #define GE_PORT_CSTICK_BUTTON_THRESHOLD 0.35f
 #define FLOAT_TEN_B 10.0f
+typedef struct { f32 m[4][4]; } Mtxf;
 static struct {
     int insightaimmode, watch_animation_state, movecentrerelease;
     unsigned prev_buttons_pressed;
     float speedtheta, speedverta;
+    float vv_verta, vv_verta360, vv_theta;
+    struct { float f[3]; } headlook, headup;
+    struct { struct { float f[3]; } applied_view, applied_view2; } field_488;
 } player;
 #define g_CurrentPlayer (&player)
 static int g_PlayerIsInTank;
@@ -91,9 +114,18 @@ static int bondwalkItemCheckBitflags(int item,int flags)
 static float viGetFovY(void) { return 60.0f; }
 static void require(int condition, const char *message)
 { if (!condition) { fprintf(stderr,"%s\n",message); exit(1); } }
-''' + move_data + vertical_helpers + mapping
+''' + math_defines + "\n" + move_data + vertical_helpers + matrix_helpers + mapping
 
 suffix = r'''
+static void initialize_head_basis(void)
+{
+''' + head_basis + r'''
+}
+static void apply_camera(void)
+{
+    Mtxf sp8C,sp4C;
+''' + advance_pitch + normalize + camera_body + r'''
+}
 static struct MoveData decode(s8 stick_x,s8 stick_y,u16 buttons,u16 oldbuttons)
 {
     struct MoveData moveData={0};
@@ -160,9 +192,9 @@ int main(void)
     decoded=sample(&input);
     require(input.move_x==0 && player.speedtheta==0
         && !decoded.digitalStepLeft && !decoded.digitalStepRight,"aligned target holds yaw");
-    /* The helper keeps its existing positive-up pitch error. Assert the
-     * exact canonical dispatch under BOTH option settings; speedverta's
-     * internal sign must not be confused with world-space camera look.y. */
+    /* Feed the original speed update into the exact camera matrix slice with
+     * player.c's neutral head basis. Both canonical invert settings must aim
+     * toward the same WORLD-space target despite opposite controller signs. */
     for (int invert=0;invert<=1;++invert) {
         ge_original_bond_input_provider()->look_vertical_inverted=(uint32_t)invert;
         for (int sign=-1;sign<=1;sign+=2) {
@@ -170,10 +202,15 @@ int main(void)
             input=(GePortInput){0};input.move_y=0.25f;
             input_probe_apply_live_aim(&input,&view,target);
             decoded=sample(&input);
-            require(sign*input.look_y>0 && fabsf(input.look_y)<=1,"pitch target polarity/clamp");
+            player.vv_verta=0;player.vv_theta=180;
+            initialize_head_basis();
+            apply_camera();
+            require(sign*player.field_488.applied_view.f[1]>0,
+                "probe pitch must move world camera toward target");
+            require(sign*input.look_y*(invert?1:-1)>0 && fabsf(input.look_y)<=1,"pitch target polarity/clamp");
             require(input.move_y==0.25f && input.look_x==0,"pitch preserves forward/yaw routing");
-            require(sign*player.speedverta*(invert?1:-1)>0,"canonical pitch option dispatch");
-            require((joyGetButtons(0,ANY_BUTTON)&(sign>0?U_CBUTTONS:D_CBUTTONS))!=0,
+            require(sign*player.speedverta>0,"canonical pitch option dispatch");
+            require((joyGetButtons(0,ANY_BUTTON)&(sign*(invert?1:-1)>0?U_CBUTTONS:D_CBUTTONS))!=0,
                 "pitch uses original vertical C buttons");
             require(!decoded.digitalStepLeft&&!decoded.digitalStepRight,"pitch does not strafe");
         }
@@ -201,7 +238,7 @@ int main(void)
     memset(view.camera_look,0,sizeof(view.camera_look));
     input_probe_apply_live_aim(&input,&view,target);
     require(memcmp(&input,&before,sizeof(input))==0,"degenerate view preserves navigation");
-    puts("Probe aim: canonical HONEY yaw/strafe/pitch dispatch and navigation guards passed");
+    puts("Probe aim: canonical HONEY yaw/strafe, world-camera pitch, and navigation guards passed");
     return 0;
 }
 '''
@@ -211,7 +248,12 @@ with tempfile.TemporaryDirectory(prefix="ge-probe-aim-") as directory:
     old_aim=aim.replace("input->move_x =", "input->look_x =",1)
     old_aim=old_aim.replace("    input->look_x = 0.0f;\n", "",1)
     assert old_aim!=aim,"horizontal producer mutation must match the current helper"
-    for name, helper in (("current",aim),("old-horizontal-output",old_aim)):
+    old_pitch=aim.replace(" * pitch_direction", "",1)
+    assert old_pitch!=aim,"pitch producer mutation must match the current helper"
+    for name, helper, failure in (
+            ("current",aim,None),
+            ("old-horizontal-output",old_aim,"HONEY yaw input must turn without strafing"),
+            ("old-positive-pitch",old_pitch,"probe pitch must move world camera toward target")):
         source_path=path/(name+".c")
         source_path.write_text(prefix+helper+suffix)
         subprocess.run([
@@ -235,5 +277,5 @@ with tempfile.TemporaryDirectory(prefix="ge-probe-aim-") as directory:
             print(result.stdout,end="")
         else:
             assert result.returncode==1,result.stdout+result.stderr
-            assert "HONEY yaw input must turn without strafing" in result.stderr
-            print("Previous look_x producer fails the same canonical yaw/strafe check, as required")
+            assert failure in result.stderr,result.stderr
+            print(f"{name} fails the same regression ({failure}), as required")

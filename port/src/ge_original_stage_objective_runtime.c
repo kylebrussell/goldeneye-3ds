@@ -13,6 +13,16 @@
 
 enum { GE_OBJECTIVE_RUNTIME_TAGGED = UINT32_C(0x10) };
 
+typedef struct GeNativeObjectiveCamera {
+    size_t command_index;
+    CutsceneRecord camera;
+} GeNativeObjectiveCamera;
+
+/* The mission-exit service supplies the strong original owner in the live
+ * build. Like the tag-list head below, narrow objective hosts use a weak BSS
+ * owner so they can exercise teardown without linking all exit services. */
+CutsceneRecord *gBondViewCutscene __attribute__((weak));
+
 /* The exact Dam mission object-state slice owns the strong original global.
  * Campaign-wide objective-runtime tests do not link that slice, so retain a
  * weak owner there while preserving the same single linked-list ABI. */
@@ -52,9 +62,36 @@ void ge_original_stage_objective_runtime_close(
             registry->runtime_close = NULL;
         }
     }
+    if (gBondViewCutscene != NULL) {
+        GeNativeObjectiveCamera *cameras = runtime->native_cameras;
+        for (index = 0; index < runtime->native_camera_count; ++index)
+            if (gBondViewCutscene == &cameras[index].camera) {
+                gBondViewCutscene = NULL;
+                break;
+            }
+    }
     free(runtime->native_tags);
+    free(runtime->native_cameras);
     memset(runtime, 0, sizeof(*runtime));
     ge_original_stage_objective_live_bind(NULL);
+}
+
+void *ge_original_stage_objective_runtime_camera_by_tag(
+    GeOriginalStageObjectiveRuntime *runtime, uint16_t tag_id)
+{
+    const GeOriginalStageTagEntry *tag;
+    GeNativeObjectiveCamera *cameras;
+    size_t index;
+    if (runtime == NULL || !runtime->bound || runtime->registry == NULL)
+        return NULL;
+    /* find_tag retains original reverse-authored lookup for duplicate IDs. */
+    tag = ge_original_stage_objectives_find_tag(runtime->registry, tag_id);
+    if (tag == NULL) return NULL;
+    cameras = runtime->native_cameras;
+    for (index = 0; index < runtime->native_camera_count; ++index)
+        if (cameras[index].command_index == tag->target_command_index)
+            return &cameras[index].camera;
+    return NULL;
 }
 
 static void ge_result_clear(GeOriginalStageObjectiveEvaluation *result)
@@ -201,6 +238,8 @@ ge_original_stage_objective_runtime_begin(
 {
     size_t index;
     TagObjectRecord *native_tags;
+    GeNativeObjectiveCamera *native_cameras;
+    size_t camera_count = 0U;
     if (runtime == NULL || registry == NULL || !registry->initialized)
         return GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_INVALID_ARGUMENT;
     memset(runtime, 0, sizeof(*runtime));
@@ -215,6 +254,57 @@ ge_original_stage_objective_runtime_begin(
         memset(runtime, 0, sizeof(*runtime));
         return GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_NO_MEMORY;
     }
+    if (registry->setup != NULL && registry->setup->prop_record_count != 0
+            && registry->setup->prop_records == NULL) {
+        free(native_tags);
+        memset(runtime, 0, sizeof(*runtime));
+        return GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_INVALID_ARGUMENT;
+    }
+    for (index = 0; registry->setup != NULL
+            && index < registry->setup->prop_record_count; ++index) {
+        const GeOriginalStagePropRecord *record =
+            &registry->setup->prop_records[index];
+        if (record->type == PROPDEF_CAMERAPOS) {
+            if (record->word_count != 7U || record->words == NULL) {
+                free(native_tags);
+                memset(runtime, 0, sizeof(*runtime));
+                return GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_INVALID_ARGUMENT;
+            }
+            ++camera_count;
+        }
+    }
+    native_cameras = camera_count != 0U
+        ? calloc(camera_count, sizeof(*native_cameras)) : NULL;
+    if (camera_count != 0U && native_cameras == NULL) {
+        free(native_tags);
+        memset(runtime, 0, sizeof(*runtime));
+        return GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_NO_MEMORY;
+    }
+    camera_count = 0;
+    for (index = 0; registry->setup != NULL
+            && index < registry->setup->prop_record_count; ++index) {
+        const GeOriginalStagePropRecord *record =
+            &registry->setup->prop_records[index];
+        CutsceneRecord *camera;
+        PropDefHeaderRecord *header;
+        if (record->type != PROPDEF_CAMERAPOS) continue;
+        native_cameras[camera_count].command_index = index;
+        camera = &native_cameras[camera_count++].camera;
+        header = (PropDefHeaderRecord *)(void *)camera;
+        header->extrascale = (uint16_t)(record->words[0] >> 16U);
+        header->state = (uint8_t)(record->words[0] >> 8U);
+        header->type = record->type;
+        /* Exact prop.c proplvreset2 CAMERAPOS conversion. Serialized words
+         * stay intact; only this owned native record receives float values. */
+        camera->pos.f[0] = (s32)record->words[1] / 100.0f;
+        camera->pos.f[1] = (s32)record->words[2] / 100.0f;
+        camera->pos.f[2] = (s32)record->words[3] / 100.0f;
+        camera->theta = (s32)record->words[4] / 65536.0f;
+        camera->verta = (s32)record->words[5] / 65536.0f;
+        camera->pad = (s32)record->words[6];
+    }
+    runtime->native_cameras = native_cameras;
+    runtime->native_camera_count = camera_count;
     runtime->native_tags = native_tags;
     runtime->native_tag_count = registry->tag_count;
     /* Exact proplvreset2 PROPDEF_TAG publication. Registry construction keeps

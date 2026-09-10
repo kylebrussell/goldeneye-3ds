@@ -84,11 +84,28 @@ cc "${common[@]}" -c \
     "${repo_dir}/port/tests/test_ge_original_facility_mission_flow.c" \
     -o "${build_dir}/test.o"
 
+native_sources=()
+for source in ge_original_stage_objective_runtime ge_original_stage_objective_live \
+        ge_original_stage_objectives ge_original_stage_setup ge_stage_assets ge_asset_pack; do
+    cc "${common[@]}" -c "${repo_dir}/port/src/${source}.c" \
+        -o "${build_dir}/${source}.o"
+    native_sources+=("${build_dir}/${source}.o")
+done
+
 cc "${build_dir}/chrai.o" "${build_dir}/UsetuparkZ.o" \
     "${build_dir}/ge_original_global_ai.o" "${build_dir}/test.o" \
+    "${native_sources[@]}" \
     -fsanitize=address,undefined "${dead_strip[@]}" -lm \
     -o "${build_dir}/test_ge_original_facility_mission_flow"
-"${build_dir}/test_ge_original_facility_mission_flow"
+pack=${1:-"${repo_dir}/build/host-tests/stage-assets/stages.gepack"}
+if [[ -f "${pack}" ]]; then
+    "${build_dir}/test_ge_original_facility_mission_flow" "${pack}"
+elif [[ $# -ne 0 ]]; then
+    echo "Facility native camera fixture pack is missing: ${pack}" >&2
+    exit 2
+else
+    "${build_dir}/test_ge_original_facility_mission_flow"
+fi
 
 for symbol in ai ailistFindById ge_original_global_ai_find ai_37 ai_38 ai_47; do
     nm -g "${build_dir}/test_ge_original_facility_mission_flow" \

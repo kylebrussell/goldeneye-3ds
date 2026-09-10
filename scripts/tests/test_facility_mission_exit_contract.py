@@ -12,9 +12,8 @@ MAKEFILE = (ROOT / "platform/3ds/Makefile").read_text()
 
 
 # These are precisely the canonical interpreter bodies reached by Facility's
-# ai_47 exit owner and its two ai_37/ai_38 cutscene lists that the current Dam
-# compile slice removes.  Keep this list narrow: it is the dependency frontier
-# for activating those authored lists, not a request to enable all chrai cases.
+# ai_47 exit owner and its two ai_37/ai_38 cutscene lists. The narrow host
+# fixture selects these cases; production uses the full campaign interpreter.
 FACILITY_EXIT_CASES_EXCLUDED_BY_DAM_SLICE = {
     "AI_SetChrAiList",                  # jump_to_ai_list
     "AI_PlayAnimation",                 # guard_play_animation
@@ -175,6 +174,22 @@ chrai_flags = re.search(r"chrai\.o: CFLAGS \+=(.*?)(?:\n[^ \t]|\Z)", MAKEFILE, r
 assert chrai_flags is not None
 assert "GE_PORT_DAM_MISSION_FLOW_SLICE" not in chrai_flags.group(1)
 assert "GE_PORT_FACILITY_MISSION_FLOW_SLICE" not in chrai_flags.group(1)
+
+# Native tags are owned sidecars, not addresses inside serialized propDefs.
+# Keep camera publication behind the native resolver while retaining the
+# original serialized lookup solely in the N64 preprocessor branch.
+camera = CHRAI[CHRAI.index("                case AI_CameraSwitch:"):]
+camera = camera[:camera.index("                case AI_IFBondYPosLessThan:")]
+ordered(camera, [
+    "#if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER)",
+    "ge_original_stage_objective_live_camera_by_tag(",
+    "g_CameraLookAtBondPad = NULL;", "gBondViewCutscene = cdef;",
+    "dword_CODE_bss_80079A18 = ntohs(ai->LOOK_AT_BOND_FLAG);",
+    "dword_CODE_bss_80079A1C = ntohs(ai->UNUSED_FLAG);",
+    "bondviewSetCameraMode(CAMERAMODE_POSEND);", "#else",
+    "tagGetCommandIndex(tag)", "setupGetPtrToCommandByIndex(",
+    "Offset += AI_CameraSwitch_LENGTH;",
+])
 
 print(
     "Facility mission exit: exact ai_47/ai_37/ai_38 chain pinned; "

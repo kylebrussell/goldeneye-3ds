@@ -22,6 +22,7 @@ typedef struct GeOriginalStageObjectiveLiveStatus {
 
 void ge_original_stage_objective_live_bind(
     GeOriginalStageObjectiveRuntime *runtime);
+void *ge_original_stage_objective_live_camera_by_tag(uint16_t tag_id);
 GeOriginalStageObjectiveRuntimeStatus
 ge_original_stage_objective_live_check_room_entered(int32_t room_id);
 GeOriginalStageObjectiveRuntimeStatus

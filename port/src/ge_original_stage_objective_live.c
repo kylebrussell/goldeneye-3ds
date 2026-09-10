@@ -6,6 +6,12 @@
 static GeOriginalStageObjectiveRuntime *ge_live_runtime;
 static GeOriginalStageObjectiveLiveStatus ge_live_status;
 
+void *ge_original_stage_objective_live_camera_by_tag(uint16_t tag_id)
+{
+    return ge_original_stage_objective_runtime_camera_by_tag(
+        ge_live_runtime, tag_id);
+}
+
 void ge_original_stage_objective_live_bind(
     GeOriginalStageObjectiveRuntime *runtime)
 {

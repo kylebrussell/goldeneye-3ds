@@ -292,6 +292,9 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_multiplayer_regen_slice.c \
             ge_original_multiplayer_death_slice.c \
             ge_original_multiplayer_results_slice.c \
+            ge_original_multiplayer_session_slice.c \
+            ge_original_multiplayer_runtime_slice.c \
+            ge_original_player_held_items_slice.c \
             ge_original_door_collision_slice.c \
             ge_original_door_character_collision_slice.c \
             ge_original_player_gait_model_slice.c \
@@ -463,6 +466,11 @@ ge_original_multiplayer_regen_slice.o ge_original_multiplayer_spawn.o \
 ge_original_multiplayer_death.o ge_original_multiplayer_death_slice.o \
 ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
+ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
+ge_original_texture_hit_type.o ge_mp_state_inventory.o \
+ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
+ge_original_multiplayer_session_slice.o ge_original_player_held_items.o \
+ge_original_player_held_items_slice.o \
 ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
@@ -1130,6 +1138,21 @@ ge_original_multiplayer_results_slice.c: \
         $(TOPDIR)/../../scripts/extract_multiplayer_results_slice.py \
         $(TOPDIR)/../../scripts/extract_multiplayer_regen_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_results_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_multiplayer_runtime_slice.c: \
+        $(TOPDIR)/../../src/game/chrprop.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_runtime_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_runtime_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_multiplayer_session_slice.c: \
+        $(TOPDIR)/../../src/game/lv.c $(TOPDIR)/../../src/game/mpmenu.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_session_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_session_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_player_held_items_slice.c: \
+        $(TOPDIR)/../../src/game/chrprop.c $(TOPDIR)/../../src/game/bondview2.c \
+        $(TOPDIR)/../../scripts/extract_player_held_items_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_player_held_items_slice.py \
 		$(TOPDIR)/../.. $@
 ge_original_multiplayer_regen_slice.c: \
         $(TOPDIR)/../../src/game/chrprop.c \

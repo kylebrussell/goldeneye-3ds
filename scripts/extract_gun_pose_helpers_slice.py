@@ -12,6 +12,7 @@ from extract_gun_update_and_fire_slice import extract_function
 
 
 FUNCTIONS = (
+    ("src/game/gun.c", "attempt_reload_item_in_hand"),
     ("src/game/gun.c", "sub_GAME_7F05C614"),
     ("src/game/gun.c", "get_itemtype_in_hand"),
     ("src/game/gun.c", "get_value_if_watch_is_on_hand_or_not"),
@@ -119,6 +120,7 @@ def generate(repo: Path) -> str:
         '#include "assets/obseg/text/LoptionE.h"',
         '#include "ge_original_bond_input_internal.h"',
         "extern u8 *g_GfxMemPos;",
+        "extern s32 get_ammo_type_for_weapon(ITEM_IDS weapon);",
         "s32 selected_folder_num = FOLDER1;",
         "u8 fileGetBondForFolder(u32 folder);",
         "u32 cartridges_eject = 0;",

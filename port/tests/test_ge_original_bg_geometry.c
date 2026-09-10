@@ -160,6 +160,24 @@ static void nearest_and_filter(void)
     puts("BG ordering: exact light distance bias, TRI4 slot provenance and Archives filter pass");
 }
 
+static void texture_emission(void)
+{
+    int8_t format=-1, depth=-1;
+    ge_bg_texture_emission_begin();
+    /* Original WALL_LAMP: CI8, implicit six LODs, 32x32, 191 colours.
+     * Repeat emits the palette-load tile while cached render tiles remain
+     * unchanged. Reading just the base image format would fail this case. */
+    assert(ge_bg_texture_emission_command(0xc0000000,201,&format,&depth));
+    assert(format == G_IM_FMT_CI && depth == G_IM_SIZ_8b);
+    assert(ge_bg_texture_emission_command(0xc0000000,201,&format,&depth));
+    assert(format == G_IM_FMT_RGBA && depth == G_IM_SIZ_4b);
+    ge_bg_texture_emission_begin();
+    assert(ge_bg_texture_emission_command(0xc0000000,201,&format,&depth));
+    assert(format == G_IM_FMT_CI && depth == G_IM_SIZ_8b);
+    assert(!ge_bg_texture_emission_command(0xc0000005,201,&format,&depth));
+    puts("BG texture provenance: original emitted palette tile wins when render tiles are cached");
+}
+
 static size_t exercise_room(GeOriginalBgGeometry *owner, uint32_t id)
 {
     const GeOriginalBgRoomGeometry *room = &owner->room_geometry[id];
@@ -192,6 +210,10 @@ static size_t exercise_room(GeOriginalBgGeometry *owner, uint32_t id)
                 assert(actual->tile_format == hit.tile_format && actual->tile_size == hit.tile_size);
                 for (size_t axis=0;axis<3;++axis) assert(isfinite(hit.position[axis]) && isfinite(hit.normal[axis]));
                 ++rays;
+            } else if (info->texture != 0x4fd) {
+                fprintf(stderr,"eligible centroid missed room %u command %zu triangle %u texture %d\n",
+                    id,command_index,triangle,info->texture);
+                assert(!"eligible original triangle centroid missed");
             }
             if (ge_bg_is_light_exact(info->texture)) {
                 Gfx *token = ge_bg_gfx_at(room->blobs.primary_gdl,(ptrdiff_t)command_index);
@@ -256,6 +278,7 @@ int main(int argc, char **argv)
 {
     fixture();
     nearest_and_filter();
+    texture_emission();
     if (argc > 1) actual_assets(argv[1]);
     return 0;
 }

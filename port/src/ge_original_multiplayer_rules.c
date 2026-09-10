@@ -22,6 +22,10 @@ extern s32 get_points_for_mp_player(s32);
 extern void mp_respawn_handler(void);
 extern stagesetup g_CurrentSetup;
 static const int32_t *ge_mp_validated_intro;
+static size_t ge_mp_validated_intro_words;
+static PadRecord *ge_mp_validated_pads;
+static size_t ge_mp_validated_pad_count;
+static int32_t ge_mp_validated_demo_playback;
 static char ge_mp_setup_keys[GE_ORIGINAL_MP_ARENAS][32];
 
 extern ramromfilestructure *ptr_active_demofile;
@@ -98,6 +102,9 @@ GeOriginalMultiplayerStatus ge_original_multiplayer_configure(
     for (i = 0; i < config->player_count; ++i)
         if (g_playerPointers[i] == NULL) return GE_ORIGINAL_MP_INVALID_PLAYER;
     ge_mp_validated_intro = NULL;
+    ge_mp_validated_intro_words = 0;
+    ge_mp_validated_pads = NULL;
+    ge_mp_validated_pad_count = 0;
     startpadcount = 0;
     memset(g_Startpad, 0, sizeof(PadRecord *) * 16);
     scenario = config->scenario;
@@ -152,14 +159,19 @@ GeOriginalMultiplayerStatus ge_original_multiplayer_score(int32_t player,
 int ge_original_multiplayer_can_respawn(int32_t player, uint16_t buttons)
 {
     struct player *p;
-    int deaths = 0, i;
+    int64_t deaths = 0;
+    int i;
     if (!ge_mp_player_valid(player) || !(buttons & 0xB000)) return 0;
     p = g_playerPointers[player];
     if (!p->bonddead || !p->deathanimfinished || !p->redbloodfinished
+            || !isfinite(p->colourfadetimemax60)
             || p->colourfadetimemax60 >= 0.0f) return 0;
-    for (i = 0; i < getPlayerCount(); ++i)
+    if (get_scenario() != SCENARIO_YOLT) return 1;
+    for (i = 0; i < getPlayerCount(); ++i) {
+        if (g_playerPlayerData[i].kill_counts[player] < 0) return 0;
         deaths += g_playerPlayerData[i].kill_counts[player];
-    return get_scenario() != SCENARIO_YOLT || deaths < 2;
+    }
+    return deaths < 2;
 }
 
 GeOriginalMultiplayerStatus ge_original_multiplayer_publish_spawns(
@@ -177,6 +189,10 @@ GeOriginalMultiplayerStatus ge_original_multiplayer_publish_spawns(
         case INTROTYPE_END:
             if (!count || cursor + 1 != words) return GE_ORIGINAL_MP_INVALID_SETUP;
             ge_mp_validated_intro = intro;
+            ge_mp_validated_intro_words = words;
+            ge_mp_validated_pads = pads;
+            ge_mp_validated_pad_count = pads_count;
+            ge_mp_validated_demo_playback = demo_playback;
             memcpy(g_Startpad, pending, sizeof(pending));
             startpadcount = (s32)count;
             if (!have_starting_weapon) weapons[GUNRIGHT] = ITEM_FIST;
@@ -228,9 +244,20 @@ GeOriginalMultiplayerStatus ge_original_multiplayer_respawn(
             || !ge_mp_validated_intro || (const void *)g_CurrentSetup.intro != ge_mp_validated_intro
             || !g_playerPointers[player]->p_itemcur || g_playerPointers[player]->equipmaxitems < 1)
         return GE_ORIGINAL_MP_INVALID_SETUP;
-    for (i = 0; i < startpadcount; ++i)
-        if (!g_Startpad[i] || !g_Startpad[i]->stan) return GE_ORIGINAL_MP_INVALID_SETUP;
     previous = get_cur_playernum();
+    if (!ge_mp_player_valid(previous)) return GE_ORIGINAL_MP_INVALID_PLAYER;
+    for (i = 0; i < getPlayerCount(); ++i)
+        if (g_playerPointers[i] == NULL) return GE_ORIGINAL_MP_INVALID_PLAYER;
+    /* The original handler walks intro records without a byte bound and its
+     * pad selector dereferences every roster entry. Revalidate retained setup
+     * storage immediately before entering that canonical code. A pointer
+     * match alone does not establish that mutable setup words are still safe. */
+    if (ge_original_multiplayer_publish_spawns(ge_mp_validated_intro,
+            ge_mp_validated_intro_words, ge_mp_validated_pads,
+            ge_mp_validated_pad_count, ge_mp_validated_demo_playback) != GE_ORIGINAL_MP_OK
+            || g_playerPointers[player]->field_29E0 < 0
+            || g_playerPointers[player]->field_29E0 > INT_MAX - startpadcount)
+        return GE_ORIGINAL_MP_INVALID_SETUP;
     set_cur_player(player);
     mp_respawn_handler();
     set_cur_player(previous);

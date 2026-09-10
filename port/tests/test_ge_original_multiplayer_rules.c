@@ -146,6 +146,55 @@ static void end_rules(void)
     assert(ge_original_multiplayer_end_tick(1, 0, 0, 0) == GE_ORIGINAL_MP_END_RESULTS);
 }
 
+static void respawn_revalidation(void)
+{
+    PadRecord pad = {0};
+    StandTile stan = {0};
+    int32_t intro[] = {INTROTYPE_SPAWN, 0, 0,
+        INTROTYPE_AMMO, AMMO_9MM, 12, 0, INTROTYPE_END};
+    setup(2, SCENARIO_NORMAL);
+    pad.stan = &stan;
+    players[1].bonddead = 1;
+    finish_death(1);
+    assert(ge_original_multiplayer_publish_spawns(intro, 8, &pad, 1, 0) == GE_ORIGINAL_MP_OK);
+    g_CurrentSetup.intro = (void *)intro;
+    intro[7] = INTROTYPE_AMMO;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+    intro[7] = INTROTYPE_END;
+    intro[4] = INT_MAX;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+    intro[4] = AMMO_9MM;
+    pad.pos.x = NAN;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+    pad.pos.x = 0;
+    pad.stan = NULL;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+    pad.stan = &stan;
+    g_playerPointers[0] = NULL;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_PLAYER);
+    g_playerPointers[0] = &players[0];
+    player_num = -1;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_PLAYER);
+    player_num = 0;
+    players[1].field_29E0 = INT_MIN;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+    players[1].field_29E0 = INT_MAX;
+    assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+    assert(players[1].bonddead && get_cur_playernum() == 0 && equip_count[1] == 0);
+    players[1].field_29E0 = 0;
+    players[1].colourfadetimemax60 = NAN;
+    assert(!ge_original_multiplayer_can_respawn(1, 0x8000));
+    players[1].colourfadetimemax60 = -1;
+    g_playerPlayerData[0].kill_counts[1] = INT_MAX;
+    g_playerPlayerData[1].kill_counts[1] = INT_MAX;
+    assert(ge_original_multiplayer_can_respawn(1, 0x8000));
+    scenario = SCENARIO_YOLT;
+    assert(!ge_original_multiplayer_can_respawn(1, 0x8000));
+    g_playerPlayerData[0].kill_counts[1] = -1;
+    g_playerPlayerData[1].kill_counts[1] = 0;
+    assert(!ge_original_multiplayer_can_respawn(1, 0x8000));
+}
+
 static void combat_respawn(int count)
 {
     PadRecord pads[4]={0};StandTile stan={0};
@@ -199,7 +248,7 @@ int main(void)
     assert(!ge_original_multiplayer_arena(GE_ORIGINAL_MP_ARENAS,&arena));
     config.level_id=LEVELID_EGYPT;assert(ge_original_multiplayer_validate(&config)==GE_ORIGINAL_MP_INVALID_CONFIG);
     config.level_id=LEVELID_TEMPLE;config.scenario=SCENARIO_2v1;assert(ge_original_multiplayer_validate(&config)==GE_ORIGINAL_MP_INVALID_CONFIG);
-    malformed_setup();end_rules();combat_respawn(2);combat_respawn(4);
+    malformed_setup();end_rules();respawn_revalidation();combat_respawn(2);combat_respawn(4);
     setup(4,SCENARIO_2v2);
     g_playerPlayerData[0].kill_counts[2]=3;g_playerPlayerData[1].kill_counts[0]=1;
     assert(ge_original_multiplayer_score(0,&score)==GE_ORIGINAL_MP_OK && score==2);

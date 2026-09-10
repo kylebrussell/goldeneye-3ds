@@ -34,6 +34,11 @@ def prepare_profile(source, destination, user):
         for key, value in config.items(section):
             if value.startswith('/') and key not in ('sdmc_directory', 'nand_directory'):
                 raise ValueError(f'profile has an unhandled absolute path: {section}/{key}')
+    # Avoid an update modal changing the recorded emulator version mid-run.
+    if not config.has_section('Miscellaneous'):
+        config.add_section('Miscellaneous')
+    config['Miscellaneous']['check_for_update_on_start'] = 'false'
+    config['Miscellaneous']['check_for_update_on_start\\default'] = 'false'
     destination.parent.mkdir(parents=True)
     with destination.open('w') as stream:
         config.write(stream, space_around_delimiters=False)
@@ -130,7 +135,11 @@ def execute(args):
         else:
             shutil.copyfile(result, args.output / name)
             passed &= 'status=complete' in result.read_text().splitlines()
-    provenance['status'] = 'complete' if passed else 'failed'
+    private_log = user / 'log/azahar_log.txt'
+    provenance['profile_isolation_verified'] = private_log.is_file() and private_log.stat().st_size > 0
+    provenance['profile_after_sha256'] = digest(config_root / 'qt-config.ini')
+    passed &= provenance['profile_isolation_verified']
+    provenance['status'] = 'complete' if passed else 'failed' 
     (args.output / 'run.json').write_text(json.dumps(provenance, indent=2) + '\n')
     print(json.dumps(provenance))
     return 0 if passed else 1

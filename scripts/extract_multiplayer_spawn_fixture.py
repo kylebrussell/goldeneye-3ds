@@ -38,7 +38,7 @@ extern InvItem *bondinvGetInvItem(ITEM_IDS);
 extern void bondinvSortInv(InvItem *);
 extern void bondinvInsertItem(InvItem *);
 ''']
-    for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num'):
+    for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num','array_PLAYER_IDs'):
         sections.append(extract_variable(player,name))
     for name in ('set_cur_player','get_cur_playernum','getPlayerCount','default_player_perspective_and_height'):
         sections.append(function_text(player,name))

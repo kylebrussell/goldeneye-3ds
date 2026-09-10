@@ -8,7 +8,9 @@ from extract_stage_pickup_slice import function_text
 from extract_bond_move_explosion_slice import extract_data
 
 def render(root):
-    result = inventory(root)
+    # The watch fixture supplies the same original shuffle storage and its
+    # producers. Standalone inventory/player fixtures own the storage there.
+    result = inventory(root, include_shuffle=False)
     rule = rules(root)
     # These same unchanged bodies/storage are already owned by inventory's
     # fixture slice; remove duplicate definitions rather than replace calls.

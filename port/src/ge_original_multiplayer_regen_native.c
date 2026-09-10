@@ -7,8 +7,11 @@
 #include "game/propobj.h"
 #include "snd.h"
 #include <string.h>
+#include <limits.h>
 
 extern ALBank *g_musicSfxBufferPtr;
+extern PropRecord g_Props[MAX_PROPS];
+extern PropRecord *g_ActivePropsTail;
 
 static void enable_prop(void *context, void *prop)
 {
@@ -42,4 +45,56 @@ int ge_original_multiplayer_regen_native_providers(
     providers->update_rooms=update_rooms;
     providers->play_regen_sound=play_sound;
     return 1;
+}
+
+GeOriginalMultiplayerRegenStatus ge_original_multiplayer_regen_tick_all(
+    int32_t tick60, GeOriginalMultiplayerRegenBatch *batch)
+{
+    PropRecord *ordered[MAX_PROPS];
+    uint8_t visited[MAX_PROPS] = {0};
+    GeOriginalMultiplayerRegenBatch result = {0,0,0,-1};
+    GeOriginalMultiplayerRegenProviders providers;
+    PropRecord *prop = g_ActivePropsTail;
+    uint32_t count = 0, i;
+    if (!batch || tick60 < 0 || tick60 > INT16_MAX)
+        return GE_ORIGINAL_MP_REGEN_INVALID_ARGUMENT;
+    /* Validate the complete list before callbacks can mutate flags/rooms. */
+    while (prop) {
+        const uintptr_t address = (uintptr_t)prop;
+        const uintptr_t first = (uintptr_t)&g_Props[0];
+        const uintptr_t end = (uintptr_t)&g_Props[MAX_PROPS];
+        uint32_t slot;
+        if (address < first || address >= end
+                || (address-first) % sizeof(*prop) || count == MAX_PROPS) {
+            *batch = result;
+            return GE_ORIGINAL_MP_REGEN_INVALID_POOL;
+        }
+        slot = (uint32_t)((address-first) / sizeof(*prop));
+        if (visited[slot]) {
+            result.failed_pool_index = (int32_t)slot;
+            *batch = result;
+            return GE_ORIGINAL_MP_REGEN_INVALID_POOL;
+        }
+        visited[slot] = 1;
+        ordered[count++] = prop;
+        prop = prop->prev;
+    }
+    ge_original_multiplayer_regen_native_providers(&providers);
+    for (i=0; i<count; ++i) {
+        GeOriginalMultiplayerRegenStatus status;
+        prop = ordered[i];
+        ++result.visited;
+        status = ge_original_multiplayer_regen_tick(prop,tick60,&providers);
+        if (status == GE_ORIGINAL_MP_REGEN_OK) ++result.ticked;
+        else if (status == GE_ORIGINAL_MP_REGEN_UNSUPPORTED_OBJECT)
+            ++result.unsupported;
+        else if (status != GE_ORIGINAL_MP_REGEN_IDLE) {
+            result.failed_pool_index = (int32_t)(prop-g_Props);
+            *batch = result;
+            return status;
+        }
+    }
+    *batch = result;
+    return result.unsupported ? GE_ORIGINAL_MP_REGEN_UNSUPPORTED_OBJECT
+        : (result.ticked ? GE_ORIGINAL_MP_REGEN_OK : GE_ORIGINAL_MP_REGEN_IDLE);
 }

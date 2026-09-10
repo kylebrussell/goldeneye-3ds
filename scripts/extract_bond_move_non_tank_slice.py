@@ -31,6 +31,9 @@ FUNCTIONS = {
         "sub_GAME_7F0C1310",
         "set_missionstate",
         "sub_GAME_7F0C11FC",
+        "sub_GAME_7F0C1288",
+        "sub_GAME_7F0C12CC",
+        "reset_all_music_slots",
     ),
     "src/game/lv.c": ("lvlSetControlsLockedFlag",),
     "src/game/options.c": (

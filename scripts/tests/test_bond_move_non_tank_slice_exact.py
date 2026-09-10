@@ -49,7 +49,7 @@ def main() -> None:
                     "    get_mTrack2Vol();", "    return get_mTrack2Vol();")
             assert tokens(canonical) == tokens(module.extract_function(generated, name)), name
             checked += 1
-    assert checked == 141
+    assert checked == 144
     # Execute the emitted getter/forwarder with optimization enabled. A
     # token-only check previously preserved the missing-return C bug.
     fixture = "\n".join((

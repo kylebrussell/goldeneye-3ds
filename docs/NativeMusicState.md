@@ -40,8 +40,12 @@ music stage initializer, after the native stage timer initialization and before
 live guard/body construction. It does not clear the saved pre-watch state.
 The native slot countdown runs in the common non-title world tail after
 `chrpropTick` and before `langTick`, outside the multiplayer limit branch.
-Its production world-loop call remains to be restored in a separate change;
-it must not be inserted into the pre-limit session decisions.
+The shared multiplayer `begin_world` now calls the exact native helper at that
+boundary, after both background AI and pickup regeneration, before player
+shuffle. It runs after every successful world pre-pass, including zero-clock
+and already-pending passes; the title stage is rejected before world mutation;
+it is not inserted into the pre-limit session decisions. The helper uses the
+unchanged native `g_ClockTimer`. The separate solo main hook has its own owner.
 
 The session source slice also retains the original pre-limit death music
 recovery. If mission state is 6, at least one player is dead, and every dead
@@ -70,6 +74,13 @@ Native table extents are checked in the translation unit containing the actual
 definitions. `test_multiplayer_session.sh` separately executes all dead/blood
 predicate combinations for two/four players and actual stage-slot reset, plus
 its existing native damage, clock, limit, awards and results checks in both ABIs.
+`test_multiplayer_runtime.sh` also executes the actual shared `begin_world`,
+native active-prop pre-tick and complete native music body in both enum ABIs.
+Its explicit AI/resource seams check same-pass slot activation, pending and
+zero-clock behavior, zero global delta, expiry, failure ordering and title
+exclusion. Removed, before-AI and before-regeneration countdown mutants must
+fail the execution oracle. The separate composition fixture verifies the
+two/four-player operation order; these tests alone are not match acceptance.
 
 The preceding Caves combat gate omitted main's stage music initializer and fade
 service and placed native stage timer initialization earlier. Its CPU

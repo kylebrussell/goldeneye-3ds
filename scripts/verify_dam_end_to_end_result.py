@@ -65,6 +65,9 @@ def verify(path: Path) -> str:
                     "cannot survive the opening combat until that exact "
                     "boundary is repaired")
         raise ValueError("controller route did not complete")
+    if values.get("setup_difficulty") != "2" or values.get("difficulty") != "2":
+        raise ValueError("all-objective Dam route requires 00 Agent difficulty "
+                         "at setup and result")
     reached, total = integers(values, "route_targets", 2)
     if reached != total or total < 100:
         raise ValueError("authored start-to-exit route did not reach every stop")

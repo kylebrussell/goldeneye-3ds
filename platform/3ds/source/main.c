@@ -34,6 +34,7 @@
 #include "ge_3ds_frontend_probe.h"
 #include "ge_3ds_stereo.h"
 #include "ge_3ds_controls.h"
+#include "ge_3ds_probe_difficulty.h"
 #include "ge_original_inventory.h"
 #include "ge_3ds_wireless.h"
 #include "ge_3ds_original_frontend_cast.h"
@@ -184,7 +185,7 @@ extern void gunSetGunAmmoVisible(s32 reason, bool enable);
 extern void gunSetSightVisible(s32 reason, bool visible);
 extern void shuffle_player_ids(void);
 extern s32 lvlGetSelectedDifficulty(void);
-extern s32 g_SelectedDifficulty;
+extern void lvlSetSelectedDifficulty(DIFFICULTY difficulty);
 extern f32 slider_007_mode_reaction;
 extern f32 slider_007_mode_health;
 extern f32 slider_007_mode_damage;
@@ -311,6 +312,8 @@ _Static_assert(FIRST_PERSON_SOURCE_VERTEX_CAPACITY
     "sdmc:/3ds/goldeneye-3ds/stage.cfg"
 #define INPUT_PROBE_PATH \
     "sdmc:/3ds/goldeneye-3ds/dam-input-probe.cfg"
+#define PROBE_DIFFICULTY_PATH \
+    "sdmc:/3ds/goldeneye-3ds/probe-difficulty.cfg"
 #define INPUT_DETAIL_PATH "sdmc:/3ds/goldeneye-3ds/probe-detail.cfg"
 #define INPUT_RETRACE_PATH "sdmc:/3ds/goldeneye-3ds/probe-retraces.cfg"
 #define INPUT_PROBE_RESULT_PATH \
@@ -774,6 +777,8 @@ typedef struct RuntimeInputProbeTiming {
 } RuntimeInputProbeTiming;
 
 typedef struct RuntimeInputProbe {
+    int setup_difficulty;
+    bool difficulty_override;
     RuntimeInputProbeTiming *timings;
     uint8_t *replay_retraces;
     uint64_t initial_rng[2];
@@ -1033,6 +1038,27 @@ static bool load_input_probe(RuntimeInputProbe *runtime)
     runtime->active_frames = (uint32_t)active_frames;
     runtime->input.held = held;
     runtime->enabled = true;
+    return true;
+}
+
+static bool input_probe_prepare_difficulty(
+    RuntimeInputProbe *runtime, bool direct_probe)
+{
+    int difficulty;
+    Ge3dsProbeDifficultyResult status;
+    /* A difficulty file alone never bypasses or alters the frontend. Parse
+     * the actual controller probe once, before difficulty-filtered setup. */
+    if (!direct_probe || !load_input_probe(runtime)) return true;
+    difficulty = lvlGetSelectedDifficulty();
+    status = ge_3ds_probe_difficulty_load(PROBE_DIFFICULTY_PATH, &difficulty);
+    if (status == GE_3DS_PROBE_DIFFICULTY_INVALID) {
+        printf("Invalid probe-difficulty.cfg: expected one digit 0..3.\n");
+        return false;
+    }
+    if (status == GE_3DS_PROBE_DIFFICULTY_OK)
+        lvlSetSelectedDifficulty((DIFFICULTY)difficulty);
+    runtime->setup_difficulty = lvlGetSelectedDifficulty();
+    runtime->difficulty_override = status == GE_3DS_PROBE_DIFFICULTY_OK;
     return true;
 }
 
@@ -2975,6 +3001,10 @@ static bool write_input_probe_result(
         (unsigned long long)runtime->initial_rng[0], (unsigned long long)runtime->initial_rng[1]);
     fprintf(stream, "probe_clock=%s\n", runtime->replay_retraces ? "recorded-retraces-v1" : "live");
     fprintf(stream, "probe_detail=%u\n", runtime->deep_profile ? 1U : 0U);
+    fprintf(stream, "setup_difficulty=%d\n", runtime->setup_difficulty);
+    fprintf(stream, "difficulty=%ld\n", (long)lvlGetSelectedDifficulty());
+    fprintf(stream, "probe_difficulty_override=%u\n",
+        runtime->difficulty_override ? 1U : 0U);
     /* Record the actual parsed inputs, independent of a mutable SD filename. */
     for (size_t segment = 0U; segment < runtime->segment_count; ++segment) {
         const RuntimeInputProbeSegment *item = &runtime->segments[segment];
@@ -14656,11 +14686,7 @@ static void original_frontend_set_difficulty(void *context,
                                              int32_t difficulty)
 {
     (void)context;
-    /* Exact lvlSetSelectedDifficulty body from lv.c. The live getter and
-     * difficulty runtime are retained in the guard/difficulty slice that owns
-     * this canonical global; only the otherwise-dead one-line setter is
-     * supplied at the frontend boundary. */
-    g_SelectedDifficulty = difficulty;
+    lvlSetSelectedDifficulty((DIFFICULTY)difficulty);
 }
 
 static void original_frontend_set_007_sliders(void *context,float reaction,
@@ -18867,6 +18893,12 @@ start_stage_runtime:
      * for both audio ownership and the actual frontend dispatch. */
     run_start_frontend = run_start_frontend
         && !runtime_diagnostics_requested(stage_assets);
+    if (!input_probe_prepare_difficulty(&input_probe,
+            !run_start_frontend
+                && !load_visual_probe_tour(&visual_probe_tour, stage_assets))) {
+        result = 1;
+        goto exit_citro3d;
+    }
     memset(&original_music_sync, 0, sizeof(original_music_sync));
     original_music_sync.track[0] = INT32_MIN;
     original_music_sync.track[1] = INT32_MIN;
@@ -19000,7 +19032,7 @@ start_stage_runtime:
                                     selected_level_id,
                                     original_frontend_runtime.ramrom_active
                                         != 0U);
-    if (load_visual_probe_tour(&visual_probe_tour, stage_assets)) {
+    if (visual_probe_tour.enabled) {
         const GeVisualProbeView *view = ge_visual_probe_tour_view_at(
             &visual_probe_tour.tour, 0U, &visual_probe_tour.current_view);
         if (view != NULL) {
@@ -19279,7 +19311,7 @@ start_stage_runtime:
         ge_original_door_runtime_bind(
             &door_runtime_providers, &dam_objects.door_runtime);
     }
-    if (!visual_probe_tour.enabled && !load_input_probe(&input_probe)
+    if (!visual_probe_tour.enabled && !input_probe.enabled
             && frontend_probe.enabled && frontend_probe.gameplay_frames != 0U
             && !run_start_frontend) {
         /* A frontend probe that reached gameplay measures the stage's first
@@ -19287,11 +19319,11 @@ start_stage_runtime:
         memset(&input_probe, 0, sizeof(input_probe));
         input_probe.target_frames = frontend_probe.gameplay_frames;
         input_probe.active_frames = frontend_probe.gameplay_frames;
+        input_probe.setup_difficulty = lvlGetSelectedDifficulty();
         input_probe.enabled = true;
         frontend_probe.gameplay_frames = 0U;
     }
-    if (!visual_probe_tour.enabled
-            && (input_probe.enabled || load_input_probe(&input_probe))) {
+    if (!visual_probe_tour.enabled && input_probe.enabled) {
         /* Stick/button traces are stage-independent and use the same exact
          * live input path. Existing coordinate routes name Dam-authored pads
          * and guards, so never silently run those routes on another stage. */

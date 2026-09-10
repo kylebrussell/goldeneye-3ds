@@ -20,6 +20,7 @@ static GPU_TEVSRC ge_3ds_material_source(GePicaApplySource source)
 static GPU_COMBINEFUNC ge_3ds_material_combine(GePicaApplyCombine combine)
 {
     if (combine == GE_PICA_APPLY_MULTIPLY_ADD) return GPU_MULTIPLY_ADD;
+    if (combine == GE_PICA_APPLY_ADD) return GPU_ADD;
     return combine == GE_PICA_APPLY_MODULATE ? GPU_MODULATE : GPU_REPLACE;
 }
 

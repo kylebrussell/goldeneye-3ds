@@ -171,6 +171,17 @@ static int ge_pica_translate_alpha_combine(const GePicaCombineCycle *cycle,
         *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE;
     } else if (ge_pica_alpha_modulate(cycle, texture_source, 5U)) {
         *mode = GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT;
+    } else if (ge_pica_alpha_modulate(cycle, 6U, 5U)) {
+        /* The model fade setup writes 1 * ENVIRONMENT, not a texture. */
+        *mode = GE_PICA_ALPHA_ENVIRONMENT;
+    } else if (ge_pica_alpha_modulate(cycle, 4U, 5U)
+            || ge_pica_alpha_modulate(cycle, 5U, 4U)) {
+        *mode = GE_PICA_ALPHA_SHADE_MODULATE_ENVIRONMENT;
+    } else if (cycle->alpha_a == 6U && cycle->alpha_b == 7U
+            && cycle->alpha_c == 4U && cycle->alpha_d == 5U) {
+        /* The textured-edge model branch passes clamp(SHADE + ENVIRONMENT)
+         * through the second cycle without sampling texture alpha. */
+        *mode = GE_PICA_ALPHA_SHADE_ADD_ENVIRONMENT;
     } else {
         return 0;
     }
@@ -190,7 +201,8 @@ static int ge_pica_alpha_mode_uses_texture(GePicaAlphaMode mode)
     return mode == GE_PICA_ALPHA_TEXTURE0
         || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE
         || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_PRIMITIVE
-        || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT;
+        || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_ENVIRONMENT
+        || mode == GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE_ADD_PRIMITIVE;
 }
 
 static int ge_pica_translate_two_cycle_color(
@@ -269,6 +281,10 @@ static int ge_pica_translate_two_cycle_alpha(
         return first_exact && first_mode == GE_PICA_ALPHA_TEXTURE0;
     }
     if (ge_pica_alpha_modulate(second, UINT8_C(0), UINT8_C(4))) {
+        if (first_mode == GE_PICA_ALPHA_ENVIRONMENT) {
+            *mode = GE_PICA_ALPHA_SHADE_MODULATE_ENVIRONMENT;
+            return first_exact;
+        }
         *mode = ge_pica_alpha_mode_uses_texture(first_mode)
             ? GE_PICA_ALPHA_TEXTURE0_MODULATE_SHADE
             : GE_PICA_ALPHA_SHADE;
@@ -326,7 +342,7 @@ static void ge_pica_translate_combiner(const GeGbiRenderState *state,
         material->fallback_flags |= GE_PICA_FALLBACK_COMBINER;
     }
     if (material->texture_enabled == 0U
-            && material->alpha_combine >= GE_PICA_ALPHA_TEXTURE0) {
+            && ge_pica_alpha_mode_uses_texture(material->alpha_combine)) {
         material->alpha_combine = GE_PICA_ALPHA_SHADE;
         material->fallback_flags |= GE_PICA_FALLBACK_COMBINER;
     }

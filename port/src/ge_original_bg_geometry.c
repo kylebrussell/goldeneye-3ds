@@ -371,6 +371,18 @@ void ge_original_bg_geometry_bind(GeOriginalBgGeometry *geometry)
 size_t ge_original_bg_geometry_room_count(void)
 { return ge_bg_geometry_current != NULL ? ge_bg_geometry_current->room_count : 0U; }
 
+const coord3d *ge_original_bg_geometry_room_origin(int32_t room)
+{
+    const GeOriginalBgGeometry *geometry = ge_bg_geometry_current;
+    if (geometry == NULL || geometry->status != GE_ORIGINAL_BG_GEOMETRY_OK
+            || geometry->room_count < 2U || geometry->room_count > GE_BG_GEOMETRY_MAX_ROOMS
+            || room < 0 || (size_t)room >= geometry->room_count) return NULL;
+    const coord3d *origin = &geometry->origins[room];
+    for (size_t axis = 0U; axis < 3U; ++axis)
+        if (!isfinite(origin->f[axis])) return NULL;
+    return origin;
+}
+
 s_room_info *ge_original_bg_geometry_native_rooms(void)
 { return ge_bg_geometry_current != NULL ? ge_bg_geometry_current->rooms : NULL; }
 

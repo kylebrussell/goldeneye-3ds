@@ -55,6 +55,28 @@ static void fixture(void)
     assert(owner != NULL && report.status == GE_ORIGINAL_BG_GEOMETRY_OK);
     assert(report.vertices == 3 && report.batches == 1 && report.fixtures == 1);
     ge_original_bg_geometry_bind(owner);
+    const coord3d *origin=ge_original_bg_geometry_room_origin(1);
+    assert(origin == &owner->origins[1] && origin->x == 100 && origin->y == 200 && origin->z == 300);
+    assert(ge_original_bg_geometry_room_origin(0) == &owner->origins[0]);
+    assert(!ge_original_bg_geometry_room_origin(-1) && !ge_original_bg_geometry_room_origin(2)
+        && !ge_original_bg_geometry_room_origin(INT32_MAX));
+    owner->status=GE_ORIGINAL_BG_GEOMETRY_INVALID_ASSET;
+    assert(!ge_original_bg_geometry_room_origin(1));
+    owner->status=GE_ORIGINAL_BG_GEOMETRY_OK;
+    owner->origins[1].y=NAN;
+    assert(!ge_original_bg_geometry_room_origin(1) && owner->status==GE_ORIGINAL_BG_GEOMETRY_OK);
+    owner->origins[1].y=200;
+    GeDamRoomBlobDescriptor shifted=room;shifted.origin[0]=1000;
+    GeOriginalBgRoomBounds shifted_bounds[2];memcpy(shifted_bounds,bounds,sizeof(bounds));
+    shifted_bounds[1].minimum[0]=1000;shifted_bounds[1].maximum[0]=1040;
+    GeOriginalBgGeometry *other=ge_original_bg_geometry_open_rooms(&shifted,1,shifted_bounds,2,0.5f,&report);
+    assert(other && ge_original_bg_geometry_room_origin(1)==origin);
+    ge_original_bg_geometry_bind(other);
+    assert(ge_original_bg_geometry_room_origin(1)==&other->origins[1]
+        && ge_original_bg_geometry_room_origin(1)->x==1000);
+    ge_original_bg_geometry_bind(NULL);assert(!ge_original_bg_geometry_room_origin(0));
+    ge_original_bg_geometry_bind(owner);ge_original_bg_geometry_close(other);
+    assert(ge_original_bg_geometry_room_origin(1)==origin);
     const float from[3] = {220,420,650}, to[3] = {220,420,550};
     assert(ge_original_bg_geometry_hit(owner,from,to,1,&hit));
     assert(hit.position[0] == 110 && hit.position[1] == 210 && hit.position[2] == 300);
@@ -113,6 +135,7 @@ static void fixture(void)
     assert(memcmp(saved,vertices,sizeof(saved)) == 0);
     ge_original_bg_geometry_close(owner);
     assert(ge_original_bg_geometry_native_rooms() == NULL);
+    assert(ge_original_bg_geometry_room_origin(0) == NULL);
     puts("BG fixture: native pointer hit, original light/shard boundary, idempotence and scene reload pass");
 }
 
@@ -264,6 +287,13 @@ static void actual_assets(const char *path)
         fflush(stdout);
         assert(owner != NULL);
         ge_original_bg_geometry_bind(owner);
+        for (size_t room=0;room<world.room_count;++room) {
+            const coord3d *origin=ge_original_bg_geometry_room_origin((int32_t)room);
+            assert(origin==&owner->origins[room]);
+            if (room != 0)
+                assert(memcmp(origin->f,world.rooms[room].origin,sizeof(origin->f))==0);
+        }
+        assert(!ge_original_bg_geometry_room_origin((int32_t)world.room_count));
         size_t rays = 0, shards_before = shard_count;
         for (uint32_t room=1;room<world.room_count;++room) rays += exercise_room(owner,room);
         assert(rays > 0);

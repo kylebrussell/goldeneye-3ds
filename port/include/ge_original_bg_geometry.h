@@ -46,6 +46,13 @@ void ge_original_bg_geometry_close(GeOriginalBgGeometry *geometry);
 void ge_original_bg_geometry_bind(GeOriginalBgGeometry *geometry);
 /* Bound canonical room count, including room0; zero when unbound. */
 size_t ge_original_bg_geometry_room_count(void);
+/* Exact authored origin owned by the currently bound native geometry,
+ * including void room0. No level-scale conversion or renderer dependency.
+ * Returns NULL when unbound, invalid, or outside the authored room range.
+ * Borrow read-only while this owner remains bound/alive; never retain across
+ * rebind/close. The forward declaration avoids importing native ABI headers. */
+struct coord3d;
+const struct coord3d *ge_original_bg_geometry_room_origin(int32_t room);
 GeOriginalBgGeometryStatus ge_original_bg_geometry_status(
     const GeOriginalBgGeometry *geometry);
 

@@ -60,6 +60,13 @@ ge_original_sfx_bank.o: CFLAGS += -O3
 title3.o: CFLAGS += -DGE_PORT_GUNBARREL_HOLE_SLICE
 ASFLAGS     := -g $(ARCH)
 LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+# Keep the new multiplayer entry points in link validation while match entry
+# remains gated. Otherwise --gc-sections can hide unresolved gameplay owners.
+LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
+           -Wl,-u,ge_original_bond_live_initialize_multiplayer \
+           -Wl,-u,ge_original_multiplayer_respawn \
+           -Wl,-u,ge_original_multiplayer_end_tick \
+           -Wl,-u,ge_3ds_multiplayer_transport_begin
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3
@@ -280,6 +287,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_move_model_tables.c \
             ge_original_animation_table_abi.c \
             ge_original_bond_move_state_slice.c \
+            ge_original_multiplayer_players_slice.c \
             ge_original_multiplayer_rules_slice.c \
             ge_original_door_collision_slice.c \
             ge_original_door_character_collision_slice.c \
@@ -446,6 +454,8 @@ ge_original_bond_move_state_slice.o ge_original_bond_move_state.o: CFLAGS += \
     -DVERSION_US -Wno-unused-variable -Wno-unused-parameter \
     -Wno-incompatible-pointer-types -Wno-pointer-to-int-cast \
     -Wno-missing-braces -Wno-comment -Wno-error
+ge_original_multiplayer_players.o ge_original_multiplayer_players_slice.o \
+ge_original_stage_multiplayer_setup.o \
 ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
@@ -1096,6 +1106,12 @@ ge_original_animation_table_abi.c: \
         $(TOPDIR)/../../scripts/generate_animation_table_abi.py
 	python3 $(TOPDIR)/../../scripts/generate_animation_table_abi.py \
 		$(TOPDIR)/../../assets/animationtable_data.c $@
+ge_original_multiplayer_players_slice.c: \
+        $(TOPDIR)/../../src/game/player.c $(TOPDIR)/../../src/game/bondview.c \
+        $(TOPDIR)/../../src/game/unk_092E50.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_players_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_players_slice.py \
+		$(TOPDIR)/../.. $@
 ge_original_multiplayer_rules_slice.c: \
         $(TOPDIR)/../../src/game/bondview.c $(TOPDIR)/../../src/game/bondview2.c \
         $(TOPDIR)/../../src/game/mpmenu.c $(TOPDIR)/../../src/game/front.c \

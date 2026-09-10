@@ -27,11 +27,24 @@ static GeOriginalIntroSpawnState *g_GeOriginalIntroSpawnState;
 
 /* Real decompiled player storage for the bounded spawn slice. */
 static struct player g_GeOriginalSpawnPlayerStorage;
-#define g_CurrentPlayer (&g_GeOriginalSpawnPlayerStorage)
+static struct player **g_GeOriginalCurrentPlayerBinding;
 
 struct player *ge_original_spawn_player_get(void)
 {
-    return g_CurrentPlayer;
+    return g_GeOriginalCurrentPlayerBinding != NULL
+        ? *g_GeOriginalCurrentPlayerBinding : &g_GeOriginalSpawnPlayerStorage;
+}
+
+void ge_original_spawn_player_bind_current(struct player **current)
+{
+    g_GeOriginalCurrentPlayerBinding = current;
+}
+
+#define g_CurrentPlayer (ge_original_spawn_player_get())
+
+void ge_original_spawn_player_set_eye_height(float eye_height)
+{
+    g_CurrentPlayer->eyeheight = eye_height;
 }
 
 void ge_original_spawn_player_reset(float eye_height)

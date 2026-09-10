@@ -8,6 +8,15 @@
 static GeOriginalPlayerSpawnProviders ge_player_providers;
 static GeOriginalPlayerViewState *ge_player_view;
 
+void ge_original_player_spawn_select(
+    const GeOriginalPlayerSpawnProviders *providers,
+    GeOriginalPlayerViewState *state)
+{
+    memset(&ge_player_providers, 0, sizeof(ge_player_providers));
+    if (providers != NULL) ge_player_providers = *providers;
+    ge_player_view = state;
+}
+
 void ge_original_player_spawn_bind(
     const GeOriginalPlayerSpawnProviders *providers,
     GeOriginalPlayerViewState *state)
@@ -23,8 +32,8 @@ void ge_original_player_spawn_bind(
     }
 }
 
-int ge_original_player_spawn_commit(
-    const GeOriginalPlayerSpawnConfig *config)
+static int ge_player_spawn_commit(
+    const GeOriginalPlayerSpawnConfig *config, int reset_player)
 {
     if (config == NULL || ge_player_view == NULL
             || !isfinite(config->position[0])
@@ -39,10 +48,21 @@ int ge_original_player_spawn_commit(
     }
     memset(ge_player_view, 0, sizeof(*ge_player_view));
     ge_player_view->room = -1;
-    ge_original_spawn_player_reset(config->eye_height);
+    if (reset_player) ge_original_spawn_player_reset(config->eye_height);
+    else ge_original_spawn_player_set_eye_height(config->eye_height);
     return ge_original_commit_intro_player_spawn_slice(
         config->position, config->floor_y, config->look_angle_radians,
         config->stan, config->room);
+}
+
+int ge_original_player_spawn_commit(const GeOriginalPlayerSpawnConfig *config)
+{
+    return ge_player_spawn_commit(config, 1);
+}
+
+int ge_original_player_spawn_commit_existing(const GeOriginalPlayerSpawnConfig *config)
+{
+    return ge_player_spawn_commit(config, 0);
 }
 
 void *ge_port_player_spawn_allocate_prop(void)

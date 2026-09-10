@@ -12,6 +12,15 @@ extern f32 g_GlobalTimerDelta;
 static GeOriginalBondMovementProviders ge_movement_providers;
 static GeOriginalBondMovementStatus *ge_movement_status;
 
+void ge_original_bond_movement_select(
+    const GeOriginalBondMovementProviders *providers,
+    GeOriginalBondMovementStatus *state)
+{
+    memset(&ge_movement_providers, 0, sizeof(ge_movement_providers));
+    if (providers != NULL) ge_movement_providers = *providers;
+    ge_movement_status = state;
+}
+
 void ge_original_bond_movement_bind(
     const GeOriginalBondMovementProviders *providers,
     GeOriginalBondMovementStatus *status)

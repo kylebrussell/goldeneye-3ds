@@ -54,6 +54,9 @@ int ge_original_player_gait_calibrate_current_player_standing(
     GeOriginalPlayerGait *gait,
     const GeOriginalAnimationRoot *idle,
     const GeOriginalAnimationRoot *walking);
+/* Select the current canonical player's existing gait between viewport passes.
+ * Rejects a mismatched model or an in-progress matrix build. */
+int ge_original_player_gait_select_current_player(GeOriginalPlayerGait *gait);
 void ge_original_player_gait_destroy(GeOriginalPlayerGait *gait);
 
 int ge_original_player_gait_set_animation(

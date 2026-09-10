@@ -35,6 +35,7 @@ typedef struct GeOriginalStageActiveProps {
     const struct GeOriginalStageSetupRuntime *setup;
     struct ChrRecord *chrs;
     void *player_prop;
+    void *player_props[4];
     size_t count;
     size_t chr_count;
     /* chrlvAllChrTick belongs to lvlManageMpGame, while propsTick belongs to
@@ -48,6 +49,8 @@ typedef struct GeOriginalStageActiveProps {
     uint64_t paused_ticks;
     uint32_t last_binding_mismatch;
     uint8_t pre_tick_pending;
+    uint8_t player_count;
+    uint8_t player_tick_mask;
     uint8_t bound;
 } GeOriginalStageActiveProps;
 
@@ -59,6 +62,12 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_compose(
     const struct GeOriginalStageSetupRuntime *setup,
     void *player_prop, struct ChrRecord *chrs, size_t chr_count,
     const GeOriginalStageActivePropInput *inputs, size_t input_count);
+GeOriginalStageActivePropStatus ge_original_stage_active_props_compose_players(
+    GeOriginalStageActiveProps *state,
+    const struct GeOriginalStageSetupRuntime *setup,
+    void *const *player_props, size_t player_count,
+    struct ChrRecord *chrs, size_t chr_count,
+    const GeOriginalStageActivePropInput *inputs, size_t input_count);
 
 /* bossMainloop reaches this boundary from lvlManageMpGame, before its player
  * shuffle and lvlViewMoveTick. It calls the retained unchanged
@@ -68,7 +77,11 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_pre_tick_exact(
 
 /* Calls the retained unchanged propsTick at the canonical lvlRender boundary.
  * A pending pre-tick is required, keeping background mission AI before player
- * movement while preventing a partial native frame from double-advancing it. */
+ * movement while preventing a partial native frame from double-advancing it.
+ * Multiplayer callers MUST select get_nth_player_from_shuffled(i), i=0..N-1,
+ * with one unchanged shuffle for the frame, and publish that view's camera and
+ * visibility before each pass. The duplicate mask does not validate order;
+ * first-shuffled playerTick unfreezes/advances shared animation poses. */
 GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(
     GeOriginalStageActiveProps *state);
 void ge_original_stage_active_props_close(GeOriginalStageActiveProps *state);

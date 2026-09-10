@@ -399,6 +399,40 @@ int main(int argc, char **argv)
         ge_original_spawn_player_get()->bondheadmatrices[0].m));
     ge_original_player_gait_destroy(gait);
 
+    /* Interleaved native players retain their own gait/rwdata/matrix storage. */
+    for (unsigned count = 2; count <= 4; count += 2) {
+        struct player *roster = calloc(count, sizeof(*roster));
+        struct player *selected = NULL;
+        GeOriginalPlayerGait *gaits[4] = {0};
+        assert(roster != NULL);
+        ge_original_spawn_player_bind_current(&selected);
+        for (unsigned slot = 0; slot < count; ++slot) {
+            selected = &roster[slot];
+            gaits[slot] = ge_original_player_gait_create_current_player(walk, &status);
+            assert(gaits[slot] != NULL);
+            assert(ge_original_player_gait_calibrate_current_player_standing(
+                gaits[slot], idle, walk));
+        }
+        for (unsigned slot = 0; slot < count; ++slot) {
+            Model *other;
+            float other_frame;
+            selected = &roster[slot];
+            other = (Model *)(void *)&roster[(slot + 1) % count].model;
+            other_frame = other->animframe1;
+            assert(!ge_original_player_gait_select_current_player(
+                gaits[(slot + 1) % count]));
+            assert(ge_original_player_gait_select_current_player(gaits[slot]));
+            assert(ge_original_player_gait_tick_root(gaits[slot], slot + 1,
+                matrices, delta));
+            assert(matrix_is_finite(roster[slot].bondheadmatrices[0].m));
+            assert(other->animframe1 == other_frame);
+        }
+        ge_original_spawn_player_bind_current(NULL);
+        for (unsigned slot = 0; slot < count; ++slot)
+            ge_original_player_gait_destroy(gaits[slot]);
+        free(roster);
+    }
+
     ge_original_animation_root_destroy(walk);
     ge_original_animation_root_destroy(sprint);
     ge_original_animation_root_destroy(idle);

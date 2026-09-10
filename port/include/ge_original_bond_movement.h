@@ -40,6 +40,11 @@ typedef struct GeOriginalBondMovementStatus {
     int initialized;
 } GeOriginalBondMovementStatus;
 
+/* Select an initialized player publication without resetting its state. */
+void ge_original_bond_movement_select(
+    const GeOriginalBondMovementProviders *providers,
+    GeOriginalBondMovementStatus *state);
+
 void ge_original_bond_movement_bind(
     const GeOriginalBondMovementProviders *providers,
     GeOriginalBondMovementStatus *status);

@@ -39,9 +39,16 @@ static int ge_original_gun_frame_arena_measure(size_t *used,
  * sanitizers use 64-bit pointers, so their exact semantic equivalents need
  * naturally aligned, pointer-width storage.  ARM continues to use the
  * canonical embedded fields. */
-static Model ge_host_gun_models[2] __attribute__((aligned(16)));
-static union ModelRwData ge_host_gun_rwdata[2][32]
+static unsigned ge_gun_host_player_slot(void)
+{
+    const int32_t slot = ge_original_bond_input_provider()->player_number;
+    return slot >= 0 && slot < 4 ? (unsigned)slot : 0U;
+}
+static Model ge_host_gun_models_by_player[4][2] __attribute__((aligned(16)));
+#define ge_host_gun_models ge_host_gun_models_by_player[ge_gun_host_player_slot()]
+static union ModelRwData ge_host_gun_rwdata_by_player[4][2][32]
     __attribute__((aligned(16)));
+#define ge_host_gun_rwdata ge_host_gun_rwdata_by_player[ge_gun_host_player_slot()]
 
 int ge_original_gun_frame_arena_begin(void *storage, size_t storage_size)
 {

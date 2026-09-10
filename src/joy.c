@@ -15,7 +15,7 @@ struct contdata {
     /* 0x1E4 */ s32 curstart;
     /* 0x1E8 */ s32 nextlast;
     /* 0x1EC */ s32 nextsecondlast;
-    /* 0x1F0 */ u16 buttonspressed[MAXCONTROLLERS];
+    /* 0x1F0 */ u16 buttonspressed[JOY_MAX_CONTROLLERS];
     /* 0x1F8 */ s32 playbackcontcount;
 };
 
@@ -60,8 +60,8 @@ OSMesgQueue g_ContEnablePollSendMessageQueue;
 OSMesg      g_ContEnablePollReceiveMessageBuffer[CONT_ENABLE_POLL_RECEIVE_BUFFER_LEN];
 OSMesgQueue g_ContEnablePollReceiveMessageQueue;
 
-OSContStatus g_ContStatus[MAXCONTROLLERS];
-OSPfs g_ContPfs[MAXCONTROLLERS];
+OSContStatus g_ContStatus[JOY_MAX_CONTROLLERS];
+OSPfs g_ContPfs[JOY_MAX_CONTROLLERS];
 s32 g_ContDebugData = 0;
 
 struct contdata *g_ContDataPtr = &g_ContData[CONTDATA_REGULAR];
@@ -91,13 +91,13 @@ void joyCheckStatus(void);
 
 //
 
-s32 g_ContRumblePakInitState[MAXCONTROLLERS] = {0};
+s32 g_ContRumblePakInitState[JOY_MAX_CONTROLLERS] = {0};
 
 #define set_rumble_pak_init_state_not_ready(i) do { g_ContRumblePakInitState[i] = RUMBLEPAKINITSTATE_NOT_READY; } while (0)
 
-s32 g_ContRumblePakCurrentState[MAXCONTROLLERS] = {0};
-s32 g_ContRumblePakTimer60[MAXCONTROLLERS] = {0};
-s32 g_ContRumblePakTargetState[MAXCONTROLLERS] = {0};
+s32 g_ContRumblePakCurrentState[JOY_MAX_CONTROLLERS] = {0};
+s32 g_ContRumblePakTimer60[JOY_MAX_CONTROLLERS] = {0};
+s32 g_ContRumblePakTargetState[JOY_MAX_CONTROLLERS] = {0};
 
 
 s32 g_ContQueuesCreated = 0;
@@ -112,10 +112,10 @@ contrecordfunc g_ContRecordFunc = NULL;
  */
 s32 g_ContNeedsInit = 1;
 
-u32 g_ContBadReadsStickX[MAXCONTROLLERS] = {0};
-u32 g_ContBadReadsStickY[MAXCONTROLLERS] = {0};
-u32 g_ContBadReadsButtons[MAXCONTROLLERS] = {0};
-u32 g_ContBadReadsButtonsPressed[MAXCONTROLLERS] = {0};
+u32 g_ContBadReadsStickX[JOY_MAX_CONTROLLERS] = {0};
+u32 g_ContBadReadsStickY[JOY_MAX_CONTROLLERS] = {0};
+u32 g_ContBadReadsButtons[JOY_MAX_CONTROLLERS] = {0};
+u32 g_ContBadReadsButtonsPressed[JOY_MAX_CONTROLLERS] = {0};
 
 void joyInit(void)
 {
@@ -144,7 +144,7 @@ void joyInit(void)
         g_ContData[i].nextsecondlast = 0;
         g_ContData[i].playbackcontcount = -1;
 
-        for (j = 0; j < MAXCONTROLLERS; j++)
+        for (j = 0; j < JOY_MAX_CONTROLLERS; j++)
         {
             g_ContData[i].samples[0].pads[j].button = 0;
             g_ContData[i].samples[0].pads[j].stick_x = 0;
@@ -225,7 +225,7 @@ void joyCheckStatus(void)
         osContGetQuery(g_ContStatus);
         // end similarity to gbpak\siproc.c
 
-        for (i = 0; i < MAXCONTROLLERS; i++)
+        for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
         {
             if (g_ContStatus[i].errno & CONT_NO_RESPONSE_ERROR)
             {
@@ -242,12 +242,12 @@ void joyCheckStatus(void)
         // Removed
     }
 
-    for (i = 0; i < MAXCONTROLLERS; i++)
+    for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
     {
         // Removed
     }
 
-    for (i = 0; i < MAXCONTROLLERS; i++)
+    for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
     {
         if ((g_ConnectedControllers & (1 << i))
             && (g_ContStatus[i].type & (CONT_ABSOLUTE | CONT_RELATIVE))
@@ -279,7 +279,7 @@ s8 joyGetControllerCount(void)
         return g_ContDataPtr->playbackcontcount;
     }
 
-    for (i = 0; i < MAXCONTROLLERS; i++)
+    for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
     {
         if ((g_ConnectedControllers & (1 << i)) == 0)
         {
@@ -287,7 +287,7 @@ s8 joyGetControllerCount(void)
         }
     }
 
-    return MAXCONTROLLERS;
+    return JOY_MAX_CONTROLLERS;
 }
 
 u8 joyGetConnectedControllers(void)
@@ -299,7 +299,7 @@ void joyRumblePakTick(void)
 {
     s32 i;
 
-    for (i = 0; i < MAXCONTROLLERS; i++)
+    for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
     {
         if (g_ContRumblePakCurrentState[i] != g_ContRumblePakTargetState[i])
         {
@@ -378,7 +378,7 @@ void joyConsumeSamples(struct contdata *contdata)
     contdata->curstart = contdata->curlast;
     contdata->curlast = contdata->nextlast;
 
-    for (i = 0; i < MAXCONTROLLERS; i++)
+    for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
     {
         contdata->buttonspressed[i] = 0;
 
@@ -837,7 +837,7 @@ void joyRumblePakStop(void)
 {
     s32 i;
 
-    for (i = 0; i < MAXCONTROLLERS; i++)
+    for (i = 0; i < JOY_MAX_CONTROLLERS; i++)
     {
 #if defined(BUGFIX_R0)
         g_ContRumblePakCurrentState[i] = RUMBLEPAKSTATE_ON;

@@ -298,7 +298,8 @@ int ge_original_stage_guard_runtime_set_visibility(
     GeOriginalStageGuardRuntime *runtime, size_t guard_index,
     int visible, uint8_t room_id);
 
-/* Renderer-only room union and horizontal clip-space expansion. Membership
+/* Renderer-only room union and horizontal clip-space expansion for guards,
+ * all player bodies/both held items, and detached player items. Membership
  * is copied (nonzero means eligible); neither canonical state.visible nor
  * prop flags are changed. Pass NULL,0,0 to restore the original mono path.
  * Positive infinity disables horizontal rejection, retaining near/vertical
@@ -327,10 +328,22 @@ int ge_original_stage_guard_runtime_weapon_snapshot(
     GeOriginalStageGuardWeaponSnapshot *snapshot);
 size_t ge_original_stage_guard_runtime_muzzle_flash_count(
     const GeOriginalStageGuardRuntime *runtime);
-/* Publishes the unchanged dogfnegx quad for one renderer-visible authored
- * guard weapon. Returns zero while its canonical Gunfire RW relation is off.
- * Additional stereo-only draws use deterministic local random samples; the
- * existing mono-visible draws retain their two canonical PRNG calls. */
+/* Opt into simulation-owned flash preparation once per canonical viewport.
+ * Call after that player's props/gun tick and update_matrices, with its final
+ * renderer room union/margin already installed. The explicit slot must be the
+ * current canonical player. Equal tick/slot calls are idempotent; older ticks
+ * are rejected. Live canonical parent/held-prop ONSCREEN flags determine
+ * simulation eligibility; renderer visibility, residency and frustum do not.
+ * Canonical firing draws consume their exact two RNG samples;
+ * stereo-only extras use private visual RNG. Payloads survive later viewports. */
+int ge_original_stage_guard_runtime_prepare_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,uint64_t simulation_tick,unsigned viewport_slot);
+/* Copies a prepared payload without sampling RNG or reading transient models. */
+int ge_original_stage_guard_runtime_muzzle_flash_for_view(
+    const GeOriginalStageGuardRuntime *runtime,unsigned viewport_slot,size_t weapon_index,
+    GeOriginalGuardMuzzleFlashPublication *publication);
+/* Before opt-in, preserves the existing solo authored-guard draw path. After
+ * opt-in, consumes the selected local/current player's prepared payload. */
 int ge_original_stage_guard_runtime_muzzle_flash(
     const GeOriginalStageGuardRuntime *runtime, size_t weapon_index,
     GeOriginalGuardMuzzleFlashPublication *publication);

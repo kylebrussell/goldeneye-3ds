@@ -533,6 +533,8 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
     -iquote "${repo_dir}" \
     "${repo_dir}/port/tests/test_ge_original_stage_guard_runtime.c" \
     "${repo_dir}/port/tests/ge_player_item_lifecycle_services.c" \
+    "${repo_dir}/port/src/ge_original_guard_muzzle_flash.c" \
+    "${repo_dir}/src/libultra/gu/sins.c" \
     "${repo_dir}/port/src/random_port.c" \
     "${test_dir}/ge_player_item_lifecycle_fixture.c" \
     "${test_dir}/ge_original_stage_guard_dynamic_spawn_slice.c" \

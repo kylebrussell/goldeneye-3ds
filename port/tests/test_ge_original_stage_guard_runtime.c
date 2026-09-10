@@ -17,6 +17,8 @@ typedef int PLAYERFLAG;
 #include "game/chraction.h"
 #include "game/propobj.h"
 #include "ge_original_gameplay_services.h"
+#include "random.h"
+extern void weaponSetGunfireVisible(PropRecord *,s32);
 extern void lifecycle_inventory_set(ITEM_IDS,int);
 extern size_t lifecycle_free_calls(void);
 extern size_t lifecycle_grenade_fallback_calls(void);
@@ -1283,8 +1285,253 @@ static void test_player_item_reused_props(GeAssetPack *pack,
     puts("player item ownership: direct drop survives body reload; retired and stale reused props survive teardown");
 }
 
+static void assert_player_scene_tuple(GeOriginalStageGuardRuntime *runtime,
+    const float inverse[4][4],size_t expected)
+{
+    GeOriginalStageGuardScene uncached,cached;
+    GeOriginalModelSceneCache cache={0};
+    GeOriginalStageGuardRuntimeStatus a=ge_original_stage_guard_runtime_build_scene(
+        runtime,inverse,NULL,&uncached);
+    GeOriginalStageGuardRuntimeStatus b=ge_original_stage_guard_runtime_build_scene_cached(
+        runtime,&cache,inverse,NULL,&cached);
+    assert(a==b&&(a==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK
+        ||a==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED));
+    assert(uncached.input_count==expected&&cached.input_count==expected
+        &&uncached.required_vertex_count==cached.required_vertex_count
+        &&uncached.required_batch_count==cached.required_batch_count
+        &&uncached.triangle_count==cached.triangle_count);
+    ge_original_model_scene_cache_close(&cache);
+}
+
+static void test_player_draw_override(GeOriginalStageGuardRuntime *runtime,
+    GeOriginalCharacterModelProvider *body_models,GeOriginalPitemModelProvider *item_models,
+    Harness *harness,struct player **owners,size_t count,PropRecord **drops,size_t drop_count)
+{
+    PropRecord original_props[4],canonical_props[4],original_drops[8],canonical_drops[8];
+    ChrRecord canonical_chrs[4];WeaponObjRecord original_items[8],canonical_items[8],canonical_held[4][2];
+    uint8_t held[4][2]={{0}};
+    float identity[4][4]={{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
+    uint8_t rooms[256]={0};size_t total=0U,owner_parts[4]={0};
+    const float saved_fov=g_CurrentPlayer->c_perspfovy,saved_aspect=g_CurrentPlayer->c_perspaspect,
+        saved_near=g_CurrentPlayer->c_perspnear;
+    const uint8_t saved_residency=harness->all_rooms_resident;
+    g_CurrentPlayer->c_perspfovy=60.0f;g_CurrentPlayer->c_perspaspect=1.0f;
+    g_CurrentPlayer->c_perspnear=10.0f;harness->all_rooms_resident=1U;
+    for(size_t i=0;i<ge_original_stage_guard_runtime_count(runtime);++i){
+        GeOriginalStageGuardSnapshot guard;
+        assert(ge_original_stage_guard_runtime_snapshot(runtime,i,&guard)&&guard.room_id!=254U);
+    }
+    for(size_t i=0;i<count;++i){
+        PropRecord *prop=owners[i]->prop;ChrRecord *chr=prop->chr;Model *model=chr->model;
+        original_props[i]=*prop;prop->rooms[0]=254U;
+        float radius=model->obj->BoundingVolumeRadius*model->scale;
+        prop->pos=(coord3d){500.0f*tanf(M_PI_F/6.0f)+radius*2.0f+100.0f,0,-500.0f};
+        canonical_props[i]=*prop;canonical_chrs[i]=*chr;
+        owner_parts[i]=ge_original_character_model_instance_scene_part_count(body_models,model);
+        for(int hand=0;hand<2;++hand)if(chr->weapons_held[hand]!=NULL){
+            owner_parts[i]+=ge_original_pitem_model_instance_scene_part_count(
+                item_models,chr->weapons_held[hand]->obj->model);
+            canonical_held[i][hand]=*chr->weapons_held[hand]->weapon;held[i][hand]=1U;
+        }
+        total+=owner_parts[i];
+    }
+    for(size_t i=0;i<drop_count;++i){
+        PropRecord *prop=drops[i];WeaponObjRecord *item=prop->weapon;Model *model=item->model;
+        original_drops[i]=*prop;original_items[i]=*item;prop->rooms[0]=254U;
+        float radius=model->obj->BoundingVolumeRadius*model->scale;
+        item->runtime_pos=(coord3d){500.0f*tanf(M_PI_F/6.0f)+radius*2.0f+100.0f,0,-500.0f};
+        canonical_drops[i]=*prop;canonical_items[i]=*item;
+        total+=ge_original_pitem_model_instance_scene_part_count(item_models,model);
+    }
+    ge_original_stage_guard_runtime_set_local_player_view(runtime,NULL,0);
+    assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,rooms,256U,INFINITY));
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,identity)==0);
+    assert_player_scene_tuple(runtime,identity,0U);
+    rooms[254]=1U;
+    assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,rooms,256U,0.0f));
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,identity)==0);
+    assert_player_scene_tuple(runtime,identity,0U);
+    assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,rooms,256U,INFINITY));
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,identity)==0);
+    assert_player_scene_tuple(runtime,identity,total);
+    for(size_t i=0;i<count;++i){
+        ge_original_stage_guard_runtime_set_local_player_view(runtime,owners[i],1);
+        assert_player_scene_tuple(runtime,identity,total-owner_parts[i]);
+        assert(memcmp(owners[i]->prop,&canonical_props[i],sizeof(PropRecord))==0
+            &&memcmp(owners[i]->prop->chr,&canonical_chrs[i],sizeof(ChrRecord))==0);
+        for(int hand=0;hand<2;++hand)if(held[i][hand])
+            assert(memcmp(owners[i]->prop->chr->weapons_held[hand]->weapon,
+                &canonical_held[i][hand],sizeof(WeaponObjRecord))==0);
+    }
+    for(size_t i=0;i<drop_count;++i){
+        assert(memcmp(drops[i],&canonical_drops[i],sizeof(PropRecord))==0
+            &&memcmp(drops[i]->weapon,&canonical_items[i],sizeof(WeaponObjRecord))==0);
+        *drops[i]->weapon=original_items[i];*drops[i]=original_drops[i];
+    }
+    for(size_t i=0;i<count;++i)*owners[i]->prop=original_props[i];
+    ge_original_stage_guard_runtime_set_local_player_view(runtime,NULL,0);
+    assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,NULL,0U,0.0f));
+    g_CurrentPlayer->c_perspfovy=saved_fov;g_CurrentPlayer->c_perspaspect=saved_aspect;
+    g_CurrentPlayer->c_perspnear=saved_near;harness->all_rooms_resident=saved_residency;
+    printf("%zu players/%zu drops: room union, widened frustum, local hide, cached/uncached tuple and canonical bytes\n",count,drop_count);
+}
+
+static void test_player_muzzle_preparation(GeOriginalStageGuardRuntime *runtime,
+    GeOriginalPitemModelProvider *models,struct player **owners,size_t count)
+{
+    static uint64_t tick=1000U;
+    struct player *saved_current=g_CurrentPlayer,*saved_roster[4];
+    uint32_t saved_flags[4],saved_held_flags[4][2];float saved_fov[4];uint8_t rooms[256];
+    GeOriginalStageGuardWeaponSnapshot authored;GeOriginalStageGuardSnapshot authored_owner;
+    size_t authored_index=SIZE_MAX,authored_owner_index=SIZE_MAX;
+    uint32_t authored_prop_flags,authored_parent_flags;
+    uint64_t saved_seed=g_randomSeed,final_seed[2];
+    float camera[4][4]={{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
+    memset(rooms,1,sizeof(rooms));
+    if(count==2U){
+        int tested=0;
+        assert(ge_original_stage_guard_runtime_muzzle_flash_count(runtime)
+            ==ge_original_stage_guard_runtime_weapon_count(runtime));
+        for(size_t i=0;i<ge_original_stage_guard_runtime_weapon_count(runtime);++i){
+            GeOriginalStageGuardWeaponSnapshot item;GeOriginalPitemModelGunfire gunfire;
+            assert(ge_original_stage_guard_runtime_weapon_snapshot(runtime,i,&item));
+            if(!item.matrices_ready||!ge_original_pitem_model_instance_gunfire(models,item.model_instance,0U,&gunfire))continue;
+            weaponSetGunfireVisible(item.prop_record,TRUE);
+            uint64_t expected=g_randomSeed;(void)randomGetNextFrom(&expected);(void)randomGetNextFrom(&expected);
+            GeOriginalGuardMuzzleFlashPublication publication;
+            assert(ge_original_stage_guard_runtime_muzzle_flash(runtime,i,&publication)&&g_randomSeed==expected);
+            weaponSetGunfireVisible(item.prop_record,FALSE);tested=1;break;
+        }
+        assert(tested);g_randomSeed=saved_seed;
+    }
+    for(size_t i=0;i<ge_original_stage_guard_runtime_weapon_count(runtime);++i){
+        GeOriginalPitemModelGunfire gunfire;
+        assert(ge_original_stage_guard_runtime_weapon_snapshot(runtime,i,&authored));
+        if(authored.matrices_ready&&ge_original_pitem_model_instance_gunfire(models,authored.model_instance,0U,&gunfire)){
+            authored_index=i;break;
+        }
+    }
+    assert(authored_index!=SIZE_MAX);
+    PropRecord *authored_prop=authored.prop_record;
+    for(size_t i=0;i<ge_original_stage_guard_runtime_count(runtime);++i){
+        assert(ge_original_stage_guard_runtime_snapshot(runtime,i,&authored_owner));
+        if(authored_owner.prop_record==authored_prop->parent){authored_owner_index=i;break;}
+    }
+    assert(authored_owner_index!=SIZE_MAX);
+    authored_prop_flags=authored_prop->flags;authored_parent_flags=authored_prop->parent->flags;
+    authored_prop->flags|=PROPFLAG_ONSCREEN;authored_prop->parent->flags|=PROPFLAG_ONSCREEN;
+    assert(ge_original_stage_guard_runtime_set_visibility(runtime,authored_owner_index,0,authored_owner.room_id));
+    weaponSetGunfireVisible(authored_prop,TRUE);
+    for(size_t i=0;i<4U;++i){saved_roster[i]=g_playerPointers[i];g_playerPointers[i]=i<count?owners[i]:NULL;}
+    for(size_t i=0;i<count;++i){
+        saved_flags[i]=owners[i]->prop->flags;saved_fov[i]=owners[i]->c_perspfovy;
+        owners[i]->c_perspfovy=0.0f;
+        /* Owner zero is a renderer-only extra in other canonical viewports. */
+        owners[i]->prop->flags=i==0U?saved_flags[i]&~PROPFLAG_ONSCREEN:saved_flags[i]|PROPFLAG_ONSCREEN;
+        for(int hand=0;hand<2;++hand){
+            PropRecord *prop=owners[i]->prop->chr->weapons_held[hand];GeOriginalPitemModelGunfire gunfire;
+            assert(prop!=NULL);saved_held_flags[i][hand]=prop->flags;
+            prop->flags=i==0U?prop->flags&~PROPFLAG_ONSCREEN:prop->flags|PROPFLAG_ONSCREEN;
+            weaponSetGunfireVisible(prop,TRUE);
+            assert(ge_original_pitem_model_instance_gunfire(models,prop->obj->model,0U,&gunfire)&&gunfire.visible);
+        }
+    }
+    for(unsigned experiment=0U;experiment<2U;++experiment){
+        const unsigned selected=experiment==0U?0U:(unsigned)count-1U;
+        size_t flash_capacity=ge_original_stage_guard_runtime_weapon_count(runtime)+GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;
+        GeOriginalGuardMuzzleFlashPublication *captured=calloc(flash_capacity,sizeof(*captured));
+        uint8_t *valid=calloc(flash_capacity,1U);assert(captured!=NULL&&valid!=NULL);
+        ++tick;randomSetSeed(UINT32_C(0x12345678));
+        for(unsigned viewport=0U;viewport<count;++viewport){
+            g_CurrentPlayer=owners[viewport];
+            ge_original_stage_guard_runtime_set_local_player_view(runtime,owners[viewport],1);
+            /* A console may render only its selected capture; simulation RNG
+             * must still advance for every canonical viewport. */
+            memset(rooms,experiment==1U&&viewport!=selected?0:1,sizeof(rooms));
+            assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,rooms,256U,
+                viewport==selected?INFINITY:0.0f));
+            camera[3][0]=(float)(viewport*100U+selected*7U);
+            assert(ge_original_stage_guard_runtime_update_matrices(runtime,camera)==0);
+            /* The existing animation double copies unscaled bases. Supply
+             * valid scaled orthogonal bone matrices at that resource boundary
+             * before exercising the unchanged dogfnegx geometry equations. */
+            for(size_t peer=0;peer<count;++peer)for(int hand=0;hand<2;++hand){
+                Model *model=owners[peer]->prop->chr->weapons_held[hand]->obj->model;
+                GeOriginalPitemModelGunfire gunfire;
+                assert(ge_original_pitem_model_instance_gunfire(models,model,0U,&gunfire));
+                Mtxf *matrix=&model->render_pos[gunfire.matrix_index].pos;
+                memset(matrix,0,sizeof(*matrix));
+                matrix->m[0][0]=matrix->m[1][1]=matrix->m[2][2]=model->scale;
+                matrix->m[3][0]=100.0f+(float)(peer*10U+viewport*7U);
+                matrix->m[3][1]=20.0f;matrix->m[3][2]=-1000.0f;matrix->m[3][3]=1.0f;
+            }
+            {
+                Model *model=authored.model_instance;GeOriginalPitemModelGunfire gunfire;
+                assert(ge_original_pitem_model_instance_gunfire(models,model,0U,&gunfire));
+                Mtxf *matrix=&model->render_pos[gunfire.matrix_index].pos;memset(matrix,0,sizeof(*matrix));
+                matrix->m[0][0]=matrix->m[1][1]=matrix->m[2][2]=model->scale;
+                matrix->m[3][0]=75.0f+(float)viewport;matrix->m[3][1]=20.0f;
+                matrix->m[3][2]=-1000.0f;matrix->m[3][3]=1.0f;
+            }
+            uint64_t expected=g_randomSeed;
+            /* The authored guard's renderer state.visible remains false,
+             * but canonical parent/weapon flags require both RNG samples. */
+            (void)randomGetNextFrom(&expected);(void)randomGetNextFrom(&expected);
+            for(size_t peer=0;peer<count;++peer)if(peer!=viewport&&peer!=0U)
+                for(unsigned call=0;call<4U;++call)(void)randomGetNextFrom(&expected);
+            assert(ge_original_stage_guard_runtime_prepare_muzzle_flashes(runtime,tick,viewport));
+            assert(g_randomSeed==expected);
+            assert(ge_original_stage_guard_runtime_prepare_muzzle_flashes(runtime,tick,viewport)
+                &&g_randomSeed==expected);
+            assert(!ge_original_stage_guard_runtime_prepare_muzzle_flashes(runtime,tick-1U,viewport)
+                &&g_randomSeed==expected);
+            size_t published=0U;
+            for(size_t index=0;index<flash_capacity;++index){
+                GeOriginalGuardMuzzleFlashPublication a,b,c;
+                int have=ge_original_stage_guard_runtime_muzzle_flash_for_view(runtime,viewport,index,&a);
+                assert(have==ge_original_stage_guard_runtime_muzzle_flash_for_view(runtime,viewport,index,&b));
+                assert(have==ge_original_stage_guard_runtime_muzzle_flash(runtime,index,&c));
+                if(have){
+                    assert(memcmp(&a,&b,sizeof(a))==0&&memcmp(&a,&c,sizeof(a))==0);
+                    for(size_t vertex=0;vertex<6U;++vertex)for(size_t axis=0;axis<3U;++axis)
+                        assert(isfinite(a.vertices[vertex].position[axis]));
+                    ++published;if(viewport==selected){captured[index]=a;valid[index]=1U;}
+                }
+                assert(g_randomSeed==expected);
+            }
+            assert(published==(experiment==1U&&viewport!=selected?0U:2U*(count-1U)+1U));
+        }
+        /* Later camera passes changed model banks. Prepared local payloads
+         * remain byte-identical and copying them does not consume RNG. */
+        for(size_t index=0;index<flash_capacity;++index){
+            GeOriginalGuardMuzzleFlashPublication publication;
+            assert(ge_original_stage_guard_runtime_muzzle_flash_for_view(runtime,selected,index,&publication)==valid[index]);
+            if(valid[index])assert(memcmp(&publication,&captured[index],sizeof(publication))==0);
+        }
+        final_seed[experiment]=g_randomSeed;free(valid);free(captured);
+    }
+    assert(final_seed[0]==final_seed[1]);
+    for(size_t i=0;i<count;++i){
+        owners[i]->prop->flags=saved_flags[i];owners[i]->c_perspfovy=saved_fov[i];
+        for(int hand=0;hand<2;++hand){
+            PropRecord *prop=owners[i]->prop->chr->weapons_held[hand];
+            weaponSetGunfireVisible(prop,FALSE);prop->flags=saved_held_flags[i][hand];
+        }
+    }
+    for(size_t i=0;i<4U;++i)g_playerPointers[i]=saved_roster[i];
+    g_CurrentPlayer=saved_current;g_randomSeed=saved_seed;
+    weaponSetGunfireVisible(authored_prop,FALSE);authored_prop->flags=authored_prop_flags;
+    authored_prop->parent->flags=authored_parent_flags;
+    assert(ge_original_stage_guard_runtime_set_visibility(runtime,authored_owner_index,
+        authored_owner.visible,authored_owner.room_id));
+    ge_original_stage_guard_runtime_set_local_player_view(runtime,NULL,0);
+    assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,NULL,0U,0.0f));
+    printf("%zu players: per-viewport flash RNG, private eye extras, idempotent prepare and durable RNG-free capture\n",count);
+}
+
 static void test_player_item_lifecycle(GeOriginalStageGuardRuntime *runtime,
-    GeOriginalPitemModelProvider *weapon_models,struct player **owners,size_t count,
+    GeOriginalCharacterModelProvider *body_models,GeOriginalPitemModelProvider *weapon_models,
+    Harness *harness,struct player **owners,size_t count,
     const float world_to_view[4][4],const float view_to_world[4][4])
 {
     const size_t initial=ge_original_stage_guard_runtime_player_item_count(runtime);
@@ -1337,6 +1584,8 @@ static void test_player_item_lifecycle(GeOriginalStageGuardRuntime *runtime,
     assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&dual_scene)
         ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
     assert(dual_scene.input_count>baseline.input_count);
+    test_player_muzzle_preparation(runtime,weapon_models,owners,count);
+    test_player_draw_override(runtime,body_models,weapon_models,harness,owners,count,NULL,0U);
     lifecycle_inventory_set(ITEM_WPPK,1);lifecycle_inventory_set(ITEM_AK47,1);
     for(size_t i=0;i<count;++i){
         g_CurrentPlayer=owners[i];owners[i]->bonddead=TRUE;
@@ -1387,6 +1636,7 @@ static void test_player_item_lifecycle(GeOriginalStageGuardRuntime *runtime,
     assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&with_drops)
         ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
     assert(with_drops.input_count==baseline.input_count+drop_parts);
+    test_player_draw_override(runtime,body_models,weapon_models,harness,owners,count,drops,drop_count);
     for(size_t i=0;i<drop_count;++i)objFreePermanently(drops[i]->obj,TRUE);
     assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
     assert(ge_original_stage_guard_runtime_player_item_count(runtime)==initial);
@@ -2087,7 +2337,7 @@ int main(int argc,char **argv)
             if(player_index==0U||player_index==2U){
                 struct player *owners[4]={&stage_player,&multiplayer_players[0],
                     &multiplayer_players[1],&multiplayer_players[2]};
-                test_player_item_lifecycle(runtime,weapon_models,owners,player_index+2U,
+                test_player_item_lifecycle(runtime,models,weapon_models,&harness,owners,player_index+2U,
                     world_to_view,view_to_world);
             }
         }

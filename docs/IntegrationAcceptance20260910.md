@@ -115,3 +115,17 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   emulator-only. No marker belongs in a physical candidate or proves physical
   NDSP acceptance. The runner is adding an explicit, recorded HLE path while
   retaining separate validation for user-provided real component files.
+
+- The subsequent explicit Azahar HLE audio smoke completed 600 gameplay frames
+  on the same frozen `952af929` executable. Every recorded pipeline row had
+  slider 1, two eyes, active NDSP and music rendering; final NDSP error was zero
+  and the music worker was enabled. Left/right PPM captures and lossless PNG
+  previews, environment/profile snapshots and component identity are retained
+  in private `build/integration/smoke-hle-audio-stereo`. This is bounded emulator
+  correctness evidence, with no subjective listening or performance acceptance.
+- Multiplayer dropped-item review confirmed stable model/record lifetime across
+  direct equipped drops, body reloads and replacements. Teardown clears owned
+  links while preserving externally reused props; removing the identity guard
+  makes the new sanitizer regression fail. The original model/guard fixtures
+  cover 74 models, 665 guards across 21 stages, 300 hats and two/four-player
+  hand/drop/reuse cases. These fixtures still do not establish a live match.

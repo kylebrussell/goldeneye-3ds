@@ -95,7 +95,11 @@ python3 "${repo_dir}/scripts/generate_3ds_stage_registry.py" \
     --output "${repo_dir}/port/include/ge_solo_stage_registry.inc" \
     --check
 
+python3 "${repo_dir}/scripts/extract_3ds_multiplayer_stages.py" \
+    --rom "${repo_dir}/baserom.u.z64" --check
+
 stage_pack_args=(
+    --extra-dir "converted/multiplayer=${repo_dir}/build/3ds-multiplayer"
     --extra-dir "converted/levels/dam=${repo_dir}/build/3ds-levels/dam"
     --extra-dir "converted/levels/facility=${repo_dir}/build/3ds-levels/facility"
     --extra-dir "converted/levels/cuba=${repo_dir}/build/3ds-levels/cuba"
@@ -137,6 +141,14 @@ while IFS= read -r stage_key; do
 done < <(python3 -c \
     'import json,sys; [print(s["runtime_key"]) for s in json.load(open(sys.argv[1]))["stages"]]' \
     "${repo_dir}/docs/generated/solo_stage_asset_inventory.json")
+
+while IFS= read -r arena_key; do
+    for asset_name in background.bin setup.bin collision.gestan room_bounds.gebounds; do
+        pack_integrity_args+=(
+            --required "converted/multiplayer/${arena_key}/${asset_name}=${repo_dir}/build/3ds-multiplayer/${arena_key}/${asset_name}"
+        )
+    done
+done < <(python3 "${repo_dir}/scripts/extract_3ds_multiplayer_stages.py" --list)
 
 docker build -f "${repo_dir}/Dockerfile.3ds-assets" -t "${asset_image}" "${repo_dir}"
 docker run --rm \

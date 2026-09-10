@@ -64,7 +64,7 @@ class RunnerTests(unittest.TestCase):
                 patch.object(runner.time,'monotonic',side_effect=[0,2,3]):
             self.assertEqual(runner.execute(self.args),1)
         self.assertEqual(owned.terminated,1)
-        self.assertEqual(start.call_args.kwargs['cwd'],self.args.output)
+        self.assertEqual(start.call_args.kwargs['cwd'],self.args.output.resolve())
         self.assertEqual(self.profile.read_text().count('/shared/'),3)
 
 if __name__ == '__main__': unittest.main()

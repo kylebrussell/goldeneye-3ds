@@ -75,7 +75,7 @@ flags (`_LANGUAGE_C`, `GE_PORT_USE_ORIGINAL_TYPES`, `AIPARSE`,
 `-fms-extensions`). Generator prerequisites are the generator and its imported
 extractors plus `glass2.c`, `glass.c`, `explosion.c`, `gunfire.c`, `gun.c`,
 `objective_status2.c`, `initactorpropstuff.c`, `alloc_window_pieces.c`,
-`chrprop.c` and `lv.c`. `init_ejected_cartridges` supplies the documented
+`chrprop.c`, `lv.c` and `ejectedcartridges.c`. `init_ejected_cartridges` supplies the documented
 one-statement sound reset subset. Other regions are explicitly rejected by
 this currently verified slice.
 
@@ -87,3 +87,11 @@ draw-disable gating, and object impact bit clearing. Room membership,
 audio and loaded model/image resources are explicit fixture seams. The
 visibility getter also passes the existing native/short-enum multiplayer
 visibility tests. The generated source compiles for ARM at `-O2 -Werror`.
+
+`ge_original_effect_runtime_storage` exposes read-only typed pools and a stage
+observation epoch for E8. Native effect-buffer resets are observed separately
+so a direct same-address allocation reset also invalidates the view. Close
+consumers and exporters before `ge_original_effect_runtime_end`; pre-world and
+render hooks reject an absent or ended owner. This bookkeeping does not alter
+original effect fields. See NativeEffectsState.md for E8 identities and
+remaining reference obligations.

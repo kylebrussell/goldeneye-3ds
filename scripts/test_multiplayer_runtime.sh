@@ -10,12 +10,12 @@ import sys
 root=Path(sys.argv[1]);sys.path.insert(0,str(root/'scripts'))
 from extract_bond_move_state_slice import extract_function
 source=(root/'src/game/bondview2.c').read_text()
-start=source.index('s32 mission_timer;')
-end=source.index('#endif',start)+len('#endif')
+mission='s32 mission_timer;'
+assert mission in source
 camera=(root/'src/game/bondview.c').read_text()
 declarations=['enum CAMERAMODE g_CameraMode = CAMERAMODE_NONE;', 's32 is_timer_active = 1;']
 assert all(d in camera for d in declarations)
-Path(sys.argv[2]).write_text('#include "game/bondview.h"\n'+source[start:end]+'\n'+'\n'.join(declarations)+'\n'+extract_function(source,'getMissiontimer')+'\n')
+Path(sys.argv[2]).write_text('#include "game/bondview.h"\n'+mission+'\n'+'\n'.join(declarations)+'\n'+extract_function(source,'getMissiontimer')+'\n')
 PY
 cc -std=gnu11 -O1 -g -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces -Wno-unused-variable \
     -fsanitize=address,undefined -fno-omit-frame-pointer \

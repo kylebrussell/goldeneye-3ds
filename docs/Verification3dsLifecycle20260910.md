@@ -1,0 +1,65 @@
+# 3DS lifecycle boundaries — September 10, 2026
+
+`ge_3ds_lifecycle` records `APTHOOK_ONRESTORE` and `APTHOOK_ONWAKEUP` in an
+atomic pending flag. Repeated notifications coalesce until the main thread
+consumes the flag with `ge_3ds_lifecycle_take_resume()`. The callback performs
+no allocation, service calls, audio work, input polling or timing changes.
+Repeated initialization does not duplicate the hook or erase a pending event;
+close unregisters the hook and discards the pending event.
+
+## Main-loop integration contract
+
+1. Call `ge_3ds_lifecycle_init()` after APT initialization, before any frontend,
+   lobby or gameplay loop. Call `ge_3ds_lifecycle_close()` before APT shutdown
+   on each common cleanup path.
+2. Immediately after each `aptMainLoop()` returns, consume the resume flag
+   before reading elapsed time or processing input. Treat it as an epoch
+   change: set that loop's previous wall-clock value to the current time and
+   exclude suspended time from the next scheduler pump. Preserve the existing
+   retrace scheduler's phase and counters; restarting it clears its phase.
+3. Cancel captured touch actions and suppress physical/touch inputs held across
+   the transition until release. Clear pending action edges without generating
+   a new fire/use/watch press.
+4. Invalidate any active timing/capture probe explicitly and retain a reported
+   interruption reason. Do not remove the interrupted frames and then declare
+   a continuous 60 Hz capture successful.
+5. Finish any outstanding audio worker and original music runtime work before
+   changing their rings. The audio drain runs at this safe main-thread
+   boundary; the APT callback must never manipulate NDSP or producer storage.
+
+The helper does not itself implement these main-loop policies. Their complete
+hookup must be reviewed in the integrated candidate, including frontend loops
+which keep local timestamps separate from gameplay.
+
+Libctru already owns DSP suspension and restoration. Its
+[NDSP service hook](https://github.com/devkitPro/libctru/blob/master/libctru/source/ndsp/ndsp.c)
+preserves and restores DSP state, so the application must not add an unrelated
+NDSP teardown/reinitialization inside an APT callback. Its
+[APT implementation](https://github.com/devkitPro/libctru/blob/master/libctru/source/services/apt.c)
+invokes sleep and restoration hooks around the main-thread applet transitions.
+
+## Software evidence and physical acceptance
+
+`sh scripts/test_3ds_lifecycle.sh` compiles the real helper under ASan and UBSan
+with an APT double matching libctru's displaced-head hook-cookie list. Tests
+cover sleep/suspend/exit neutrality, duplicate wake/restore coalescing,
+one-shot consumption, repeated registration and close, pending-event cleanup,
+reinitialization and preservation of unrelated hooks registered before and
+after this module.
+
+The module also compiles with `-Wall -Wextra -Werror` against the installed
+`devkitpro/devkitarm:latest` libctru headers for ARMv6K. Its object has only
+`aptHook` and `aptUnhook` as unresolved symbols; atomic flag operations require
+no additional runtime library with this toolchain.
+
+`sh scripts/test_3ds_audio_lifecycle.sh` exercises NDSP initialization failure,
+linear allocation failure, each initial cache-flush failure, runtime failure,
+idempotent cleanup, ring validation, overlapping bindings, rate changes and
+owned-buffer preservation. Its simulated stalled queue is an ownership check,
+not a physical lid-sleep test.
+
+Real-console lid close/open and HOME/restore still need testing during menus,
+gameplay, worker activity and transitions. Verify no simulation catchup, held
+input action, stale queued audio, device error, leak or hang. Repeat cycles and
+exit after restoration. Neither mocked event delivery nor ARM compilation
+establishes physical audio quality, frame pacing or suspend behavior.

@@ -76,6 +76,9 @@ void ge_original_gameplay_services_bind_settings_persistence(
     int (*persist_settings)(void *context, uint8_t music_volume,
                             uint8_t sfx_volume, uint16_t options));
 void ge_original_gameplay_services_set_exact_gun_dispatch(int active);
+/* A per-player chraiCheckUseHeldItems pass owns weapon hit dispatch. Suppress
+ * both legacy fire adapters in the once-per-frame audio service when active. */
+void ge_original_gameplay_services_set_exact_held_item_dispatch(int active);
 void ge_original_gameplay_services_tick(void);
 void ge_original_gameplay_services_snapshot(
     GeOriginalGameplayServiceStats *stats);

@@ -274,11 +274,64 @@ static void failures_and_lifetimes(void)
     assert(ge_mp_state_effects_begin(&owner,&tiny)==GE_MP_STATE_CAPACITY);
     assert(tiny.count==0 && !owner.live);ge_original_effect_runtime_end();
 }
+static void malformed_cleanup(void)
+{
+    static GeMpStateEffectsOwner saved_owner;
+    static GeMpRegistryEntry saved_entries[800];
+    begin(2);saved_owner=owner;size_t n=registry.count;
+    memcpy(saved_entries,entries,n*sizeof(*entries));
+#define UNCHANGED() do { \
+    GeMpStateEffectsOwner before;memcpy(&before,&owner,sizeof(before)); \
+    GeMpRegistry before_registry;memcpy(&before_registry,&registry,sizeof(before_registry)); \
+    assert(ge_mp_state_effects_end(&owner)==GE_MP_STATE_INVALID); \
+    assert(!memcmp(&before,&owner,sizeof(owner)) && registry.count==n); \
+    assert(!memcmp(&before_registry,&registry,sizeof(registry))); \
+    assert(!memcmp(saved_entries,entries,n*sizeof(*entries))); \
+    owner=saved_owner; \
+} while(0)
+    /* Last ID: all preceding valid E8 identities must remain live. */
+    unsigned last=owner.count-1;
+    owner.ids[last]=resource_ids[0];UNCHANGED();
+    owner.ids[last]=owner.ids[owner.offsets[GE_MP_EFFECT_PROJECTILE]];UNCHANGED();
+    owner.ids[last]=owner.ids[last-1];UNCHANGED();
+    owner.ids[last]=(uint64_t)ge_mp_registry_key(GE_MP_EFFECTS_KIND,255,19)<<32|1;UNCHANGED();
+    owner.ids[last]&=UINT64_C(0xffffffff00000000);UNCHANGED();
+    owner.count=GE_MP_EFFECTS_RECORDS+1;UNCHANGED();
+    --owner.count;UNCHANGED();
+    ++owner.count;UNCHANGED();
+    ++owner.counts[GE_MP_EFFECT_CASING];UNCHANGED();
+    --owner.counts[GE_MP_EFFECT_PARTICLE];UNCHANGED();
+    ++owner.offsets[GE_MP_EFFECT_CASING];UNCHANGED();
+    owner.ids[owner.count]=resource_ids[0];UNCHANGED();
+    owner.storage.particle_count=201;UNCHANGED();
+    owner.storage.player_count=0;UNCHANGED();
+    owner.storage.particles=(const void *)(uintptr_t)1;
+    assert(ge_mp_state_effects_export(&owner,&providers,&output)==GE_MP_STATE_INVALID);
+    assert(!output.record_count);UNCHANGED();
+    size_t capacity=registry.capacity;registry.capacity=n-1;
+    UNCHANGED();registry.capacity=capacity;
+    /* Native expiration does not authorize malformed identities either. */
+    ge_original_effect_runtime_end();owner.ids[last]=resource_ids[0];UNCHANGED();
+    assert(ge_mp_state_effects_end(&owner)==GE_MP_STATE_STALE && !owner.live);
+    for(unsigned i=0;i<saved_owner.count;++i)
+        assert(ge_mp_registry_resolve(&registry,saved_owner.ids[i],NULL)==GE_MP_STATE_STALE);
+    assert(ge_mp_registry_resolve(&registry,resource_ids[0],NULL)==GE_MP_STATE_OK);
+    begin(4);uint64_t old=owner.ids[owner.count-1],successor;
+    assert(ge_mp_registry_release(&registry,old)==GE_MP_STATE_OK);
+    assert(ge_mp_registry_acquire(&registry,(uint32_t)(old>>32),&successor)==GE_MP_STATE_OK);
+    assert(successor!=old);
+    assert(ge_mp_state_effects_end(&owner)==GE_MP_STATE_STALE && !owner.live);
+    assert(ge_mp_registry_resolve(&registry,successor,NULL)==GE_MP_STATE_OK);
+    assert(ge_mp_registry_resolve(&registry,resource_ids[0],NULL)==GE_MP_STATE_OK);
+    assert(ge_mp_registry_release(&registry,successor)==GE_MP_STATE_OK);
+    ge_original_effect_runtime_end();
+#undef UNCHANGED
+}
 int main(void)
 {
     native_runtime_regression();registry_init();
     native_mutations(2);native_mutations(4);native_mutations(1);
-    fallback_target_aliases();failures_and_lifetimes();
+    fallback_target_aliases();failures_and_lifetimes();malformed_cleanup();
     puts("E8 effects: native 2/4 construction/update, typed mutations, negative smoke and free-part retention, ABI fields, stage lifetime and incomplete schema rejection passed");
     return 0;
 }

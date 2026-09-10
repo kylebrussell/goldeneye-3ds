@@ -28,6 +28,13 @@ assert "widened[2], cull_margin" in draw
 world = draw[:draw.index("phase_ticks[2] = svcGetSystemTick();")]
 assert "GE_3DS_STEREO_LAYER_FIRST_PERSON" not in world
 assert "renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_FIRST_PERSON);" in draw
+flash = draw[draw.index("if(guard_muzzle_flash_vertex_count"):
+             draw.index("if (autogun_beam_vertex_count")]
+flash_layer_call = re.search(r"renderer_set_stereo_layer\([^;]+;", flash).group()
+shader = (repo / "platform/3ds/source/vshader.v.pica").read_text()
+for instruction in ("mul r2, stereo[0], r1.wwww", "add r1, r1, r2",
+                    "add outpos, stereo[1], r1"):
+    assert instruction in shader
 init = function("renderer_init")
 assert init.index('shaderInstanceGetUniformLocation(shader_program.vertexShader, "stereo")') < init.index("stereo_uniform_cache_valid = false;")
 
@@ -53,7 +60,34 @@ static void C3D_FVUnifSet(int shader, int index, float x, float y, float z, floa
     registers[index][2] = z; registers[index][3] = w;
     ++uploads;
 }
-''' + function("renderer_set_stereo_layer") + "\n" + function("renderer_stereo_widen_clip") + r'''
+''' + function("renderer_set_stereo_layer") + "\n" + function("renderer_stereo_widen_clip") + '''
+static void install_guard_flash_layer(void) {
+''' + flash_layer_call + r'''
+}
+static void check_guard_flash_depth(void)
+{
+    const float depths[]={15,45,180,1000};
+    ge_3ds_stereo_config_defaults(&stereo_config);
+    for(int eye=-1;eye<=1;eye+=2) for(unsigned step=0;step<=2;++step) {
+        stereo_current_eye=eye;stereo_slider=0.5f*(float)step;
+        renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_WORLD);
+        float weapon_registers[2][4];
+        memcpy(weapon_registers,registers+stereo_uniform,sizeof(weapon_registers));
+        install_guard_flash_layer();
+        for(unsigned depth=0;depth<sizeof(depths)/sizeof(depths[0]);++depth)
+            for(unsigned axis=0;axis<2;++axis) {
+                /* Actual shader: clip += coefficient*W + constant, then
+                 * perspective division. The shared muzzle point must stay
+                 * attached in both eyes at every slider/depth sample. */
+                const float w=depths[depth],base=7.0f+(float)axis;
+                const float weapon=(base+weapon_registers[0][axis]*w
+                    +weapon_registers[1][axis])/w;
+                const float flash=(base+registers[stereo_uniform][axis]*w
+                    +registers[stereo_uniform+1][axis])/w;
+                assert(flash==weapon);
+            }
+    }
+}
 static void check_layer(Ge3dsStereoLayer layer, unsigned expected_uploads)
 {
     Ge3dsStereoUniforms expected;
@@ -112,6 +146,7 @@ int main(void)
     assert(memcmp(matrix,widened,sizeof(matrix))==0);
     renderer_stereo_widen_clip(matrix,widened,INFINITY);
     assert(ge_draw_batch_world_may_intersect_clip_frustum(vertices,3,&batch,widened));
+    check_guard_flash_depth();
     return 0;
 }
 '''
@@ -131,4 +166,4 @@ with tempfile.TemporaryDirectory(prefix="ge-stereo-renderer-") as directory:
     subprocess.run([str(path / "test")], check=True, env={
         **os.environ, "ASAN_OPTIONS": "detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1",
     })
-print("3DS stereo renderer: nearby eye-visible geometry retained; redundant uniform uploads skipped")
+print("3DS stereo renderer: nearby eye-visible geometry retained; guard flash depth matches world weapon; redundant uniform uploads skipped")

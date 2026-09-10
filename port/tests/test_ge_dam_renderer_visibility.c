@@ -103,6 +103,19 @@ int main(void)
         &canonical,zero,&result)==GE_ORIGINAL_BG_VISIBILITY_OK);
     assert(memcmp(&canonical,&result.visible,sizeof(canonical))==0);
     assert(!result.stereo);
+    /* The queue's 137-room array is smaller than the 139-room renderer
+     * membership. Its adjacent struct padding must never become requests. */
+    {
+        GeDamPreloadQueue padded_queue=queue;
+        const size_t request_end=offsetof(GeDamPreloadQueue,visibility_requested)
+            +sizeof(padded_queue.visibility_requested);
+        memset((uint8_t *)&padded_queue+request_end,0xa5,
+            offsetof(GeDamPreloadQueue,room_count)-request_end);
+        assert(ge_dam_renderer_visibility_run(&runtime,&camera,position,&providers,&padded_queue,
+            &canonical,zero,&result)==GE_ORIGINAL_BG_VISIBILITY_OK);
+        for(size_t room=sizeof(padded_queue.visibility_requested);room<sizeof(result.preload);++room)
+            assert(result.preload[room]==0);
+    }
     assert(ge_dam_renderer_visibility_run(&runtime,&camera,position,&providers,&queue,
         &canonical,shifts,&result)==GE_ORIGINAL_BG_VISIBILITY_OK);
     assert(result.membership[2]==2 && result.membership[3]==4);

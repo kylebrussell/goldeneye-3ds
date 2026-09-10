@@ -17829,7 +17829,9 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
         C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,projection_uniform,
                          &dam_preview->gpu_first_person_projection);
-        renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_FIRST_PERSON);
+        /* Guard flashes share their weapon's world depth despite carrying
+         * already-transformed eye-space vertices. */
+        renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_WORLD);
         C3D_CullFace(GPU_CULL_BACK_CCW);
         /* texSelect(..., mode 4, zbuffer 1) is the canonical cloud-surface
          * pass: depth-tested translucent color, without a depth write. */

@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+_Static_assert(GE_DAM_PRELOAD_MAX_ROOMS <= GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS,
+    "renderer preload membership must hold the complete request queue");
+
 /* Deliberately only this module can call the private interpreter. */
 GeOriginalBgVisibilityStatus ge_renderer_private_ge_original_bg_visibility_run(
     const GeOriginalBgVisibilityInput *, GeOriginalBgVisibilityResult *);
@@ -128,7 +131,8 @@ GeOriginalBgVisibilityStatus ge_dam_renderer_visibility_run(
     memcpy(unique, candidate.visible.rooms, unique_count * sizeof(*unique));
     candidate.visible = *canonical;
     if (queue != NULL)
-        memcpy(candidate.preload, queue->visibility_requested, sizeof(candidate.preload));
+        memcpy(candidate.preload, queue->visibility_requested,
+            sizeof(queue->visibility_requested));
     candidate.stereo = shifts[0].constant_px != 0.0f || shifts[0].coefficient_px != 0.0f
         || shifts[1].constant_px != 0.0f || shifts[1].coefficient_px != 0.0f;
     if (!candidate.stereo) {

@@ -5,7 +5,7 @@ import argparse
 from extract_bond_move_state_slice import extract_variable
 from extract_stage_pickup_slice import function_text
 
-def render(root):
+def render(root, include_shuffle=True):
     player=(root/'src/game/player.c').read_text()
     inv=(root/'src/game/bondinv.c').read_text()
     gun=(root/'src/game/gunfire.c').read_text()
@@ -36,6 +36,8 @@ static const char aSD[]="%s %d",aSD_0[]="%s %d",g_GunDeathCountFormat[]="%s %d %
 ''']
     for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num'):
         s.append(extract_variable(player,name))
+    if include_shuffle:
+        s.append(extract_variable(player,'array_PLAYER_IDs'))
     for source,names in ((player,('set_cur_player','get_cur_playernum','getPlayerCount','default_player_perspective_and_height')),
                          (inv,('bondinvReinitInv','bondinvGetNextAvailItem','bondinvGetInvItem','bondinvHasInvItem','bondinvSortInv','bondinvInsertItem','bondinvAddInvItem','bondinvGetDualWeapon','bondinvHasDualWeapon','bondinvAddDoublesInvItem','bondinvAddPropToInv','bondinvRemoveItem')),
                          (gun,('increment_num_kills_display_text_in_MP','increment_num_times_killed_MwtGC','increment_num_deaths','increment_num_suicides_display_MP')),

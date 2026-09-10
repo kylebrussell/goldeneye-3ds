@@ -21,7 +21,7 @@ s32 g_VisibleToGuardsFlag;
 PadRecord *g_Startpad[16];
 s32 startpadcount;
 '''
-    for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num'):
+    for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num','array_PLAYER_IDs'):
         out+=extract_data(player,name)+'\n'
     for name in ('set_cur_player','get_cur_playernum','getPlayerCount','default_player_perspective_and_height'):
         out+=function_text(player,name)+'\n'

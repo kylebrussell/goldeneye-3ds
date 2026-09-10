@@ -47,6 +47,13 @@ int ge_original_bond_live_initialize(void *right_hand_buffer,
                                      void *left_hand_buffer,
                                      GeOriginalBondLiveState *state);
 
+/* Uses the already allocated canonical multiplayer slot. Hand buffers and
+ * the live/pose/loader owners must be distinct for every player. Does not
+ * collapse the roster or reinitialize shared timing/RNG. */
+int ge_original_bond_live_initialize_multiplayer(uint32_t slot,
+    void *right_hand_buffer, void *left_hand_buffer,
+    GeOriginalBondLiveState *state);
+
 /* Runs the canonical bondviewProcessInput body against the controller sample
  * already published through ge_original_input_tick. */
 int ge_original_bond_live_tick(GeOriginalBondLiveState *state,

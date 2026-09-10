@@ -52,6 +52,11 @@ typedef struct GeOriginalPlayerViewState {
     int initialized;
 } GeOriginalPlayerViewState;
 
+/* Select an initialized player publication without resetting its state. */
+void ge_original_player_spawn_select(
+    const GeOriginalPlayerSpawnProviders *providers,
+    GeOriginalPlayerViewState *state);
+
 void ge_original_player_spawn_bind(
     const GeOriginalPlayerSpawnProviders *providers,
     GeOriginalPlayerViewState *state);
@@ -59,6 +64,10 @@ void ge_original_player_spawn_bind(
 /* Commits the intro result through the exact change_player_pos_to_target body
  * and the original intro/player semantic assignments. */
 int ge_original_player_spawn_commit(
+    const GeOriginalPlayerSpawnConfig *config);
+/* Placement for an initialized multiplayer player. Preserves canonical hand,
+ * inventory, score and per-life defaults already established by its owner. */
+int ge_original_player_spawn_commit_existing(
     const GeOriginalPlayerSpawnConfig *config);
 
 #ifdef __cplusplus

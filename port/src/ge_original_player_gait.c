@@ -612,6 +612,15 @@ GeOriginalPlayerGait *ge_original_player_gait_create_current_player(
 #endif
 }
 
+int ge_original_player_gait_select_current_player(GeOriginalPlayerGait *gait)
+{
+    struct player *player = ge_original_spawn_player_get();
+    if (g_active_gait != NULL || gait == NULL || player == NULL
+            || gait->model != (Model *)(void *)&player->model) return 0;
+    g_current_player_gait = gait;
+    return 1;
+}
+
 void ge_original_player_gait_destroy(GeOriginalPlayerGait *gait)
 {
     if (gait != NULL) {

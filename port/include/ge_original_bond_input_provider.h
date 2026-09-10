@@ -48,4 +48,13 @@ void ge_original_bond_input_bind_player(
     struct player *player, struct player_data *permissions);
 void ge_original_bond_input_set_fov_y(float fov_y);
 
+/* Validates the entire roster before publication. Canonical set_cur_player
+ * may then switch players (including temporary damage/score attribution).
+ * The provider accessor follows that pointer and retains per-player options. */
+int ge_original_bond_input_bind_roster(struct player *const *players,
+    struct player_data *const *permissions, uint32_t count);
+void ge_original_bond_input_unbind_roster(void);
+void ge_original_bond_input_set_timers(int32_t clock_timer,
+    int32_t global_timer, float global_timer_delta);
+
 #endif

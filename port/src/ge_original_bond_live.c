@@ -3,6 +3,7 @@
 #include "ge_original_bond_move_state.h"
 #include "ge_original_player_spawn_internal.h"
 #include "ge_original_input.h"
+#include "ge_original_multiplayer_players.h"
 
 #include <ultra64.h>
 #include <bondtypes.h>
@@ -38,6 +39,7 @@ static void ge_original_bond_live_set_timers(
     provider->clock_timer = clock_timer;
     provider->global_timer = global_timer;
     provider->global_timer_delta = global_timer_delta;
+    ge_original_bond_input_set_timers(clock_timer, global_timer, global_timer_delta);
     g_ClockTimer = clock_timer;
     g_GlobalTimer = global_timer;
     g_GlobalTimerDelta = global_timer_delta;
@@ -86,6 +88,24 @@ int ge_original_bond_live_tick(GeOriginalBondLiveState *state,
     bondviewProcessInput(frame.stick_x, frame.stick_y,
                          frame.buttons, frame.oldbuttons);
     state->input_tick_count++;
+    return 1;
+}
+
+int ge_original_bond_live_initialize_multiplayer(uint32_t slot,
+    void *right_hand_buffer, void *left_hand_buffer,
+    GeOriginalBondLiveState *state)
+{
+    struct player *player = ge_original_multiplayer_player(slot);
+    if (state == NULL || player == NULL || player->prop == NULL
+            || right_hand_buffer == NULL || left_hand_buffer == NULL
+            || right_hand_buffer == left_hand_buffer) return 0;
+    if (!ge_original_multiplayer_select_player(slot)
+            || !ge_original_multiplayer_player_bind_inventory(slot)) return 0;
+    ge_original_bond_input_initialize_player_hands(right_hand_buffer, left_hand_buffer);
+    bondinvReinitInv();
+    if (!bondviewLoadSetupIntroLoadoutSlice(&state->loadout)) return 0;
+    ++state->initialization_count;
+    state->initialized = 1;
     return 1;
 }
 

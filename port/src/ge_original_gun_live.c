@@ -23,17 +23,22 @@ typedef int PLAYERFLAG;
 
 static unsigned char ge_original_gun_frame_storage[
     GE_ORIGINAL_GUN_FRAME_ARENA_SIZE] __attribute__((aligned(16)));
-static GeOriginalGunLiveStats ge_original_gun_live_stats;
-static GeOriginalGunLiveHand ge_original_gun_live_hands[2];
+static GeOriginalGunLiveStats ge_gun_live_stats_by_player[4];
+static GeOriginalGunLiveHand ge_gun_live_hands_by_player[4][2];
+static unsigned ge_gun_live_player_slot(void)
+{
+    const int32_t slot = ge_original_bond_input_provider()->player_number;
+    return slot >= 0 && slot < 4 ? (unsigned)slot : 0U;
+}
+#define ge_original_gun_live_stats ge_gun_live_stats_by_player[ge_gun_live_player_slot()]
+#define ge_original_gun_live_hands ge_gun_live_hands_by_player[ge_gun_live_player_slot()]
 
 extern void ge_original_gun_update_and_fire_both_hands_exact(void);
 
 void ge_original_gun_live_reset(void)
 {
-    memset(&ge_original_gun_live_stats, 0,
-           sizeof(ge_original_gun_live_stats));
-    memset(ge_original_gun_live_hands, 0,
-           sizeof(ge_original_gun_live_hands));
+    memset(ge_gun_live_stats_by_player, 0, sizeof(ge_gun_live_stats_by_player));
+    memset(ge_gun_live_hands_by_player, 0, sizeof(ge_gun_live_hands_by_player));
 }
 
 int ge_original_gun_live_frame_begin(void)
@@ -56,6 +61,10 @@ int ge_original_gun_live_tick(void)
     int owns_frame = !ge_original_gun_frame_arena_active();
     size_t start_used;
     size_t used;
+    /* Every roster publication shares this arena. A separate implicit frame
+     * per player would overwrite earlier players' still-published matrices. */
+    if (owns_frame && ge_original_bond_input_provider()->player_count > 1)
+        return 0;
     if (owns_frame && !ge_original_gun_frame_arena_begin(
             ge_original_gun_frame_storage,
             sizeof(ge_original_gun_frame_storage))) return 0;

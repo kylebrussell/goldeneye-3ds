@@ -8,8 +8,12 @@ struct player;
 /* The bounded intro slice owns the real decompiled player object. Movement
  * and camera compatibility slices share it through this typed boundary. */
 struct player *ge_original_spawn_player_get(void);
+/* NULL restores the campaign storage. A multiplayer owner supplies the
+ * canonical current-player pointer so temporary damage switches work too. */
+void ge_original_spawn_player_bind_current(struct player **current);
 
 void ge_original_spawn_player_reset(float eye_height);
+void ge_original_spawn_player_set_eye_height(float eye_height);
 int ge_original_commit_intro_player_spawn_slice(const float position[3],
                                                 float floor_y,
                                                 float look_angle_radians,

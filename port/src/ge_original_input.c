@@ -6,11 +6,15 @@
 #include <ultra64.h>
 #include "joy.h"
 
-#define GE_PRIMARY_CONTROLLER 0
-#define GE_SECONDARY_CONTROLLER 1
+#define GE_PRIMARY_CONTROLLER ((int)g_input_player)
+#define GE_SECONDARY_CONTROLLER ((int)(g_input_player + g_input_count))
 #define GE_VIRTUAL_CONTROLLER_COUNT 2
 
-static GeOriginalInputSample g_pending_sample;
+static GeOriginalInputSample g_pending_samples[4];
+static GeOriginalInputPad g_pending_pads[4][2];
+static int g_raw_pads;
+static uint32_t g_input_count = 1;
+static uint32_t g_input_player;
 static int g_dual_analog;
 static float g_stick_limit = 60.0f;
 
@@ -29,6 +33,13 @@ static int ge_original_input_look_controller(void)
 static const GeOriginalRamromReplay *g_ramrom_replay;
 static const GeOriginalRamromBlock *g_ramrom_block;
 static uint32_t g_ramrom_controller_count;
+/* Optional metadata sink for controller-only links. The full ARM build
+ * explicitly retains the strong rules owner and its canonical replay state. */
+__attribute__((weak, noinline)) void ge_original_multiplayer_bind_intro_slot(
+    int playback, int recording, uint32_t slot)
+{
+    (void)playback; (void)recording; (void)slot;
+}
 
 static s8 ge_original_input_stick(float value)
 {
@@ -52,21 +63,29 @@ static s32 ge_original_input_playback(struct contsample *samples, s32 current)
 {
     s32 next = (current + 1) % CONTSAMPLE_LEN;
 
-    const int move = ge_original_input_move_controller();
-    const int look = ge_original_input_look_controller();
-
+    uint32_t p;
     memset(&samples[next], 0, sizeof(samples[next]));
-    samples[next].pads[move].stick_x =
-        ge_original_input_stick(g_pending_sample.move_x);
-    samples[next].pads[move].stick_y =
-        ge_original_input_stick(g_pending_sample.move_y);
-    samples[next].pads[look].stick_x =
-        ge_original_input_stick(g_pending_sample.look_x);
-    samples[next].pads[look].stick_y =
-        ge_original_input_stick(g_pending_sample.look_y);
-    samples[next].pads[GE_PRIMARY_CONTROLLER].button = g_pending_sample.buttons;
-    samples[next].pads[GE_SECONDARY_CONTROLLER].button =
-        g_pending_sample.buttons_secondary;
+    for (p = 0; p < g_input_count; ++p) {
+        if (g_raw_pads) {
+            unsigned pad;
+            for (pad = 0; pad < 2; ++pad) {
+                const GeOriginalInputPad *raw = &g_pending_pads[p][pad];
+                samples[next].pads[p + pad * g_input_count].button = raw->buttons;
+                samples[next].pads[p + pad * g_input_count].stick_x = raw->stick_x;
+                samples[next].pads[p + pad * g_input_count].stick_y = raw->stick_y;
+            }
+            continue;
+        }
+        const GeOriginalInputSample *sample = &g_pending_samples[p];
+        const int move = (int)(g_dual_analog ? p + g_input_count : p);
+        const int look = (int)(g_dual_analog ? p : p + g_input_count);
+        samples[next].pads[move].stick_x = ge_original_input_stick(sample->move_x);
+        samples[next].pads[move].stick_y = ge_original_input_stick(sample->move_y);
+        samples[next].pads[look].stick_x = ge_original_input_stick(sample->look_x);
+        samples[next].pads[look].stick_y = ge_original_input_stick(sample->look_y);
+        samples[next].pads[p].button = sample->buttons;
+        samples[next].pads[p + g_input_count].button = sample->buttons_secondary;
+    }
     return next;
 }
 
@@ -100,7 +119,12 @@ static s32 ge_original_input_ramrom_playback(
 
 void ge_original_input_init(void)
 {
-    memset(&g_pending_sample, 0, sizeof(g_pending_sample));
+    ge_original_multiplayer_bind_intro_slot(0, 0, 0);
+    memset(g_pending_samples, 0, sizeof(g_pending_samples));
+    memset(g_pending_pads, 0, sizeof(g_pending_pads));
+    g_raw_pads = 0;
+    g_input_count = 1;
+    g_input_player = 0;
     g_ramrom_replay = NULL;
     g_ramrom_block = NULL;
     g_ramrom_controller_count = 0U;
@@ -139,6 +163,7 @@ int ge_original_input_ramrom_queue(
             || block->sample_count == 0U) return 0;
     g_ramrom_replay = replay;
     g_ramrom_block = block;
+    ge_original_multiplayer_bind_intro_slot(1, 0, replay->header.slot_number);
     return 1;
 }
 
@@ -149,8 +174,67 @@ void ge_original_input_ramrom_unbind(void)
 
 void ge_original_input_tick(const GeOriginalInputSample *sample)
 {
-    g_pending_sample = *sample;
+    if (sample != NULL && g_input_count == 1) {
+        g_raw_pads = 0;
+        g_pending_samples[0] = *sample;
+        joyConsumeSamplesWrapper();
+    }
+}
+
+int ge_original_input_configure_players(uint32_t count)
+{
+    if (count < 1 || count > 4 || count * 2 > JOY_MAX_CONTROLLERS) return 0;
+    ge_original_input_init();
+    g_input_count = count;
+    joySetPlaybackFunc(ge_original_input_playback, (s32)(count * 2));
+    /* Two neutral samples prevent held edges from an earlier roster. */
     joyConsumeSamplesWrapper();
+    joyConsumeSamplesWrapper();
+    return 1;
+}
+
+int ge_original_input_tick_players(const GeOriginalInputSample *samples,
+                                  uint32_t count)
+{
+    if (samples == NULL || count != g_input_count || g_ramrom_controller_count)
+        return 0;
+    memcpy(g_pending_samples, samples, count * sizeof(*samples));
+    g_raw_pads = 0;
+    joyConsumeSamplesWrapper();
+    return 1;
+}
+
+int ge_original_input_sample_pads(const GeOriginalInputSample *sample,
+                                 GeOriginalInputPad pads[2])
+{
+    unsigned move = g_dual_analog ? 1 : 0;
+    unsigned look = 1 - move;
+    if (sample == NULL || pads == NULL) return 0;
+    pads[0].buttons = sample->buttons;
+    pads[1].buttons = sample->buttons_secondary;
+    pads[move].stick_x = ge_original_input_stick(sample->move_x);
+    pads[move].stick_y = ge_original_input_stick(sample->move_y);
+    pads[look].stick_x = ge_original_input_stick(sample->look_x);
+    pads[look].stick_y = ge_original_input_stick(sample->look_y);
+    return 1;
+}
+
+int ge_original_input_tick_pad_pairs(const GeOriginalInputPad (*pads)[2],
+                                    uint32_t count)
+{
+    if (pads == NULL || count != g_input_count || g_ramrom_controller_count)
+        return 0;
+    memcpy(g_pending_pads, pads, count * sizeof(*pads));
+    g_raw_pads = 1;
+    joyConsumeSamplesWrapper();
+    return 1;
+}
+
+int ge_original_input_select_player(uint32_t slot)
+{
+    if (slot >= g_input_count) return 0;
+    g_input_player = slot;
+    return 1;
 }
 
 void ge_original_input_set_dual_analog(int enabled)

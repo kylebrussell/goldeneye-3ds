@@ -22,6 +22,24 @@ typedef struct GeOriginalBondInputFrame {
     uint16_t buttons;
     uint16_t oldbuttons;
 } GeOriginalBondInputFrame;
+typedef struct GeOriginalInputPad {
+    uint16_t buttons;
+    int8_t stick_x;
+    int8_t stick_y;
+} GeOriginalInputPad;
+
+/* A whole deterministic simulation tick is published at once. Controller p
+ * belongs to slot p; controller p + count is its second pad. */
+int ge_original_input_configure_players(uint32_t count);
+int ge_original_input_tick_players(const GeOriginalInputSample *samples,
+                                  uint32_t count);
+int ge_original_input_select_player(uint32_t slot);
+/* Network/replay input is already quantized. Never rescale received pads or
+ * run receiver-local sensitivity settings over another player's sample. */
+int ge_original_input_tick_pad_pairs(const GeOriginalInputPad (*pads)[2],
+                                    uint32_t count);
+int ge_original_input_sample_pads(const GeOriginalInputSample *sample,
+                                 GeOriginalInputPad pads[2]);
 
 /* Initializes the original joy.c playback path as two virtual controllers. */
 void ge_original_input_init(void);

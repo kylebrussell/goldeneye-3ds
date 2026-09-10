@@ -9,8 +9,16 @@
  */
 #define CONTSAMPLE_LEN   20
 
+/* Native playback presents two original pads per player. The hardware N64
+ * build retains its four-pad ABI; no serial controller protocol is changed. */
+#ifdef GE_PORT_ULTRA64_H
+#define JOY_MAX_CONTROLLERS 8
+#else
+#define JOY_MAX_CONTROLLERS MAXCONTROLLERS
+#endif
+
 struct contsample {
-	OSContPad pads[MAXCONTROLLERS];
+	OSContPad pads[JOY_MAX_CONTROLLERS];
 };
 
 typedef s32 (*contplaybackfunc)(struct contsample*, s32);

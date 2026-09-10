@@ -23,6 +23,8 @@ typedef struct GeOriginalGunLiveHand {
 void ge_original_gun_live_reset(void);
 int ge_original_gun_live_frame_begin(void);
 int ge_original_gun_live_frame_finalize(GeOriginalDynFrameAudit *audit);
+/* Multiplayer requires one explicit frame_begin/finalize around all players.
+ * Matrices remain borrowed only until the next frame_begin recycles the arena. */
 int ge_original_gun_live_tick(void);
 void ge_original_gun_live_snapshot(GeOriginalGunLiveStats *stats);
 int ge_original_gun_live_hand_snapshot(

@@ -46,7 +46,11 @@ def main() -> None:
             assert tokens(canonical) == tokens(module.extract_typedef(generated, name)), name
             assert f"{name} sha256={module.digest(canonical)}" in generated
             checked += 1
-    assert checked == 112
+    # The shared player-body adapter now owns appearance data and gender;
+    # explosion damage must resolve that one canonical selection provider.
+    assert "u8 get_player_mp_char_gender(" not in generated
+    assert "struct MP_selectable_chars mp_chr_setup[]" not in generated
+    assert checked == 109
     print(f"bond move explosion exactness: {checked} canonical bodies/data token-identical")
 
 

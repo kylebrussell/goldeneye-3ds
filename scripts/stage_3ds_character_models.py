@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage every ROM-backed character model required by the solo setups."""
+"""Stage every ROM-backed character model required by solo and multiplayer."""
 
 from __future__ import annotations
 
@@ -217,6 +217,20 @@ def dependency_ids(root: Path, records: list[dict[str, Any]]) -> tuple[set[int],
     # random pools must therefore be packaged for the canonical chooser.
     explicit_heads.update(male_heads)
     explicit_heads.update(female_heads)
+    # Multiplayer's canonical selectable cast contains three resources not
+    # present in any solo setup or credits cast (Rosika, terrorist and biker).
+    # Read the original table, including the historical variant, so additions
+    # cannot silently remain absent from the actual asset pack.
+    multiplayer_tables = re.findall(
+        r"struct MP_selectable_chars mp_chr_setup\[\]\s*=\s*\{(.*?)\n\};",
+        cast_source, re.DOTALL)
+    if len(multiplayer_tables) != 2:
+        raise ValueError("cannot find both canonical multiplayer character tables")
+    for table in multiplayer_tables:
+        for token in set(re.findall(r"BODY_[A-Za-z0-9_]+", table)):
+            body_ids.add(names[token])
+        for token in set(re.findall(r"HEAD_[A-Za-z0-9_]+", table)):
+            explicit_heads.add(names[token])
     return body_ids, explicit_heads
 
 
@@ -246,7 +260,7 @@ def checked_manifest(root: Path, blobs: Path | None = None) -> dict[str, Any]:
                       m["sha256"]] for m in models]
     return {
         "schema": 1,
-        "kind": "goldeneye-us-solo-character-model-dependencies",
+        "kind": "goldeneye-us-character-model-dependencies",
         "body_ids": sorted(bodies), "head_ids": sorted(heads),
         "body_count": len(bodies), "head_count": len(heads),
         "model_count": len(models), "total_size": total_size,

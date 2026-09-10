@@ -3,6 +3,8 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir=$(mktemp -d /tmp/ge-player-body.XXXXXX)
 trap 'rm -rf "${build_dir}"' EXIT
+python3 "${repo_dir}/scripts/extract_player_body_characters.py" "${repo_dir}" \
+    "${repo_dir}/port/src/ge_original_player_body_characters.inc" --check
 cc -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined \
     -fno-omit-frame-pointer -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES \
     -DAIPARSE -DGE_PORT_SETUP_DATA -DGE_PORT_MS_INHERITS -DVERSION_US \

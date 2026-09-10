@@ -214,6 +214,15 @@ GeOriginalStageGuardRuntime *ge_original_stage_guard_runtime_create(
     GeOriginalStageGuardRuntimeStatus *status);
 void ge_original_stage_guard_runtime_destroy(
     GeOriginalStageGuardRuntime *runtime);
+/* Publish all opponents while excluding the local first-person world body.
+ * NULL restores cinematic/all-player publication. This only controls drawing;
+ * character, weapon, damage and collision ownership stay live. */
+void ge_original_stage_guard_runtime_set_local_player_view(
+    GeOriginalStageGuardRuntime *runtime, struct player *player,
+    int first_person);
+/* The caller's character-model provider must reserve four model instances in
+ * addition to its guard capacity. ChrRecords themselves have four independent
+ * reserved records and cannot consume an authored/dynamic guard slot. */
 int ge_original_stage_guard_runtime_load_player_body(
     void *context, struct player *player, int32_t body_id,
     int32_t head_id, float yaw);

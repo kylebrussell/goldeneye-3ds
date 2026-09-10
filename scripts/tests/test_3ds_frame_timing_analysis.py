@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import subprocess
 import sys
+import hashlib
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('timing', ROOT / 'scripts/analyze_3ds_frame_timing.py')
@@ -132,6 +133,107 @@ class ComparisonTests(unittest.TestCase):
             sidecar=after.with_suffix('.provenance.json')
             sidecar.unlink()
             self.assertFalse(TIMING.comparison_gate(before, after)['recorded_state_matches'])
+
+
+class PipelineTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / 'measured.result'
+
+    def write(self, count=5, changes=None):
+        self.pipeline = [[i, int(i > 1), 1000.25, 5000.5, 1, 2, 1, 1, 0, 256*i, 0]
+                         for i in range(1, count + 1)]
+        if changes:
+            changes(self.pipeline)
+        text = ('status=complete\nruntime_profile_tick_hz=60\nframe_timing_version=4\n'
+                f'frame_timing_count={count}\nprobe_detail=0\nstage_load_ticks=120\n'
+                'stereo_config=1,8,180,3,45,2,0.00625\n')
+        for i in range(1, count + 1):
+            text += 'frame_timing=' + ','.join(map(str, [i, 1]+[0]*16+[1, 0])) + '\n'
+            text += f'frame_present_timing={i},0,1000,{i}\n'
+        text += ''.join('frame_pipeline=' + ','.join(map(str, row)) + '\n' for row in self.pipeline)
+        self.path.write_text(text)
+
+    def provenance(self, **changes):
+        data = {key: 'a'*64 for key in ('binary_sha256', 'asset_sha256', 'input_sha256',
+                'asset_manifest_sha256', 'configuration_sha256', 'request_sha256', 'before_sha256', 'after_sha256')}
+        data.update(schema='ge-3ds-benchmark-v1', inventory_verified=True, mode='clean',
+                    samples=3600, warmup=1, environment='emulator', environment_description='isolated test',
+                    operator_observations='test fixture, no real performance claim', toolchain='test',
+                    source={'commit':'b'*40, 'source_tree_sha256':'c'*64}, run_kind='cold', audible_confirmed=True,
+                    result_sha256=hashlib.sha256(self.path.read_bytes()).hexdigest())
+        data.update(changes)
+        self.path.with_suffix('.provenance.json').write_text(json.dumps(data))
+
+    def test_gpu_is_previous_frame_and_guard_covers_window(self):
+        def changes(rows):
+            rows[1][2] = 999999  # GPU for warmup frame 1, never measured frame 2.
+            rows[4][2] = 7000.75  # GPU for measured frame 4, in trailing row 5.
+        self.write(changes=changes)
+        summary = TIMING.summarize(self.path, 1, 3)
+        self.assertEqual(summary['trailing_frames'], 1)
+        self.assertEqual(summary['pipeline']['gpu_samples'], 3)
+        self.assertEqual(summary['pipeline']['gpu_missing_frames'], [])
+        self.assertEqual(summary['pipeline']['gpu_queue']['peak_us'], 7000.75)
+        self.assertEqual(summary['pipeline']['gpu_over_60hz_budget'], 0)
+        self.assertEqual(summary['stage_load_ms'], 2000)
+        summary = TIMING.summarize(self.path, 1)
+        self.assertEqual(summary['pipeline']['gpu_missing_frames'], [5])
+        self.assertEqual(summary['pipeline']['primary_audio_source_frames'], 1024)
+
+    def test_fractional_gpu_budget_and_invalid_completion(self):
+        self.write(changes=lambda rows: rows[2].__setitem__(2, 16666.668))
+        summary = TIMING.summarize(self.path, 1, 3)
+        self.assertEqual(summary['pipeline']['gpu_over_60hz_budget'], 1)
+        self.assertFalse(TIMING.sustained_60hz_gate(summary, 3)['passed'])
+        self.write(changes=lambda rows: rows[2].__setitem__(1, 0))
+        summary = TIMING.summarize(self.path, 1, 3)
+        self.assertEqual(summary['pipeline']['gpu_missing_frames'], [2])
+
+    def test_bad_pipeline_records_and_windows_are_rejected(self):
+        for column, value in [(1, 2), (2, float('nan')), (3, -1), (4, 1.01),
+                              (5, 0), (6, 2), (7, -1), (8, 2), (9, 0)]:
+            with self.subTest(column=column, value=value):
+                self.write(changes=lambda rows: rows[2].__setitem__(column, value))
+                with self.assertRaises(ValueError):
+                    TIMING.summarize(self.path, 1)
+        self.write()
+        for samples in (0, -1, 5):
+            with self.assertRaises(ValueError):
+                TIMING.summarize(self.path, 1, samples)
+
+    def test_declared_full_route_policy_and_uncropped_late_stalls(self):
+        self.write(3603)
+        self.provenance(samples='all-after-warmup-except-final')
+        summary = TIMING.summarize(self.path, 1, 'all-after-warmup-except-final')
+        self.assertEqual(summary['samples'], 3601)
+        self.assertTrue(TIMING.benchmark_evidence_gate(self.path, summary)['passed'])
+        cropped = TIMING.summarize(self.path, 1, 3600)
+        self.assertFalse(TIMING.benchmark_evidence_gate(self.path, cropped)['passed'])
+        # Ordinary late work, including the final GPU guard, remains gated.
+        self.path.write_text(self.path.read_text().replace('frame_timing=3603,1,', 'frame_timing=3603,2,'))
+        summary = TIMING.summarize(self.path, 1, 3600)
+        self.assertEqual(summary['work_over_60hz_budget'], 0)
+        self.assertEqual(summary['route_after_warmup']['trailing_work_over_60hz_budget'], 1)
+        self.assertFalse(TIMING.sustained_60hz_gate(summary, 3600)['passed'])
+
+    def test_evidence_requires_actual_audio_stereo_clean_route_and_identity(self):
+        self.write(3602)
+        self.provenance()
+        summary = TIMING.summarize(self.path, 1, 3600)
+        self.assertTrue(TIMING.benchmark_evidence_gate(self.path, summary)['passed'])
+        for change in ({'audible_confirmed': False}, {'inventory_verified': False},
+                       {'result_sha256': 'a'*64}, {'warmup': 2}, {'samples': 3599},
+                       {'mode': 'pcm'}, {'source': {}}, {'environment': 'unknown'}):
+            self.provenance(**change)
+            self.assertFalse(TIMING.benchmark_evidence_gate(self.path, summary)['passed'], change)
+        for column, value, frame in [(1, 0, 2), (4, .99, 1), (5, 1, 1),
+                                     (6, 0, 1), (7, 0, 1), (8, 1, 0)]:
+            self.write(3602, lambda rows: rows[frame].__setitem__(column, value))
+            self.provenance()
+            summary = TIMING.summarize(self.path, 1, 3600)
+            self.assertFalse(TIMING.benchmark_evidence_gate(self.path, summary)['passed'], column)
 
 
 if __name__ == '__main__':

@@ -51,23 +51,11 @@ class InputProbeLiveAimTests(unittest.TestCase):
         self.assertLess(resolver, sample)
         self.assertEqual(frame.count("input_probe_live_guard_aim_position("), 1)
 
-    def test_probe_pitch_uses_post_invert_swap_vertical_sign(self) -> None:
-        helper = SOURCE[
-            SOURCE.index("static void input_probe_apply_live_aim"):
-            SOURCE.index("static GePortInput input_probe_sample")
-        ]
-        self.assertIn("(target_pitch - look_pitch) * 1.5f", helper)
-        self.assertNotIn("(look_pitch - target_pitch) * 1.5f", helper)
-
-        # HONEY first maps U_CBUTTONS to speedVertaDown, but the stock
-        # invertPitch == 0 branch swaps Down/Up before applying speed.  Since
-        # ge_port maps positive look_y to U_CBUTTONS, an elevated target must
-        # produce a positive command.
-        target_pitch = 0.5
-        look_pitch = 0.0
-        command = max(-1.0, min(1.0,
-            (target_pitch - look_pitch) * 1.5))
-        self.assertGreater(command, 0.0)
+    def test_actual_canonical_aim_and_world_pitch_direction(self) -> None:
+        subprocess.run([
+            sys.executable,
+            str(ROOT / "scripts/tests/test_3ds_probe_aim_controls.py")],
+            check=True)
 
     def test_canonical_guard_death_ends_only_the_probe_dwell(self) -> None:
         resolver = SOURCE[

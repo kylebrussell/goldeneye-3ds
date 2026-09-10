@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import re
 from extract_guard_bullet_hit_slice import find_function
+from extract_bg_texture_emission import generate as texture_emission
 
 
 NAMES = {
@@ -180,6 +181,7 @@ static void getRoomPositionScaledByIndex(s32 room, coord3d *out)
         out.append(body[:body.index('{')].strip()+';')
     for body in functions:
         out += [body]
+    out.append(texture_emission(repo))
     out.insert(1,'/* Source closure sha256='+hashlib.sha256((''.join(find_function(bg if n.startswith('bg') else triangle if n=='intersectRayTriangle' else lights,n) for n in NAMES)).encode()).hexdigest()+' */')
     return '\n\n'.join(out)+'\n'
 

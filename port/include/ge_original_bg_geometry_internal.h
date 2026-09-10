@@ -11,6 +11,7 @@
 #define GE_BG_GEOMETRY_MAX_BYTES (32U * 1024U * 1024U)
 #define GE_BG_LIGHT_FIXTURES 100U
 #define GE_BG_DARKENED_VERTICES 512U
+#define GE_BG_TEXTURE_COUNT 2698U
 
 typedef struct GeOriginalBgCommandInfo {
     uint32_t point_indices[12];
@@ -65,16 +66,19 @@ static inline int32_t ge_bg_distance_squared(int32_t x, int32_t y, int32_t z)
 
 const GeOriginalBgCommandInfo *ge_bg_command_info(int32_t room, const Gfx *gfx);
 void *ge_bg_bounds_allocate(size_t size);
-void ge_bg_build_bounds_exact(int32_t room);
-int ge_bg_bullet_hit_exact(coord3d *from, coord3d *to, int32_t room, HitThing *hit);
+void ge_bg_build_bounds_exact(s32 room);
+bool ge_bg_bullet_hit_exact(coord3d *from, coord3d *to, s32 room, HitThing *hit);
 void ge_bg_light_init_exact(void);
-void ge_bg_light_room_exact(int32_t room);
+void ge_bg_light_room_exact(s32 room);
 void ge_bg_light_begin_exact(Gfx *command);
 void ge_bg_light_end_exact(Gfx *command);
-int ge_bg_is_light_exact(int32_t texture);
-void ge_bg_light_break_exact(Gfx *command, uint32_t type, int32_t room);
-void ge_bg_light_indices_exact(Gfx *command, uint32_t type,
-    int32_t *a, int32_t *b, int32_t *c);
+bool ge_bg_is_light_exact(s32 texture);
+void ge_bg_light_break_exact(Gfx *command, u32 type, s32 room);
+void ge_bg_light_indices_exact(Gfx *command, u32 type,
+    s32 *a, s32 *b, s32 *c);
+void ge_bg_texture_emission_begin(void);
+int ge_bg_texture_emission_command(uint32_t word0, uint32_t word1,
+    int8_t *format, int8_t *depth);
 
 /* Native pointer table for the original held-item room-bbox closure. It is
  * deliberately separate from the fixed 0x50 visibility publication. */

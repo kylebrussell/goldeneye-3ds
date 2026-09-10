@@ -35,12 +35,21 @@ glass simulation or hardware rendering.
 
 Room texture provenance comes from the authored Rare texture command. The
 original `texHandleType0..4` load order leaves the base texture as the final
-image. **Review checkpoint:** final emitted tile format/depth is being closed
-with the original tile-state cache; base header format alone is insufficient
-when the cache suppresses a render-tile command after a palette load. The checked-in format table was generated
+image. Final tile format/depth comes from the retained original
+`texHandleType0..4` / `texTrySetTileState` emission closure. It emits native Gfx
+commands and records the last actual G_SETTILE, including the palette-load tile
+when a cached render-tile command is suppressed. Each room list resets the cache
+at the same boundary as `texLoadFromGdl`; the two water texture IDs preserve its
+additional cache reset. The optional original debug texture editor remains off
+at this immutable authored-stage bootstrap boundary. The checked-in format table was generated
 from all 2,698 original US image headers, using `texInflateZlib`'s eight-bit
 format or `texInflateNonZlib`'s first four-bit format and the exact original
-`g_TexFormatGbiMappings` / `g_TexFormatDepths`. No pixel data is included.
+`g_TexFormatGbiMappings` / `g_TexFormatDepths` / `g_TexFormatLutModes`.
+Original dimensions and explicit LODs come from the existing texture conversion
+catalog, verified against every source SHA-256 and each original base image
+header. Implicit paletted mip counts preserve the original 0x800-byte ceiling.
+No pixel data is included. Opaque image addresses are used only inside the
+metadata emitter and never dereferenced or submitted to a renderer.
 
 The parser rejects unsupported list calls, matrices, expanded RDP image/tile
 commands without this provenance, invalid Rare IDs/types, malformed GBI,
@@ -81,7 +90,10 @@ native and short-enum builds with AddressSanitizer and UndefinedBehaviorSanitize
 Focused coverage includes native pointers above 4 GiB, original light distance
 bias, TRI4 subtriangle identity, Archives filtering, exact vertex darkening,
 original shard calls, repeat-hit idempotence, renderer reload persistence,
-invalid hit tokens, malformed scene provenance and failed-construction rollback.
+invalid hit tokens, malformed scene provenance, failed-construction rollback,
+and the palette-tile/cache regression. Every nonzero-area primary triangle
+centroid must produce a hit; only the original Archives 0x4fd filtered texture
+is exempt. No other real-asset centroid exceptions were needed.
 
 The complete coordinator pack exercised all 21 solo stages and all 11 MP arena
 descriptors: all authored rooms load and publish bounds, centroid rays traverse
@@ -89,9 +101,13 @@ actual triangle commands, all primary light triangles call the original light
 body, and every room's GBI scene passes provenance validation. Both ABI builds
 pass. Peak fixture usage is Bunker2's 64/100. Peak owned buffer bytes are Silo's
 3,412,296; MP peak is Facility's 1,996,632. These are host buffer measurements,
-not device memory or frame-time measurements.
+not device memory or frame-time measurements. Both runtime and generated slice
+also compile with the actual devkitARM compiler and warnings treated as errors.
 
 `bash scripts/test_dam_guard_bg_collision.sh` still passes its retained original
 background/STAN focused harness and now verifies the scheduler yields collision
 ownership to this module. Regenerating texture metadata from the original split
-images reproduces the checked-in table byte-for-byte.
+images and verified conversion catalog reproduces the checked-in table
+byte-for-byte. `bash scripts/test_bg_geometry_room_coverage.sh PACK` proves that
+a private mutation disabling all room2 collision fails the real-asset test in
+both native and short-enum builds; production source is untouched.

@@ -8,7 +8,7 @@
 ChrRecord *g_ActiveChrs;
 s32 g_ActiveChrsCount;
 
-#ifndef GE_PLATFORM_3DS
+#if !defined(GE_PLATFORM_3DS) && !defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)
 enum {
     /* Host-only setup/mission tests do not bind the canonical pool table.
      * Surface II authors 18 background actors, so the former Dam-sized 8 KiB
@@ -26,13 +26,13 @@ static MemoryPool dam_stage_fallback_pool;
 
 /* The full 3DS link owns this symbol in the exact guard-damage support slice.
  * Small mission-flow tests intentionally do not, and use the fallback above. */
-#ifdef GE_PLATFORM_3DS
+#if defined(GE_PLATFORM_3DS) || defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)
 extern MemoryPool g_mempPools[MEMPOOL_COUNT];
 #endif
 
 static MemoryPool *ge_dam_bound_stage_pool(void)
 {
-#ifdef GE_PLATFORM_3DS
+#if defined(GE_PLATFORM_3DS) || defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)
     MemoryPool *pool;
 
     {

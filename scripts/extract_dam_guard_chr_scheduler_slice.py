@@ -105,6 +105,7 @@ def render(repo: Path) -> str:
         '#include "stan.h"',
         '#include "model.h"',
         '#include "tex.h"',
+        '#include "ge_original_animation_table_refs.h"',
         "",
         "#ifndef RUNTIMEBITFLAG_REMOVE",
         "#define RUNTIMEBITFLAG_REMOVE (1u << 2)",

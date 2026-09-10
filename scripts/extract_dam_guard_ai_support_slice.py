@@ -543,8 +543,11 @@ def main() -> None:
     )
     if rate_data is None:
         raise ValueError("missing canonical guard animation RATE")
-    pieces.extend((health_data.group(0), animation_data.group(0),
-                   rate_data.group(0)))
+    pieces.extend((health_data.group(0),
+                   '#include "ge_original_animation_table_refs.h"',
+                   '#include "ge_original_guard_animation_table.h"',
+                   '#ifndef GE_PORT_WIDE_ANIMATION_REFS',
+                   animation_data.group(0), '#endif', rate_data.group(0)))
     pieces.append("#if defined(GE_PORT_DAM_GUARD_AI_HOST_OFFSETS)")
     pieces.append(reaction_data.group(0))
     pieces.append("#endif")
@@ -860,7 +863,20 @@ def main() -> None:
                        f"#undef {name}"))
     pieces.append("#endif")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("\n\n".join(pieces) + "\n", encoding="utf-8")
+    output = "\n\n".join(pieces) + "\n"
+    # The complete native host graph uses decoded pointer-bearing animation
+    # records, not the N64 byte-offset layout. Keep the ARM body untouched.
+    native = re.sub(
+        r"&ptr_animation_table->data\[\(s32\)&ANIM_DATA_(\w+)\]",
+        r"ge_port_guard_animation_resolve(PTR_ANIM_\1)", output)
+    native = re.sub(
+        r"\(s32\)&ANIM_DATA_(\w+) \+ \(s32\)&ptr_animation_table->data(?:\[0\])?",
+        r"(uintptr_t)ge_port_guard_animation_resolve(PTR_ANIM_\1)", native)
+    native = native.replace("(s32)objecthandlerGetModelAnim", "(uintptr_t)objecthandlerGetModelAnim")
+    native = native.replace("(s32)ge_port_guard_animation_resolve", "(uintptr_t)ge_port_guard_animation_resolve")
+    args.output.write_text(
+        "#if defined(GE_PORT_FULL_GAMEPLAY_RUNTIME) && __SIZEOF_POINTER__ > 4\n"
+        + native + "#else\n" + output + "#endif\n", encoding="utf-8")
     total = (len(FUNCTIONS) + len(HOST_ONLY_FUNCTIONS)
              + len(PRODUCTION_NAVIGATION_FUNCTIONS)
              + len(PRODUCTION_ROUTE_FUNCTIONS)

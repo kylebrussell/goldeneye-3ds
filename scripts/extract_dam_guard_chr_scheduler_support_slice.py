@@ -248,6 +248,29 @@ def selected_function_text(source: str, name: str) -> str:
     return function_text(source, name)
 
 
+def player_tick_native_animation_abi(body: str) -> str:
+    """Keep the original player word/comparisons; resolve at its typed consumer."""
+    native, count = re.subn(
+        r"g_bondviewBondDeathAnimations\[([^\]]+)\] \+ \(\(s32\) ptr_animation_table\)",
+        r"ge_original_guard_animation_legacy_offset(g_bondviewBondDeathAnimations[\1], (uintptr_t)ptr_animation_table)", body)
+    if count != 2:
+        raise ValueError("changed playerTick death animation token expressions")
+    replacements = (
+        ("fa->anim + (s32) ptr_animation_table",
+         "ge_original_guard_animation_legacy_offset(fa->anim, (uintptr_t)ptr_animation_table)"),
+        ("*((s32 *) firingtable)",
+         "ge_original_guard_animation_legacy_token(firingtable->anim.anim, (uintptr_t)ptr_animation_table)"),
+        ("(ModelAnimation *) anim",
+         "(ModelAnimation *)ge_original_guard_animation_legacy_resolve(anim, (uintptr_t)ptr_animation_table)"),
+    )
+    for before, after in replacements:
+        if native.count(before) != 1:
+            raise ValueError("changed playerTick animation consumer: " + before)
+        native = native.replace(before, after)
+    return ("#if defined(GE_PORT_FULL_GAMEPLAY_RUNTIME) && __SIZEOF_POINTER__ > 4\n"
+            + native + "\n#else\n" + body + "\n#endif")
+
+
 def render(repo: Path, full_props: bool = False) -> str:
     game = repo / "src/game"
     sources = {key: (game / filename).read_text()
@@ -258,6 +281,7 @@ def render(repo: Path, full_props: bool = False) -> str:
         "/* Generated unchanged services for the canonical guard scheduler. */",
         "#include <ultra64.h>",
         "#include <PR/gbi.h>",
+        '#include "ge_original_guard_animation_table.h"',
         "#include <gbi_extension.h>",
         "#include <assets/image_externs.h>",
         "#include <bondgame.h>",
@@ -602,7 +626,8 @@ def render(repo: Path, full_props: bool = False) -> str:
     for source, name in selected_functions:
         if source == "bgfog":
             pieces.append("#ifndef GE_PORT_NATIVE_FOG")
-        pieces.append(selected_function_text(sources[source], name))
+        body = selected_function_text(sources[source], name)
+        pieces.append(player_tick_native_animation_abi(body) if name == "playerTick" else body)
         if source == "bgfog":
             pieces.append("#endif /* GE_PORT_NATIVE_FOG */")
     pieces.extend((

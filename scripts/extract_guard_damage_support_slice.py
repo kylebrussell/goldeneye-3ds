@@ -139,6 +139,7 @@ def main() -> None:
         '#include "memp.h"',
         '#include "game/bg.h"',
         '#include "game/bgroomtrans.h"',
+        '#include "ge_original_bg_geometry.h"',
         '#include "game/bondinv.h"',
         '#include "game/bondview.h"',
         '#include "game/cheat.h"',
@@ -194,6 +195,17 @@ def main() -> None:
         for name in names:
             body = hit.find_function(sources[path], name)
             pieces.append(f"/* {name} sha256={hashlib.sha256(body.encode()).hexdigest()} */")
+            if name == "getRoomPositionByIndex":
+                original = "return &ptr_bgdata_room_fileposition_list[roomID].pos;"
+                if body.count(original) != 1:
+                    raise ValueError("canonical room-origin accessor changed")
+                body = body.replace(original, """#if defined(GE_PORT_NATIVE_BG_GEOMETRY)
+    /* The original signature is mutable; every retained consumer only reads
+     * this borrowed authored coordinate. Never populate a second room table. */
+    return (struct coord3d *)ge_original_bg_geometry_room_origin(roomID);
+#else
+    return &ptr_bgdata_room_fileposition_list[roomID].pos;
+#endif""")
             pieces.append(body)
             pieces.append("")
     args.output.parent.mkdir(parents=True, exist_ok=True)

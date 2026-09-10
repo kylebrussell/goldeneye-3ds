@@ -2,6 +2,7 @@
 #define GE_ORIGINAL_PITEM_MODELS_H
 
 #include "ge_asset_pack.h"
+#include "ge_original_model_topology.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -97,6 +98,9 @@ void ge_original_pitem_model_provider_destroy(
 size_t ge_original_pitem_model_physical_capacity(const GeOriginalPitemModelProvider *provider);
 int ge_original_pitem_model_physical_instance(const GeOriginalPitemModelProvider *provider,
     size_t slot, const void **model, size_t *bytes, int *active);
+/* Already-loaded resource only; cached topology survives instance release. */
+int ge_original_pitem_model_resource_topology(const GeOriginalPitemModelProvider *provider,
+    int32_t model_id,GeOriginalModelTopologyView *view);
 
 /* Direct callback seams for GeOriginalDefaultObjectProviders and the generic
  * stage prop materializer. resolve_instance returns a fresh native Model for

@@ -2,6 +2,7 @@
 #define GE_ORIGINAL_CHARACTER_MODELS_H
 
 #include "ge_asset_pack.h"
+#include "ge_original_model_topology.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -87,6 +88,12 @@ void ge_original_character_model_provider_destroy(
 size_t ge_original_character_model_physical_capacity(const GeOriginalCharacterModelProvider *provider);
 int ge_original_character_model_physical_instance(const GeOriginalCharacterModelProvider *provider,
     size_t slot, const void **model, size_t *bytes, int *active);
+int ge_original_character_model_resource_topology(const GeOriginalCharacterModelProvider *provider,
+    int32_t model_id,GeOriginalModelTopologyView *view);
+/* part 0 is copied body, 1 is copied attached head. Missing/inactive parts
+ * return zero. Both cached and copied topology live until provider destroy. */
+int ge_original_character_model_instance_topology(const GeOriginalCharacterModelProvider *provider,
+    size_t slot,unsigned part,GeOriginalModelTopologyView *view);
 
 size_t ge_original_character_model_dependency_count(void);
 int ge_original_character_model_dependency_metadata(

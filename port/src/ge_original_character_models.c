@@ -99,6 +99,33 @@ struct GeOriginalCharacterModelProvider {
     uint16_t last_unsupported_opcode;
 };
 
+int ge_original_character_model_resource_topology(const GeOriginalCharacterModelProvider *provider,
+    int32_t model_id,GeOriginalModelTopologyView *view)
+{
+    if (!provider || !view) return 0;
+    for (size_t i=0;i<provider->resource_count;++i) {
+        const GeCharacterResource *r=&provider->resources[i];
+        if (r->model_id!=model_id) continue;
+        *view=(GeOriginalModelTopologyView){&r->header,sizeof(r->header),r->nodes,
+            r->node_count,sizeof(*r->nodes),r->node_offsets,r->rodatas,sizeof(*r->rodatas),r->model_id};
+        return 1;
+    }
+    return 0;
+}
+
+int ge_original_character_model_instance_topology(const GeOriginalCharacterModelProvider *provider,
+    size_t slot,unsigned part,GeOriginalModelTopologyView *view)
+{
+    if (!provider || !view || slot>=provider->instance_count || part>1) return 0;
+    const GeCharacterInstance *i=&provider->instances[slot];
+    const GeCharacterResource *r=part?i->head:i->body;
+    if (!r) return 0;
+    *view=(GeOriginalModelTopologyView){part?&i->head_header:&i->body_header,sizeof(ModelFileHeader),
+        part?i->head_nodes:i->body_nodes,r->node_count,sizeof(ModelNode),r->node_offsets,
+        part?i->head_rodatas:i->body_rodatas,sizeof(union ModelRoData),r->model_id};
+    return 1;
+}
+
 size_t ge_original_character_model_physical_capacity(const GeOriginalCharacterModelProvider *provider)
 { return provider ? provider->instance_capacity : 0; }
 

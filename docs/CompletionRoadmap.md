@@ -120,6 +120,14 @@ complete-state acceptance area. Subsequent clean native Caves tests run 480
 frames for two/four players through authored pickup, firing, reload and ten
 background impacts; player-hit/death/respawn/results progression remains open.
 
+The private `3760b2dd` package consolidates the native watch, Caves, supply
+identity and reviewed cleanup/reference changes. Its complete host suite,
+pinned ARM build and package verification pass at the same frozen source; all
+nine acceptance areas remain partial. Known host background-reader and model
+callback repairs, independent awards repair review, and later native combat and
+watch presentation acceptance remain outside that checkpoint. It has not been
+deployed and does not establish complete game state or physical acceptance.
+
 ## Reproducible checks
 
 ```sh

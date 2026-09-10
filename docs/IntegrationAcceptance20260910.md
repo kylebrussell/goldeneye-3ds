@@ -291,3 +291,26 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   behavior. Evidence is under `build/integration/mp-watch-caves-a660a001`.
   The newer watch/awards cohort and effects teardown strengthening are outside
   the frozen `e7031cc4` checkpoint and require their own review closure.
+- The `3760b2dd` checkpoint consolidates native watch state, the populated Caves
+  fixture, typed supply definitions and main lifetimes, and independently
+  reviewed object collision-reference and effects teardown repairs. Its complete
+  frozen host suite and pinned forced ARM build pass at the same source/tree.
+  All 9,181 copied inputs remain present; only the expected two Cuba metadata
+  files changed, and seven historical closures and their sealed evidence remain
+  unchanged. Host closure SHA-256 is
+  `9f00da4fa3b2c45046d864bcdd8c782902d47f9cb87f9d3206410374680b05f1`.
+  The ARM executable SHA-256 is
+  `fcc9ded3e2d42e6334576d501d1ebca214583df94e684c7bffb1cfd4a6ca7c95`;
+  its audit checks 51 native definitions, 595 unchanged private compiler inputs
+  and 380 dependency reports.
+- `build/integration/candidate-3760b2dd` verifies with 672 inventoried files and
+  286 scoped evidence references. Manifest SHA-256 is
+  `d933211141bcadb35d4e9c4a37b69d14b787471ca8c125a06465c5346344a7c2`.
+  All nine acceptance areas remain partial and the completeness gate rejects
+  it. Known wide-host background publication reader strides and model-loop
+  callback ownership still need their subsequent repairs. The independent
+  awards numeric repair review is incomplete after an automatic reviewer flag;
+  passing merged watch tests do not close that review. Later native combat and
+  watch presentation work are excluded. Compiled defaults and external DSP
+  prerequisites are explicit; there was no deployment or new emulator,
+  physical, listening, timing or radio acceptance. The earlier package is intact.

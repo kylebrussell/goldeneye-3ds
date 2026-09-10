@@ -8,6 +8,16 @@ changes and is identified separately from integrated source. No definition of
 `GeMultiplayerSession` was present in either inspected `port` tree; its runtime
 provider remains to be agreed with the multiplayer owner.
 
+The later core/view integration retains the last canonical shuffled player's
+selection, native frustum and background visibility at the tick boundary.
+These execution cursors are typed state, not values to normalize to the
+locally rendered player. Local presentation reads captured view fields.
+Native core, inventory, prop-pool, hand, player and background subdomains now
+exist, but their combined coverage still leaves explicit gaps and cannot
+certify a complete live match hash. The tables below remain requirements for
+all remaining owners, rather than a claim that declaration coverage alone
+establishes semantic field classification.
+
 ## Existing protocol boundary
 
 [`GeMpProtocol`](../port/include/ge_multiplayer_protocol.h) owns the immutable
@@ -33,7 +43,7 @@ type, never entire C structs or N64 byte-offset spans.
 
 | Owner / exact source | Future-influencing state and encoding boundary |
 | --- | --- |
-| Roster: `g_playerPointers[4]`, `g_playerPlayerData[4]`, `g_CurrentPlayer`, `g_playerPerm`, `player_num`, `array_PLAYER_IDs[4]`, `random_byte` in [`player.h`](../src/game/player.h). Pending adapter: `GeMultiplayerStorage.players`, `.inventory`, `.count`, `.local` in `port/src/ge_original_multiplayer_players.c`. | Encode active slot count, stable player/prop IDs and shuffled simulation order. The current-player pointers and input selector are execution cursors: normalize them at the hash boundary and validate/restore all bindings together. `.local` is device presentation selection; saved previous-session pointers are teardown state, not the match. |
+| Roster: `g_playerPointers[4]`, `g_playerPlayerData[4]`, `g_CurrentPlayer`, `g_playerPerm`, `player_num`, `array_PLAYER_IDs[4]`, `random_byte` in [`player.h`](../src/game/player.h). Pending adapter: `GeMultiplayerStorage.players`, `.inventory`, `.count`, `.local` in `port/src/ge_original_multiplayer_players.c`. | Encode active slot count, stable player/prop IDs and shuffled simulation order. Preserve the canonical current-player and input-selector execution cursors at the hash boundary; validate all related bindings together. `.local` is device presentation selection; saved previous-session pointers are teardown state, not the match. |
 | Movement/combat: `struct player` in [`bondview.h`](../src/game/bondview.h). | Include `pos`, `pos2`, `offset`, `pos3`, `current_model_pos`, `previous_model_pos`, `current_room_pos`, `stanHeight`, collision/vertical interpolation fields, `crouchpos`, `ducking_height_offset`, `collision_bounds`, `vv_theta`, `vv_verta`, angular/sideways/forward speeds, centering/autoaim state and target IDs, `prev_buttons_pressed`, `bondhealth`, `bondarmour`, death state, invincibility and input-lock/interaction state. Resolve `cameratile`, current/previous collision tiles and prop/target pointers through validated STAN/actor IDs. Derived-looking angles, aim/view transforms and old position values cannot be omitted while movement or firing reads them. |
 | Weapons: each `player.hands[2]`, [`ge_original_gun_live_tick`](../port/src/ge_original_gun_live.c), original [`gun.c`](../src/game/gun.c). | Include weapon/current/pending selection; `weapon_firing_status`, hold/action/animation state and timers, magazine ammo, trigger history/hand selection, volley, spread/noise, recoil/sway/aim and throw transforms consumed by firing, rocket reference and ownership. Enumerate unresolved hand fields and the embedded native model region beginning near `field_B68`; integer fields such as `modeldatas` can carry addresses. Render handle/matrix storage must not accidentally become serialized integers. |
 | Inventory: `InvItem`, `invitem_weap`, `invitem_prop`, `invitem_dual`, `player.p_itemcur`, `ptr_inventory_first_in_cycle`, `equipcuritem`, `equipallguns`, `equipmaxitems`, `ammoheldarr[30]`, `gunheldarr[10]` in [`bondview.h`](../src/game/bondview.h); original [`bondinv.c`](../src/game/bondinv.c). | Encode all occupied entries, discriminated payloads, weapon pairs, referenced prop IDs, cycle order and current selection. Fixed slot index plus generation identifies reused entries. The touchscreen `GeOriginalInventorySnapshot` pointer identities, display names and epoch are a UI freshness contract, not a serializable inventory. |

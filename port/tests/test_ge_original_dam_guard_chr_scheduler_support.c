@@ -76,6 +76,9 @@ static void test_player_shuffle(void)
     assert(get_player_position_in_shuffled(PLAYER_1) == 1);
     assert(get_player_position_in_shuffled(PLAYER_4) == 2);
     assert(get_player_position_in_shuffled(PLAYER_2) == 3);
+    assert(get_nth_player_from_shuffled(0) == PLAYER_3);
+    assert(get_nth_player_from_shuffled(1) == PLAYER_1);
+    assert(get_nth_player_from_shuffled(2) == PLAYER_4);
 
     shuffle_random_index = 0U;
     shuffle_player_ids();
@@ -84,6 +87,9 @@ static void test_player_shuffle(void)
     assert(array_PLAYER_IDs[1] == PLAYER_1);
     assert(array_PLAYER_IDs[2] == PLAYER_2);
     assert(array_PLAYER_IDs[3] == PLAYER_4);
+    assert(get_nth_player_from_shuffled(0) == PLAYER_3);
+    assert(get_nth_player_from_shuffled(1) == PLAYER_1);
+    assert(get_nth_player_from_shuffled(2) == PLAYER_4);
 }
 
 static void test_active_list_delist(void)

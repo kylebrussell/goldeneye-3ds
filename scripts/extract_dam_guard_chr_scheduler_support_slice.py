@@ -89,6 +89,7 @@ FUNCTIONS = (
     ("chrprop", "propExecuteTickOperation"),
     ("player", "shuffle_player_ids"),
     ("player", "get_player_position_in_shuffled"),
+    ("player", "get_nth_player_from_shuffled"),
     ("propobj", "handle_alarm_gas_timer_calldamage"),
     ("propobj", "countdownTimerSetValue"),
     ("propobj", "countdownTimerGetValue"),

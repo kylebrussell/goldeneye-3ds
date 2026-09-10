@@ -2,6 +2,7 @@
 #include "ge_original_input.h"
 #include "ge_original_boss.h"
 #include "ge_original_level.h"
+#include "ge_original_bond_input_provider.h"
 
 #include <math.h>
 #include <limits.h>
@@ -14,6 +15,10 @@
 #define GE_PORT_LOOK_RADIANS_PER_TICK 0.035f
 #define GE_PORT_MAX_PITCH 1.45f
 #define GE_PORT_CSTICK_BUTTON_THRESHOLD 0.35f
+
+extern struct player *g_CurrentPlayer;
+extern struct player *g_playerPointers[4];
+int32_t ge_port_level_is_paused(void);
 
 /* Presents the logical port actions as N64 buttons. The single-stick layout
  * feeds GoldenEye's 1.1 (Honey) body: Z fire, L aim, R crouch, C-buttons for
@@ -78,6 +83,25 @@ static uint16_t ge_port_n64_buttons(const GePortInput *input,
     return buttons;
 }
 
+static void ge_port_original_input_sample(const GePortInput *input,
+                                           GeOriginalInputSample *sample)
+{
+    sample->move_x = input->move_x;
+    sample->move_y = input->move_y;
+    sample->look_x = input->look_x;
+    sample->look_y = input->look_y;
+    sample->buttons = ge_port_n64_buttons(input, &sample->buttons_secondary);
+}
+
+int ge_port_input_sample_pads(const GePortInput *input,
+                              GeOriginalInputPad pads[2])
+{
+    GeOriginalInputSample sample;
+    if (input == NULL || pads == NULL) return 0;
+    ge_port_original_input_sample(input, &sample);
+    return ge_original_input_sample_pads(&sample, pads);
+}
+
 static uint16_t ge_port_level_buttons_pressed(void *context)
 {
     (void)context;
@@ -106,12 +130,7 @@ static void ge_port_tick(GePortState *state, unsigned retrace_frames)
      * frame accounting and the quaternion camera math. The MIPS RNG was assembly,
      * so port/src/random_port.c preserves that algorithm in portable C.
      */
-    original_input.move_x = state->input.move_x;
-    original_input.move_y = state->input.move_y;
-    original_input.look_x = state->input.look_x;
-    original_input.look_y = state->input.look_y;
-    original_input.buttons = ge_port_n64_buttons(
-        &state->input, &original_input.buttons_secondary);
+    ge_port_original_input_sample(&state->input, &original_input);
     ge_original_input_tick(&original_input);
     state->original_move_x = ge_original_input_move_x();
     state->original_move_y = ge_original_input_move_y();
@@ -256,6 +275,38 @@ unsigned ge_port_advance_retraces(GePortState *state,
      * publishes the number of elapsed retraces through speedgraphframes.
      * Do not replay N expensive gameplay passes or silently discard time. */
     ge_port_tick(state, retrace_frames);
+    return 1U;
+}
+
+unsigned ge_port_advance_multiplayer_tick(GePortState *state,
+    const GeOriginalInputPad (*pads)[2], uint32_t count)
+{
+    GeOriginalBondInputProvider *provider;
+    uint32_t slot, prior;
+    if (state == NULL || pads == NULL || count < 2 || count > 4
+            || state->simulation_ticks == UINT64_MAX
+            || ge_original_input_configured_player_count() != count)
+        return 0;
+    provider = ge_original_bond_input_provider();
+    if (provider == NULL || provider->player_count != (int32_t)count
+            || provider->player_number < 0 || provider->player_number >= (int32_t)count
+            || provider->current_player == NULL || provider->player_permissions == NULL
+            || provider->current_player != g_CurrentPlayer
+            || ge_original_input_selected_player() != (uint32_t)provider->player_number
+            || g_playerPointers[provider->player_number] != g_CurrentPlayer)
+        return 0;
+    for (slot = 0; slot < 4; ++slot) {
+        if (provider->player_pointers[slot] != g_playerPointers[slot]
+                || (slot < count ? g_playerPointers[slot] == NULL
+                                 : g_playerPointers[slot] != NULL)) return 0;
+        for (prior = 0; prior < slot && slot < count; ++prior)
+            if (g_playerPointers[prior] == g_playerPointers[slot]) return 0;
+    }
+    if (ge_port_level_is_paused()) return 0;
+    if (!ge_original_input_tick_pad_pairs(pads, count)) return 0;
+    /* The validated input count is >1, so the common tick's solo publication
+     * is a no-op. Only this committed all-pad publication consumes joy.c. */
+    ge_port_tick(state, 1U);
     return 1U;
 }
 

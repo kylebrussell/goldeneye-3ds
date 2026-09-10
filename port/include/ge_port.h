@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "ge_original_input.h"
 
 #define GE_PORT_TICK_RATE 60.0
 
@@ -63,6 +64,21 @@ int ge_port_start_stage(GePortState *state, int32_t stage_id);
 unsigned ge_port_advance_retraces(GePortState *state,
                                   unsigned retrace_frames,
                                   const GePortInput *input);
+/* Outgoing input uses the same action/button mapping and stick calibration as
+ * the solo tick. This only samples; it never consumes the controller ring. */
+int ge_port_input_sample_pads(const GePortInput *input,
+                              GeOriginalInputPad pads[2]);
+/* One committed lockstep tick: validate the active canonical roster and input
+ * selection, publish every already-quantized pad exactly once, then run the
+ * existing original timer/boss boundary with one retrace. Reject paused,
+ * malformed, mismatched or overflowing state before mutation. No wall-clock
+ * accumulation, solo reset, sensitivity rescaling, or additional RNG draw.
+ * Controls-locked frames still dispatch; canonical lv.c determines their
+ * clock/delta. Select the same canonical input slot on every peer before the
+ * once-per-world timer boundary; idle-button accounting observes that slot.
+ * Caller owns all-player movement/props/gun order after this timer boundary. */
+unsigned ge_port_advance_multiplayer_tick(GePortState *state,
+    const GeOriginalInputPad (*pads)[2], uint32_t count);
 unsigned ge_port_advance(GePortState *state, double elapsed_seconds, const GePortInput *input);
 /*
  * Platform scheduling boundary for targets that cannot safely replay an

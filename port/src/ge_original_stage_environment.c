@@ -30,10 +30,22 @@ static const GeOriginalEnvironmentFoglessRecord *ge_environment_fogless(
 int ge_original_stage_environment_select(
     int32_t level_id, int cinematic, GeOriginalStageEnvironment *environment)
 {
+    return ge_original_stage_environment_select_for_player_count(
+        level_id, cinematic, 1U, environment);
+}
+
+int ge_original_stage_environment_select_for_player_count(
+    int32_t level_id, int cinematic, uint32_t player_count,
+    GeOriginalStageEnvironment *environment)
+{
     const GeOriginalEnvironmentRecord *fogged = NULL;
-    if (environment == NULL) return 0;
+    if (environment == NULL || player_count == 0U || player_count > 4U
+            || level_id < 0 || level_id > INT32_MAX - 900) return 0;
+    const int32_t offset = player_count == 1U ? 0 : (int32_t)player_count * 100;
     if (cinematic) fogged = ge_environment_fogged(level_id + 900);
-    if (fogged == NULL) fogged = ge_environment_fogged(level_id);
+    if (fogged == NULL) fogged = ge_environment_fogged(level_id + offset);
+    if (fogged == NULL && player_count >= 2U)
+        fogged = ge_environment_fogged(offset);
     memset(environment, 0, sizeof(*environment));
     environment->level_id = level_id;
     environment->cinematic = cinematic != 0;

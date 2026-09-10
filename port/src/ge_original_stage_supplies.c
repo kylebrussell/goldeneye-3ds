@@ -54,11 +54,22 @@ GeOriginalStageSupplyStatus ge_original_stage_supply_construct_exact(
         MultiAmmoCrateRecord *ammo=definition;size_t slot;int32_t ammoqty=1;
         if(player_count>=2){
             int32_t ammo_type;
-            if(providers->get_multiplayer_ammo==NULL)
-                return GE_ORIGINAL_STAGE_SUPPLY_MULTIPLAYER_DEPENDENCY_UNAVAILABLE;
-            if(!providers->get_multiplayer_ammo(
-                    providers->default_object->context,&ammo_type,&ammoqty)
-                    ||ammo_type<=AMMO_NONE||ammo_type>AMMOTYPE_GLOBAL_MAX)
+            if(request->record->multiplayer_prepared){
+                ammo_type=request->record->multiplayer_ammo_type;
+                ammoqty=request->record->multiplayer_ammo_quantity;
+            }else{
+                if(providers->get_multiplayer_ammo==NULL)
+                    return GE_ORIGINAL_STAGE_SUPPLY_MULTIPLAYER_DEPENDENCY_UNAVAILABLE;
+                if(!providers->get_multiplayer_ammo(
+                        providers->default_object->context,&ammo_type,&ammoqty))
+                    return GE_ORIGINAL_STAGE_SUPPLY_MULTIPLAYER_AMMO_INVALID;
+            }
+            /* proplvreset2 constructs nothing when ammoqty is zero. Avoid
+             * the original lasers/AMMO_NONE pre-slot write at index -1. */
+            if(ammoqty<0||ammoqty>UINT16_MAX)
+                return GE_ORIGINAL_STAGE_SUPPLY_MULTIPLAYER_AMMO_INVALID;
+            if(ammoqty==0)return GE_ORIGINAL_STAGE_SUPPLY_CANONICAL_NO_OBJECT;
+            if(ammo_type<=AMMO_NONE||ammo_type>AMMOTYPE_GLOBAL_MAX)
                 return GE_ORIGINAL_STAGE_SUPPLY_MULTIPLAYER_AMMO_INVALID;
             ammo->slots[ammo_type-1].quantity=(uint16_t)ammoqty;
         }

@@ -50,7 +50,8 @@ typedef enum GeOriginalStagePropBlocker {
     GE_ORIGINAL_STAGE_PROP_CONTROL_ONLY,
     GE_ORIGINAL_STAGE_PROP_MISSING_SERVICE,
     GE_ORIGINAL_STAGE_PROP_MISSING_MODEL,
-    GE_ORIGINAL_STAGE_PROP_UNSUPPORTED_BRANCH
+    GE_ORIGINAL_STAGE_PROP_UNSUPPORTED_BRANCH,
+    GE_ORIGINAL_STAGE_PROP_CANONICAL_OMITTED
 } GeOriginalStagePropBlocker;
 
 typedef struct GeOriginalStagePropClassification {
@@ -98,6 +99,7 @@ typedef struct GeOriginalStagePropMaterializerReport {
     size_t ready;
     size_t constructed;
     size_t control_only;
+    size_t canonical_omitted;
     size_t missing_service;
     size_t missing_model;
     size_t unsupported_branch;

@@ -61,4 +61,26 @@ GeOriginalStageSupplyStatus ge_original_stage_supply_construct_exact(
 const char *ge_original_stage_supply_status_name(
     GeOriginalStageSupplyStatus status);
 
+/* Owned native selection view; setup/pads/STAN/source_blob remain borrowed.
+ * Close this BEFORE the source runtime. Never call stage_setup_close(view).
+ * Publish source->setup; pass &prepared.view to dependency scans/materializers. */
+typedef struct GeOriginalStageMultiplayerSetup {
+    GeOriginalStageSetupRuntime view;
+    GeOriginalStagePropRecord *records;
+    uint32_t *words;
+    size_t weapon_slots;
+    size_t ammo_crates;
+    size_t omitted;
+    int32_t player_count;
+    int32_t scenario;
+    int32_t weapon_set;
+} GeOriginalStageMultiplayerSetup;
+
+GeOriginalStageSupplyStatus ge_original_stage_multiplayer_setup_prepare(
+    const GeOriginalStageSetupRuntime *source, int32_t player_count,
+    int32_t scenario, int32_t weapon_set,
+    GeOriginalStageMultiplayerSetup *prepared);
+void ge_original_stage_multiplayer_setup_close(
+    GeOriginalStageMultiplayerSetup *prepared);
+
 #endif

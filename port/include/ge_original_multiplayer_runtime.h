@@ -47,8 +47,10 @@ typedef struct GeOriginalMultiplayerRuntimeFrame {
     int (*produce_camera)(void *context, uint32_t slot,
         GeOriginalBondCameraConfig *config, GeOriginalBondCameraResult *camera);
     int (*sync_gun_resources)(void *context, uint32_t slot);
-    /* Publish only the local renderer eye union/margin before native matrix
-     * and flash preparation. No gameplay or canonical visibility mutation. */
+    /* Publish the local renderer eye union/margin and capture both local
+     * first-person hands after gun production, before death/respawn can alter
+     * them. Runs before world matrix/flash preparation. Read-only with respect
+     * to gameplay and canonical visibility. */
     int (*prepare_local_renderer)(void *context, uint32_t slot,
         const GeOriginalBondCameraConfig *config,
         const GeOriginalBondCameraResult *camera);

@@ -95,6 +95,15 @@ def generate(repo: Path) -> str:
         "        ge_original_gun_host_model_set_render_pos(handnum, rwmtx);\n"
         "#endif",
     )
+    flash_pointer = "            flashvisptr = ((s32 *) (&hand->modeldatas)) + node->Data->Switch.RwDataIndex;"
+    if gun_body.count(flash_pointer) != 1:
+        raise ValueError("missing canonical gunfire switch RW publication")
+    gun_body = gun_body.replace(
+        flash_pointer,
+        "#if defined(GE_PORT_GUN_HOST_MODEL_ABI)\n"
+        "            flashvisptr = &modelGetNodeRwData(model, node)->Switch.visible;\n"
+        "#else\n" + flash_pointer + "\n#endif",
+    )
     if gun_body == bodies[0]:
         raise ValueError("missing canonical embedded gun model ABI sites")
     bodies[0] = gun_body

@@ -69,6 +69,8 @@ bash "${repo_dir}/scripts/test_mp_state_players.sh"
 bash "${repo_dir}/scripts/test_multiplayer_main_state_lifecycle.sh"
 bash "${repo_dir}/scripts/test_mp_state_inventory.sh"
 bash "${repo_dir}/scripts/test_mp_state_props.sh"
+bash "${repo_dir}/scripts/test_mp_state_objects.sh"
+bash "${repo_dir}/scripts/test_mp_state_objects.sh" -fshort-enums
 bash "${repo_dir}/scripts/test_mp_state_guns.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_multiplayer_stage_pipeline.py"
 bash "${repo_dir}/scripts/test_original_reverb_filter.sh"

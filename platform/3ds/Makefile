@@ -73,7 +73,8 @@ LDFLAGS += -Wl,-u,ge_mp_state_core_capture \
            -Wl,-u,ge_mp_state_effects_export -Wl,-u,ge_mp_state_effects_schema \
            -Wl,-u,ge_mp_state_session_capture -Wl,-u,ge_mp_state_session_schema \
            -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema \
-           -Wl,-u,ge_mp_state_fog_capture -Wl,-u,ge_mp_state_fog_schema
+           -Wl,-u,ge_mp_state_fog_capture -Wl,-u,ge_mp_state_fog_schema \
+           -Wl,-u,ge_mp_state_objects_export -Wl,-u,ge_mp_state_objects_schema
 LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_original_bond_live_initialize_multiplayer \
            -Wl,-u,ge_original_multiplayer_respawn \
@@ -494,6 +495,7 @@ ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
 ge_original_multiplayer_watch.o ge_original_multiplayer_watch_slice.o \
+ge_original_multiplayer_watch_render.o ge_original_multiplayer_watch_render_slice.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
 ge_mp_state_props.o ge_mp_state_guns.o ge_mp_state_players.o ge_mp_state_bg.o \
 ge_mp_state_session.o ge_mp_state_effects.o ge_mp_state_objects.o \

@@ -1222,11 +1222,11 @@ static GePortInput input_probe_sample(RuntimeInputProbe *runtime,
         cross = (look[0] * dz - look[2] * dx) / look_length;
         angle = atan2f(cross, dot);
         if (angle > M_PI_F) angle -= M_TAU_F;
-        if (target->aim_chr >= 0) {
-            input.held = target->pulse_period == 0U
-                    || route_frame % target->pulse_period == 0U
-                ? target->held : 0U;
-        }
+        /* Target actions apply during travel as well as dwell; guard aim is
+         * an optional look adjustment, not permission to dispatch buttons. */
+        input.held = target->pulse_period == 0U
+                || route_frame % target->pulse_period == 0U
+            ? target->held : 0U;
         if (runtime->steer_direction != 0 && dot < 0.0f) {
             input.move_x = (float)runtime->steer_direction;
         } else if (fabsf(angle) > 0.35f) {

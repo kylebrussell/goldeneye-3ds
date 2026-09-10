@@ -2,6 +2,8 @@
 """Focused source audit for probe-only live-guard aim completion."""
 
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 
@@ -134,29 +136,11 @@ class InputProbeLiveAimTests(unittest.TestCase):
         self.assertTrue(death_frame + 1 <= neutral_until)
         self.assertFalse(death_frame + 2 <= neutral_until)
 
-    def test_only_aimed_travel_inherits_target_held_input(self) -> None:
-        sample = SOURCE[
-            SOURCE.index("static GePortInput input_probe_sample"):
-            SOURCE.index("static bool input_probe_live_guard_aim_position")
-        ]
-        steering = sample[
-            sample.rindex("target = &runtime->targets["):
-        ]
-        aimed = steering.index("if (target->aim_chr >= 0)")
-        held = steering.index("input.held = target->pulse_period", aimed)
-        pressed = steering.index(
-            "input.pressed = input.held & ~runtime->last_sample_held", held)
-        self.assertLess(aimed, held)
-        self.assertLess(held, pressed)
-
-        def travel_held(aim_chr: int, target_held: int) -> int:
-            held_input = 0
-            if aim_chr >= 0:
-                held_input = target_held
-            return held_input
-
-        self.assertEqual(travel_held(-1, 1), 0)
-        self.assertEqual(travel_held(4, 1), 1)
+    def test_actual_travel_buttons_do_not_require_a_guard_target(self) -> None:
+        subprocess.run([
+            sys.executable,
+            str(ROOT / "scripts/tests/test_3ds_input_probe_sample.py")],
+            check=True)
 
 
 if __name__ == "__main__":

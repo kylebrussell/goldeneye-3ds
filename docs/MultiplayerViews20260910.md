@@ -91,3 +91,57 @@ regression convention. The presentation fixture does not test real character
 animation, damage, weapon pickup/drop or a live match. Those remain covered by
 the multiplayer owner's actor/weapon tests and integrated acceptance. No
 emulator, hardware or timing result is claimed here.
+
+## Canonical visibility is independent of renderer residency
+
+The source audit resolves the remote-room concern without loading every room's
+render geometry. `VISOP_PRELOAD_ROOM` and `VISOP_PRELOAD_ROOM_RANGE` use
+`preload_ok` only to stop subsequent load requests. They do not gate the visible
+room list or portal recursion. `room_loaded_mask` is the authored
+`VISOP_DISABLE_ROOM`/`VISOP_DISABLE_ROOM_RANGE` bit, not renderer residency.
+Original `posIsOnScreen` consumes the rendered-room flags, room screen bounds,
+camera and fog; it does not consult the native dynamic scene.
+
+Each shooter can use `ge_dam_visibility_runtime_run_with_providers` with live
+door controls and a NULL preload callback. This runs the original room logic
+while leaving the renderer queue and geometry untouched. Passing NULL for the
+entire provider would instead use authored door controls and is incorrect when
+a live door has changed.
+
+The main-loop split should therefore be:
+
+1. Produce the selected shooter's camera from the immutable world room origin,
+   stage scales, viewport and near/far values. Publish camera and canonical
+   visibility with live door controls and no preload callback. Do not call
+   `stream_dam_renderer_camera` or remote `refresh_stage_*` scene functions.
+2. Run its exact props/targeting/interaction/pickup/gun pass. Character hit-list
+   publication follows that mono camera even when the local renderer has never
+   loaded the remote room.
+3. During local capture only, update the preview's local camera/result, run
+   the renderer's own preload/eye-union/stream operations and build the durable
+   local scene. Retain copies of the local camera, position and door controls.
+4. At finish, restore the selected player's camera frustum and call
+   `ge_dam_visibility_runtime_restore_with_providers` with the saved local
+   camera/position/door controls and NULL preload callback. This rebuilds all
+   canonical room/portal publication, including internal boxes and caches that
+   are not contained in the public result alone. It preserves the original
+   modulo-ten room-load cycle and rejects a preload callback.
+
+The full STAN data is already materialized and bound at stage initialization.
+Despite its name, `materialize_stage_ordinary_resident` constructs setup model
+instances without checking the dynamic scene's room residency. The audited
+`dynamic_scene_is_resident` callsites and guard runtime `room_resident` service
+control renderer scene sizing/building, matrix retention, or texture updates;
+they are not the `chrTick`/`playerTick` visibility writer. Keep those renderer
+operations local. This finding does not claim completion of unrelated
+background triangle collision paths.
+
+`scripts/test_multiplayer_visibility.sh` runs the unchanged original visibility
+closure under ASan/UBSan with native and short enum layouts. Across 32 camera
+and live-door configurations it verifies cold, partial and complete renderer
+preload queues produce byte-identical room records and visible-room results
+(only the load-request count differs). It then interleaves a remote camera and
+door state and checks exact local restoration, unchanged queue bytes, retained
+authored disable bits, and an unchanged room-load cycle. The runtime restore
+entrypoint is exercised as well as the underlying original adapter. Existing
+zero-portal Cradle and seven-point Depot fixture tests still pass.

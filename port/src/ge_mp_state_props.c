@@ -176,6 +176,33 @@ static int external_ref(const GeMpStatePropsOwner *o,const GeMpStatePropsProvide
 static int finite_position(const PropRecord *p)
 {return isfinite(p->pos.x)&&isfinite(p->pos.y)&&isfinite(p->pos.z)&&isfinite(p->zDepth);}
 
+/* Valid sibling chains do not rule out a cycle through their parents. Each
+ * live prop has at most one parent, so mark an entire ancestry walk before
+ * retiring it. Encountering a mark from the current walk is a cycle. */
+static int parents_acyclic(const GeMpStatePropsOwner *o,const PropRecord *props)
+{
+    uint8_t color[600]={0}; /* 0 unseen, 1 current walk, 2 finished */
+    unsigned start;
+    for(start=0;start<600;++start)if(o->ids[start] && !color[start]) {
+        unsigned slot=start;
+        while(slot<600 && !color[slot]) {
+            const PropRecord *parent=props[slot].parent;
+            color[slot]=1;
+            if(!parent){slot=600;break;}
+            if(!slot_of(o,parent,&slot) || !o->ids[slot])return 0;
+        }
+        if(slot<600 && color[slot]==1)return 0;
+        slot=start;
+        while(color[slot]==1) {
+            const PropRecord *parent=props[slot].parent;
+            color[slot]=2;
+            if(!parent)break;
+            if(!slot_of(o,parent,&slot) || !o->ids[slot])return 0;
+        }
+    }
+    return 1;
+}
+
 GeMpStateStatus ge_mp_state_props_export(const GeMpStatePropsOwner *o,
     const GeMpStatePropsProviders *providers,GeMpStatePropsSnapshot *out)
 {
@@ -265,6 +292,7 @@ GeMpStateStatus ge_mp_state_props_export(const GeMpStatePropsOwner *o,
         out->records[n++]=(GeMpStateRecord){o->ids[i],GE_MP_PROPS_KIND,f,GE_MP_PROP_FIELDS};
     }
     for(i=0;i<600;++i)if(o->ids[i] && !!now.props[i].parent!=!!child_seen[i])return gap(out,0);
+    if(!parents_acyclic(o,now.props))return gap(out,0);
     /* Preserve exact typed block holes and allocator links, as well as each
      * room's iteration order. Freed blocks overwrite all 16 words on reuse. */
     for(i=0;i<256;++i) {

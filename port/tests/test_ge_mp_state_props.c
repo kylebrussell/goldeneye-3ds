@@ -256,9 +256,44 @@ static void failures(void)
     assert(ge_mp_state_props_export(&owner,&providers,&output)==GE_MP_STATE_INCOMPLETE);
     assert(ge_mp_state_props_end(&owner)==GE_MP_STATE_INCOMPLETE);
 }
+static void parent_graphs(void)
+{
+    const unsigned lengths[]={1,2,17};
+    PropRecord *props[600];
+    for(unsigned test=0;test<sizeof(lengths)/sizeof(lengths[0]);++test) {
+        unsigned count=lengths[test];
+        start();
+        for(unsigned i=0;i<count;++i)props[i]=allocate();
+        /* Original reparenting maintains every local sibling invariant even
+         * when these calls create a self-parent or ancestor cycle. */
+        for(unsigned i=0;i<count;++i)chrpropReparent(props[i],props[(i+1)%count]);
+        assert(ge_mp_state_props_export(&owner,&providers,&output)==GE_MP_STATE_INCOMPLETE);
+        assert(!output.record_count && output.coverage.unclassified_fields
+            && !output.coverage.unresolved_references);
+        /* Rejection must not mutate native relationships or poison the owner. */
+        for(unsigned i=0;i<count;++i)assert(props[i]->parent==props[(i+1)%count]);
+        for(unsigned i=0;i<count;++i)chrpropDetach(props[i]);
+        export_ok();assert(output.record_count==count+1);
+        end();
+    }
+    start();
+    for(unsigned i=0;i<600;++i)props[i]=allocate();
+    /* Starting at physical slot zero traverses all 600 parents in one walk.
+     * The root is the final slot; child order must remain unchanged. */
+    for(unsigned i=0;i<599;++i)chrpropReparent(props[i],props[i+1]);
+    chrpropActivate(props[599]);
+    export_ok();assert(output.record_count==601 && output.pool_fields[0].count==1);
+    assert(output.pool.active[0]==owner.ids[599]);
+    assert(output.prop_fields[0][0].count==0);
+    for(unsigned i=1;i<600;++i) {
+        const uint64_t *child=output.prop_fields[i][0].values;
+        assert(output.prop_fields[i][0].count==1 && child[0]==owner.ids[i-1]);
+    }
+    end(); /* Physical order releases every child before its parent. */
+}
 int main(void)
 {
-    lifetime();pool_and_rooms();player_and_fields(2);player_and_fields(4);typed_mutations_and_variants();failures();
-    puts("native prop domain: exact 600 pool allocation/free generations,disabled timers,room block holes/order,children,2/4 viewer refs,free scalar classification and missed lifecycle failures passed");
+    lifetime();pool_and_rooms();player_and_fields(2);player_and_fields(4);typed_mutations_and_variants();failures();parent_graphs();
+    puts("native prop domain: exact 600 pool allocation/free generations,disabled timers,room block holes/order,children,2/4 viewer refs,free scalar classification,missed lifecycle failures,self/2/17-node cycle rejection and valid 600-parent chain passed");
     return 0;
 }

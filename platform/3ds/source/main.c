@@ -187,6 +187,7 @@ extern struct AIRecord *ailistFindById(s32 id);
 extern void *g_CurrentPlayer;
 extern s32 getMissiontimer(void);
 extern void sub_GAME_7F0C11FC(s32 stagenum);
+extern void reset_all_music_slots(void);
 
 #define CLEAR_COLOR 0x05070BFF
 #define DAM_ENVIRONMENT_RGBA_COLOR 0xFF603010U
@@ -21019,7 +21020,16 @@ start_stage_runtime:
                  * lvlViewMoveTick. It remains required in solo play: besides
                  * ordering player props it advances the recorded gameplay
                  * RNG exactly three times per presented simulation pass. */
-                if (!multiplayer.running) shuffle_player_ids();
+                if (!multiplayer.running) {
+                    /* lv.c's non-title tail ticks music after background AI.
+                     * Keep this outside pre_tick_pending/new-AI work: every
+                     * selected pass consumes the original g_ClockTimer,
+                     * including zero during a watch/control-lock pause.
+                     * Multiplayer owns the same tail in begin_world. */
+                    if (port.original_stage != LEVELID_TITLE)
+                        reset_all_music_slots();
+                    shuffle_player_ids();
+                }
                 ge_original_music_port_tick();
                 if (original_music != NULL
                         && !sync_original_gameplay_music(

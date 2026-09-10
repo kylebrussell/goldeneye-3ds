@@ -20,11 +20,12 @@ def main() -> None:
     loop = source.index("for (original_tick = 0U;")
     pre = source.index(
         "ge_original_stage_active_props_pre_tick_exact(", loop)
+    countdown = source.index("reset_all_music_slots();", pre)
     shuffle = source.index("shuffle_player_ids();", pre)
     move = source.index("ge_original_bond_move_live_tick(", shuffle)
     props = source.index("ge_original_stage_active_props_tick_exact(", move)
     autoaim = source.index("chrpropUpdateAutoaimTarget();", props)
-    assert loop < pre < shuffle < move < props < autoaim
+    assert loop < pre < countdown < shuffle < move < props < autoaim
     music = source.index("ge_original_music_runtime_begin_tick_60hz(original_music)", shuffle)
     assert shuffle < music < move
     assert "const bool render_music = audio_active && original_music != NULL;" in source[shuffle:music]
@@ -47,7 +48,7 @@ def main() -> None:
     assert "ge_original_dam_guard_all_chr_tick_exact();" not in props_body
     assert "ge_original_dam_guard_props_tick_exact();" in props_body
     assert "if(!state->pre_tick_pending)" in props_body
-    print("Original frame order: mission AI -> shuffle -> MoveBond -> propsTick -> autoaim")
+    print("Original frame order: mission AI -> music countdown -> shuffle -> MoveBond -> propsTick -> autoaim")
 
 
 if __name__ == "__main__":

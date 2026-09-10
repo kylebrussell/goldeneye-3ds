@@ -1124,10 +1124,14 @@ static void input_probe_apply_live_aim(GePortInput *input,
     if (horizontal_length > 0.001f && look_horizontal_length > 0.001f) {
         target_pitch = atan2f(dy, horizontal_length);
         look_pitch = atan2f(player->camera_look[1], look_horizontal_length);
-        /* Vertical commands retain the probe's C-button channel. The
-         * canonical decoder applies the current player's pitch inversion. */
+        /* In HONEY the default U-C command lowers the world-space view;
+         * the original inverted option reverses that direction. Compensate
+         * at this controller producer so target pitch keeps its world sign. */
+        const float pitch_direction =
+            ge_original_bond_input_provider()->look_vertical_inverted
+                ? 1.0f : -1.0f;
         input->look_y = fmaxf(-1.0f,
-            fminf(1.0f, (target_pitch - look_pitch) * 1.5f));
+            fminf(1.0f, (target_pitch - look_pitch) * 1.5f * pitch_direction));
     }
 }
 

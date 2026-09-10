@@ -23,6 +23,8 @@ STAN resolutions and7 damaging guard hits. Chr6/7 were dead and unlinked;
 chr4/5 remained alive with zero accumulated damage. The last registered hit
 was still on chr7. No objective bits were set. This establishes an opening
 combat failure, not a mission completion or a universal bullet-path failure.
+The retained save passed its CRC reload and contained Dam00 time0 with
+no completion and Facility00 still locked, consistent with the failed run.
 
 The run exposed a concrete diagnostic aiming mismatch: probes select the
 canonical HONEY1.1 controls, but `input_probe_apply_live_aim` sent yaw through
@@ -36,6 +38,15 @@ The final camera was already in the death sequence; its upward direction
 cannot diagnose live shooting pitch. Pre-death checkpoints are the relevant
 camera evidence. The run also reported NDSP initialization failure
 `d880a7fa`; sound dispatch/decode counts do not establish audible output.
+
+The subsequent exact controller/camera test also found the helper's vertical
+command reversed under the default pitch setting. A positive above-target
+error became U-C, negative vertical speed and a downward world view. The
+probe now compensates for the actual player's inversion option when creating
+its C-button command. The regression passes through original yaw/pitch input
+processing and camera matrices, and rejects both the old horizontal-channel
+and old vertical-polarity variants. Raw route dwell pitch values remain
+literal controller inputs; this correction applies to resolved guard aim.
 
 ## Target map
 

@@ -29,6 +29,10 @@ def harness(source: str) -> str:
 #include <string.h>
 #include "ge_port.h"
 #include "ge_original_player_spawn.h"
+#include "ge_original_bond_input_provider.h"
+static GeOriginalBondInputProvider provider;
+GeOriginalBondInputProvider *ge_original_bond_input_provider(void)
+{ return &provider; }
 #define M_PI_F 3.14159265358979323846f
 #define M_TAU_F (2.0f * M_PI_F)
 ''' + definitions + helpers + r'''
@@ -100,7 +104,7 @@ static void pulse_and_optional_aim(void)
             uint32_t expected = frame % 45 == 0 ? probe.targets[0].held : 0;
             assert(input.held == expected && input.pressed == expected);
             assert(input.move_y == 1 && input.look_x == 0);
-            if (guard >= 0) assert(input.move_x < 0 && input.look_y > 0);
+            if (guard >= 0) assert(input.move_x < 0 && input.look_y < 0);
             else assert(input.move_x == 0 && input.look_y == 0);
         }
     }

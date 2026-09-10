@@ -18,22 +18,22 @@ SPEC.loader.exec_module(MODULE)
 class CharacterModelStagingTests(unittest.TestCase):
     def test_canonical_dependency_identity(self):
         manifest = MODULE.checked_manifest(ROOT)
-        self.assertEqual(manifest["body_count"], 38)
-        self.assertEqual(manifest["head_count"], 33)
-        self.assertEqual(manifest["model_count"], 71)
-        self.assertEqual(manifest["total_size"], 1130192)
+        self.assertEqual(manifest["body_count"], 39)
+        self.assertEqual(manifest["head_count"], 35)
+        self.assertEqual(manifest["model_count"], 74)
+        self.assertEqual(manifest["total_size"], 1155216)
         self.assertEqual(
             manifest["identity_sha256"],
-            "626aa47335d5b8f28cc09460d9793b96edbfe82f9db8f67973a376f3b730a54e")
+            "fbb8414ba7fd88ce9c1b38eb854e6a47f461502e3c545ea158bc358cea038b8a")
         self.assertEqual(
             manifest["body_ids"],
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-             16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 29, 32, 33,
+             16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 29, 32, 33,
              34, 35, 36, 37, 38, 39, 40, 79])
         self.assertEqual(
             manifest["head_ids"],
             [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
-             55, 56, 57, 58, 59, 62, 63, 64, 65, 66, 67, 68, 69,
+             55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
              70, 71, 72, 73, 74, 75, 78])
         by_id = {model["model_id"]: model for model in manifest["models"]}
         self.assertEqual(by_id[37]["name"], "greatguard2")
@@ -57,7 +57,7 @@ class CharacterModelStagingTests(unittest.TestCase):
             on_disk = json.loads((output / "manifest.json").read_text())
             self.assertEqual(on_disk["identity_sha256"],
                              manifest["identity_sha256"])
-            self.assertEqual(len(list(output.glob("C*Z.bin"))), 71)
+            self.assertEqual(len(list(output.glob("C*Z.bin"))), 74)
 
 
 if __name__ == "__main__":

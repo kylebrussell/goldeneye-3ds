@@ -82,9 +82,6 @@ FUNCTIONS = {
         "explosionInitFlyingParticles",
         "explosionCreate",
     ),
-    "src/game/front.c": (
-        "get_player_mp_char_gender",
-    ),
     "src/game/glass.c": (
         "glassCreateShard",
         "sub_GAME_7F0A1DA0",
@@ -128,10 +125,6 @@ DATA = {
         "g_ImpactTypes",
         "g_NumParticleEntries",
         "g_BulletImpactBuffer",
-    ),
-    "src/game/front.c": (
-        "mp_chr_setup",
-        "player_char",
     ),
     "src/game/chrprop.c": (
         "g_AmmoCrates",

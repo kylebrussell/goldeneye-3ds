@@ -90,6 +90,8 @@ PropRecord *g_OnScreenPropList[MAX_PROPS+1];
 PropRecord **g_LastOnScreenProp=g_OnScreenPropList;
 stagesetup g_CurrentSetup;
 static struct player stage_player;
+static struct player multiplayer_players[4];
+static PropRecord multiplayer_props[4];
 static size_t player_body_merge_calls;
 static size_t campaign_attached_hats;
 static uint8_t campaign_hat_models[340];
@@ -1248,7 +1250,7 @@ int main(int argc,char **argv)
     guard_count=ge_original_stage_setup_prop_type_count(&setup,PROPDEF_GUARD);
     assert(guard_count==65U);
     models=ge_original_character_model_provider_create(&pack,
-        ge_original_character_model_dependency_count(),guard_count+2U,
+        ge_original_character_model_dependency_count(),guard_count+6U,
         &model_status);
     assert(models!=NULL&&model_status==GE_ORIGINAL_CHARACTER_MODEL_OK);
     memset(&services,0,sizeof(services));services.context=&harness;
@@ -1744,6 +1746,88 @@ int main(int argc,char **argv)
         ge_original_model_scene_cache_close(&removed_cache);
         ge_original_model_scene_cache_close(&body_cache);
         free(body_storage.batches);free(body_storage.vertices);
+    }
+    /* Four actual model instances, including integrated-head characters,
+     * share the stage renderer but never a body/ChrRecord/held weapon. The
+     * first two players are checked before expanding to a four-player scene. */
+    {
+        const int bodies[3]={BODY_Natalya_Skirt,BODY_Trevelyan_Janus,BODY_Xenia};
+        size_t player_parts[4],total_parts=0U;
+        Model *first_model=viewer.chr->model;
+        stage_player.bodyModel=first_model;
+        memset(multiplayer_players,0,sizeof(multiplayer_players));
+        memset(multiplayer_props,0,sizeof(multiplayer_props));
+        player_parts[0]=ge_original_character_model_instance_scene_part_count(models,first_model)
+            +ge_original_pitem_model_instance_scene_part_count(weapon_models,
+                viewer.chr->weapons_held[GUNRIGHT]->obj->model);
+        total_parts=player_parts[0];
+        for(size_t player_index=0U;player_index<3U;++player_index){
+            struct player *owner=&multiplayer_players[player_index];
+            PropRecord *player_prop=&multiplayer_props[player_index];
+            GeOriginalStageGuardScene players_scene;
+            player_prop->pos=viewer.pos;player_prop->stan=viewer.stan;
+            player_prop->rooms[0]=viewer.rooms[0];player_prop->rooms[1]=-1;
+            owner->prop=player_prop;
+            assert(ge_original_stage_guard_runtime_load_player_body(
+                runtime,owner,bodies[player_index],HEAD_Male_Brosnan_Tuxedo,0.0f));
+            assert(player_prop->chr!=NULL&&player_prop->chr!=viewer.chr
+                &&player_prop->chr->model!=first_model&&player_prop->chr->headnum==-1
+                &&player_prop->chr->bodynum==bodies[player_index]);
+            assert(ge_original_stage_guard_runtime_attach_player_held_item(
+                runtime,owner,PROP_CHRWPPK,ITEM_WPPK,0U));
+            assert(player_prop->chr->weapons_held[GUNRIGHT]!=viewer.chr->weapons_held[GUNRIGHT]
+                &&player_prop->chr->weapons_held[GUNRIGHT]->parent==player_prop);
+            for(size_t earlier=0U;earlier<player_index;++earlier)
+                assert(multiplayer_props[earlier].chr!=player_prop->chr
+                    &&multiplayer_players[earlier].bodyModel!=owner->bodyModel
+                    &&multiplayer_props[earlier].chr->chrnum!=player_prop->chr->chrnum);
+            assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)
+                ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+            player_parts[player_index+1U]=ge_original_character_model_instance_scene_part_count(
+                models,owner->bodyModel)+ge_original_pitem_model_instance_scene_part_count(
+                    weapon_models,player_prop->chr->weapons_held[GUNRIGHT]->obj->model);
+            total_parts+=player_parts[player_index+1U];
+            assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&players_scene)
+                ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+            assert(players_scene.input_count==cached_baseline_inputs+total_parts);
+        }
+        for(size_t local=0U;local<4U;++local){
+            struct player *owner=local==0U?&stage_player:&multiplayer_players[local-1U];
+            GeOriginalStageGuardScene local_scene;
+            GeOriginalModelSceneCache local_cache={0};
+            GeDamRoomSceneStorage storage={0};
+            ge_original_stage_guard_runtime_set_local_player_view(runtime,owner,1);
+            assert(ge_original_stage_guard_runtime_build_scene_cached(
+                runtime,&local_cache,view_to_world,NULL,&local_scene)
+                ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+            assert(local_scene.input_count==cached_baseline_inputs+total_parts-player_parts[local]);
+            storage.vertex_capacity=local_scene.required_vertex_count;
+            storage.batch_capacity=local_scene.required_batch_count;
+            storage.vertices=calloc(storage.vertex_capacity,sizeof(*storage.vertices));
+            storage.batches=calloc(storage.batch_capacity,sizeof(*storage.batches));
+            assert(storage.vertices!=NULL&&storage.batches!=NULL);
+            assert(ge_original_stage_guard_runtime_build_scene_cached(
+                runtime,&local_cache,view_to_world,&storage,&local_scene)
+                ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+            assert(owner->bodyModel!=NULL&&owner->prop->chr->weapons_held[GUNRIGHT]!=NULL);
+            free(storage.vertices);free(storage.batches);
+            ge_original_model_scene_cache_close(&local_cache);
+        }
+        ge_original_stage_guard_runtime_set_local_player_view(runtime,NULL,0);
+        multiplayer_players[3].prop=&multiplayer_props[3];
+        multiplayer_props[3].stan=viewer.stan;
+        assert(!ge_original_stage_guard_runtime_load_player_body(runtime,&multiplayer_players[3],
+            BODY_Brosnan_Tuxedo,HEAD_Male_Brosnan_Tuxedo,0.0f));
+        /* Resume an existing player's body without reassigning any peer. */
+        assert(ge_original_stage_guard_runtime_load_player_body(runtime,&multiplayer_players[1],
+            BODY_Trevelyan_Janus,HEAD_Male_Brosnan_Tuxedo,0.75f));
+        assert(stage_player.bodyModel==first_model&&viewer.chr->model==first_model);
+        stage_player.bodyModel=NULL;
+        for(size_t player_index=0U;player_index<3U;++player_index)
+            multiplayer_players[player_index].bodyModel=NULL;
+        assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        puts("Two/four canonical player body models, held weapons and local camera publication are independent");
     }
     /* Exercise the actual AI pad-spawn wrapper into the shared character,
      * model and prop ownership graph, then attach a runtime-created hat. */

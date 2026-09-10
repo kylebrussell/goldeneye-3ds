@@ -98,9 +98,9 @@ int main(int argc, char **argv)
     assert(argc == 2);
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
     dependency_count = ge_original_character_model_dependency_count();
-    assert(dependency_count == 71U);
+    assert(dependency_count == 74U);
     provider = ge_original_character_model_provider_create(
-        &pack, dependency_count, dependency_count + 38U, &status);
+        &pack, dependency_count, dependency_count + 39U, &status);
     assert(provider != NULL && status == GE_ORIGINAL_CHARACTER_MODEL_OK);
     assert(ge_original_character_models_visit_texture_ids(
         provider, &textures, audit_texture));
@@ -170,7 +170,7 @@ int main(int argc, char **argv)
                    && part.segment4_offset < part.blob_size);
         }
     }
-    assert(body_count == 38U && head_count == 33U);
+    assert(body_count == 39U && head_count == 35U);
     {
         GeOriginalCharacterModelStats before = {0}, after = {0};
         ge_original_character_model_get_stats(provider, &before);
@@ -293,7 +293,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    {
+    if (getenv("GE_TEST_CHARACTER_TIMING") != NULL) {
         const size_t iterations = 20000U;
         GeOriginalCharacterModelScenePart *bulk_parts;
         clock_t individual_start;

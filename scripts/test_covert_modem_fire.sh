@@ -135,6 +135,7 @@ port_sources=(
     port/src/ge_original_model_scene.c
     port/src/ge_original_guard_bullet_hit.c
     port/src/ge_original_player_gait.c
+    port/src/ge_original_player_body.c
     port/src/ge_original_animation_root.c
     port/src/ge_original_guard_animation_table.c
     port/src/ge_original_door_collision.c
@@ -178,6 +179,7 @@ set +e
     for source in "${port_sources[@]}"; do
         object_name=${source//\//_}
         if [[ "${source}" == port/src/ge_original_dam_guards.c \
+                || "${source}" == port/src/ge_original_player_body.c \
                 || "${source}" == port/src/ge_original_guard_grenade_object.c ]]; then
             cc "${port_flags[@]}" -fms-extensions \
                 -DGE_PORT_MS_INHERITS \

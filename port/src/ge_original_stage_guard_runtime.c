@@ -23,6 +23,7 @@ typedef int PLAYERFLAG;
 
 extern PropRecord *g_ActivePropsHead;
 extern struct player *g_CurrentPlayer;
+extern struct player *g_playerPointers[4];
 extern void chrpropActivateThisFrame(PropRecord *prop);
 extern void chrpropDelist(PropRecord *prop);
 extern void chrpropEnable(PropRecord *prop);
@@ -64,6 +65,30 @@ typedef struct GeOriginalStageGuardHatSlot {
     size_t next_owner_index;
 } GeOriginalStageGuardHatSlot;
 
+typedef struct GeOriginalStagePlayerBodySlot {
+    GeOriginalCharacterModelPair player_pair;
+    RenderPosView *player_render_positions;
+    int32_t player_body_id;
+    int32_t player_head_id;
+    uint8_t player_pair_ready;
+    uint8_t player_matrices_ready;
+    GeOriginalStageGuardWeaponSlot player_weapon;
+    uint8_t player_weapon_ready;
+    struct player *player_owner;
+    PropRecord *player_prop;
+    ChrRecord chr;
+} GeOriginalStagePlayerBodySlot;
+
+typedef struct GeOriginalStageGuardSceneWorkspace {
+    GeOriginalModelSceneInput *scene_inputs;
+    size_t scene_input_capacity;
+    GeOriginalCharacterModelScenePart *scene_character_parts;
+    size_t scene_character_part_capacity;
+    uint64_t scene_collect_calls;
+    uint64_t scene_scratch_allocation_events;
+    uint64_t scene_allocation_free_collect_calls;
+} GeOriginalStageGuardSceneWorkspace;
+
 struct GeOriginalStageGuardRuntime {
     GeOriginalCharacterModelProvider *models;
     GeOriginalStageGuardRuntimeServices services;
@@ -77,13 +102,7 @@ struct GeOriginalStageGuardRuntime {
     GeOriginalStageGuardHatSlot *hats;
     size_t hat_count;
     size_t hat_capacity;
-    GeOriginalModelSceneInput *scene_inputs;
-    size_t scene_input_capacity;
-    GeOriginalCharacterModelScenePart *scene_character_parts;
-    size_t scene_character_part_capacity;
-    uint64_t scene_collect_calls;
-    uint64_t scene_scratch_allocation_events;
-    uint64_t scene_allocation_free_collect_calls;
+    GeOriginalStageGuardSceneWorkspace scene_workspace;
     float draw_world_to_view[4][4];
     uint8_t draw_camera_ready;
     size_t capacity;
@@ -96,19 +115,20 @@ struct GeOriginalStageGuardRuntime {
     float matrix_failure_values[16];
     float matrix_failure_camera[32];
     float matrix_failure_model[32];
-    GeOriginalCharacterModelPair player_pair;
-    RenderPosView *player_render_positions;
-    int32_t player_body_id;
-    int32_t player_head_id;
-    uint8_t player_pair_ready;
-    uint8_t player_matrices_ready;
-    GeOriginalStageGuardWeaponSlot player_weapon;
-    uint8_t player_weapon_ready;
-    struct player *player_owner;
-    PropRecord *player_prop;
+    GeOriginalStagePlayerBodySlot players[4];
+    struct player *view_player;
+    uint8_t view_first_person;
 };
 
 static GeOriginalStageGuardRuntime *ge_active_stage_guard_runtime;
+
+void ge_original_stage_guard_runtime_set_local_player_view(
+    GeOriginalStageGuardRuntime *runtime,struct player *player,int first_person)
+{
+    if(runtime==NULL)return;
+    runtime->view_player=player;
+    runtime->view_first_person=first_person!=0;
+}
 
 static void runtime_slot_clear(GeOriginalStageGuardSlot *slot)
 {
@@ -272,22 +292,43 @@ static int runtime_room_resident(const GeOriginalStageGuardRuntime *runtime,
         || runtime->services.room_resident(runtime->services.context,room);
 }
 
-/* solo_char_load owns the lifetime decision: the body is present only in the
- * third-person/cinematic camera modes which asked it to be constructed, and
- * bondviewRemovePlayerBody clears these same original ownership relations on
- * return to first person.  Keep renderer publication subordinate to those
- * relations instead of duplicating camera-mode policy here. */
+static GeOriginalStagePlayerBodySlot *runtime_player_slot(
+    GeOriginalStageGuardRuntime *runtime,struct player *player,int claim)
+{
+    size_t index;GeOriginalStagePlayerBodySlot *empty=NULL;
+    if(runtime==NULL||player==NULL)return NULL;
+    for(index=0U;index<4U;++index){
+        if(g_playerPointers[index]==player){
+            GeOriginalStagePlayerBodySlot *slot=&runtime->players[index];
+            if(slot->player_owner==player)return slot;
+            if(claim&&slot->player_owner==NULL){slot->player_owner=player;return slot;}
+            return NULL;
+        }
+    }
+    for(index=0U;index<4U;++index){
+        GeOriginalStagePlayerBodySlot *slot=&runtime->players[index];
+        if(slot->player_owner==player)return slot;
+        if(slot->player_owner==NULL&&empty==NULL)empty=slot;
+    }
+    if(claim&&empty!=NULL){empty->player_owner=player;return empty;}
+    return NULL;
+}
+
+/* Canonical player state owns lifetime. Solo removes its cinematic body when
+ * first person resumes; multiplayer keeps opponents' bodies alive. Rendering
+ * must validate those original relations independently for each player. */
 static Model *runtime_live_player_body(
-    const GeOriginalStageGuardRuntime *runtime,uint8_t *room_id)
+    const GeOriginalStageGuardRuntime *runtime,
+    const GeOriginalStagePlayerBodySlot *body_slot,uint8_t *room_id)
 {
     PropRecord *prop;ChrRecord *chr;Model *model;int32_t room;
-    if(runtime==NULL||!runtime->player_pair_ready
-            ||runtime->player_owner==NULL||runtime->player_prop==NULL)
+    if(runtime==NULL||!body_slot->player_pair_ready
+            ||body_slot->player_owner==NULL||body_slot->player_prop==NULL)
         return NULL;
-    prop=runtime->player_prop;chr=prop->chr;
-    model=runtime->player_pair.model_instance;
-    if(model==NULL||runtime->player_owner->prop!=prop
-            ||runtime->player_owner->bodyModel!=model
+    prop=body_slot->player_prop;chr=prop->chr;
+    model=body_slot->player_pair.model_instance;
+    if(model==NULL||body_slot->player_owner->prop!=prop
+            ||body_slot->player_owner->bodyModel!=model
             ||prop->type!=PROP_TYPE_VIEWER||chr==NULL
             ||chr->prop!=prop||chr->model!=model)return NULL;
     room=(int32_t)prop->rooms[0];
@@ -298,31 +339,31 @@ static Model *runtime_live_player_body(
 }
 
 static GeOriginalStageGuardWeaponSlot *runtime_live_player_weapon(
-    GeOriginalStageGuardRuntime *runtime)
+    GeOriginalStageGuardRuntime *runtime,GeOriginalStagePlayerBodySlot *body_slot)
 {
     GeOriginalStageGuardWeaponSlot *slot;ChrRecord *chr;int hand;
-    if(runtime_live_player_body(runtime,NULL)==NULL
-            ||!runtime->player_weapon_ready)return NULL;
-    slot=&runtime->player_weapon;chr=runtime->player_prop->chr;
+    if(runtime_live_player_body(runtime,body_slot,NULL)==NULL
+            ||!body_slot->player_weapon_ready)return NULL;
+    slot=&body_slot->player_weapon;chr=body_slot->player_prop->chr;
     hand=slot->state.hand;
     if(hand<GUNRIGHT||hand>GUNLEFT||slot->prop==NULL||slot->model==NULL
             ||slot->weapon.prop!=slot->prop||slot->weapon.model!=slot->model
             ||slot->prop->type!=PROP_TYPE_WEAPON
             ||slot->prop->obj!=(ObjectRecord *)(void *)&slot->weapon
-            ||slot->prop->parent!=runtime->player_prop
+            ||slot->prop->parent!=body_slot->player_prop
             ||chr->weapons_held[hand]!=slot->prop)return NULL;
     return slot;
 }
 
 static void runtime_release_player_weapon(
-    GeOriginalStageGuardRuntime *runtime)
+    GeOriginalStageGuardRuntime *runtime,GeOriginalStagePlayerBodySlot *body_slot)
 {
     if(runtime==NULL)return;
-    if(runtime->weapon_models!=NULL&&runtime->player_weapon.model!=NULL)
+    if(runtime->weapon_models!=NULL&&body_slot->player_weapon.model!=NULL)
         (void)ge_original_pitem_model_release_instance(
-            runtime->weapon_models,runtime->player_weapon.model);
-    memset(&runtime->player_weapon,0,sizeof(runtime->player_weapon));
-    runtime->player_weapon_ready=0U;
+            runtime->weapon_models,body_slot->player_weapon.model);
+    memset(&body_slot->player_weapon,0,sizeof(body_slot->player_weapon));
+    body_slot->player_weapon_ready=0U;
 }
 
 /* ChrRecords are stable for the stage lifetime, but their PropRecords are
@@ -436,14 +477,20 @@ void ge_original_stage_guard_runtime_destroy(
             cursor=cursor->next;
         }
     }
-    if(runtime->player_owner!=NULL&&runtime->player_prop!=NULL){
-        if(runtime->player_prop->chr!=NULL
-                &&runtime->player_prop->chr->model
-                    ==runtime->player_pair.model_instance)
-            runtime->player_prop->chr=NULL;
-        if(runtime->player_owner->bodyModel
-                ==runtime->player_pair.model_instance)
-            runtime->player_owner->bodyModel=NULL;
+    for(index=0U;index<4U;++index){
+        GeOriginalStagePlayerBodySlot *body_slot=&runtime->players[index];
+        if(body_slot->player_owner!=NULL&&body_slot->player_prop!=NULL){
+            if(body_slot->player_prop->type==PROP_TYPE_VIEWER
+                    &&body_slot->player_prop->chr==&body_slot->chr
+                    &&body_slot->chr.model
+                        ==body_slot->player_pair.model_instance)
+                body_slot->player_prop->chr=NULL;
+            if(body_slot->player_owner->bodyModel
+                    ==body_slot->player_pair.model_instance)
+                body_slot->player_owner->bodyModel=NULL;
+        }
+        runtime_release_player_weapon(runtime,body_slot);
+        ge_original_stage_guard_actor_pool_end(&body_slot->chr);
     }
     if(ge_active_stage_guard_runtime==runtime)
         ge_active_stage_guard_runtime=NULL;
@@ -451,13 +498,12 @@ void ge_original_stage_guard_runtime_destroy(
         if(runtime->weapons[index].model!=NULL)
             (void)ge_original_pitem_model_release_instance(
                 runtime->weapon_models,runtime->weapons[index].model);
-    runtime_release_player_weapon(runtime);
     if(runtime->weapon_models!=NULL)for(index=0U;index<runtime->hat_count;++index)
         if(runtime->hats[index].model!=NULL)
             (void)ge_original_pitem_model_release_instance(
                 runtime->weapon_models,runtime->hats[index].model);
     ge_original_stage_guard_actor_pool_end(runtime->chrs);
-    free(runtime->scene_character_parts);free(runtime->scene_inputs);
+    free(runtime->scene_workspace.scene_character_parts);free(runtime->scene_workspace.scene_inputs);
     free(runtime->hats);free(runtime->weapons);free(runtime->fallback_props);
     free(runtime->props);free(runtime->chrs);
     free(runtime->slots);free(runtime);
@@ -469,15 +515,24 @@ int ge_original_stage_guard_runtime_load_player_body(
 {
     GeOriginalStageGuardRuntime *runtime=context;
     ChrRecord *self;Model *model;int new_pair=0;
+    GeOriginalCharacterModelMetadata metadata;
+    GeOriginalStagePlayerBodySlot *body_slot;
     if(runtime==NULL||player==NULL||player->prop==NULL
             ||player->prop->stan==NULL||!isfinite(yaw))return 0;
-    if(runtime->player_weapon_ready
-            &&runtime_live_player_weapon(runtime)==NULL)
-        runtime_release_player_weapon(runtime);
-    runtime->player_matrices_ready=0U;
+    if(!metadata_for_id(body_id,&metadata)||!metadata.is_body_dependency)return 0;
+    if(metadata.has_integrated_head)head_id=-1;
+    body_slot=runtime_player_slot(runtime,player,1);
+    if(body_slot==NULL)return 0;
+    if(body_slot->player_weapon_ready
+            &&runtime_live_player_weapon(runtime,body_slot)==NULL)
+        runtime_release_player_weapon(runtime,body_slot);
+    body_slot->player_matrices_ready=0U;
     if(player->prop->chr!=NULL){
-        runtime->player_owner=player;runtime->player_prop=player->prop;
         self=player->prop->chr;
+        if(self!=&body_slot->chr||!body_slot->player_pair_ready
+                ||self->model!=body_slot->player_pair.model_instance
+                ||player->bodyModel!=self->model)return 0;
+        body_slot->player_prop=player->prop;
         if(self->model==NULL)return 0;
         if(self->model->anim!=NULL)return 1;
         self->chrflags|=CHRFLAG_INIT;
@@ -488,25 +543,33 @@ int ge_original_stage_guard_runtime_load_player_body(
             player->bodyModel,yaw);
         return 1;
     }
-    if(!runtime->player_pair_ready){
+    if(!body_slot->player_pair_ready){
         if(!ge_original_character_model_resolve_pair(runtime->models,
-                body_id,head_id,0,&runtime->player_pair))return 0;
-        runtime->player_body_id=body_id;runtime->player_head_id=head_id;
-        runtime->player_render_positions=
-            ((Model *)runtime->player_pair.model_instance)->render_pos;
-        runtime->player_pair_ready=1U;new_pair=1;
-    }else if(runtime->player_body_id!=body_id
-            ||runtime->player_head_id!=head_id)return 0;
-    model=runtime->player_pair.model_instance;
-    if(model==NULL||!ge_original_stage_guard_actor_pool_begin(
-            runtime->chrs,runtime->capacity))return 0;
+                body_id,head_id,0,&body_slot->player_pair))return 0;
+        body_slot->player_body_id=body_id;body_slot->player_head_id=head_id;
+        body_slot->player_render_positions=
+            ((Model *)body_slot->player_pair.model_instance)->render_pos;
+        body_slot->player_pair_ready=1U;new_pair=1;
+    }else if(body_slot->player_body_id!=body_id
+            ||body_slot->player_head_id!=head_id)return 0;
+    model=body_slot->player_pair.model_instance;
+    /* Player records are reserved outside the authored/dynamic guard pool.
+     * The exact constructor searches only this player's free record. */
+    if(model==NULL||body_slot->chr.model!=NULL
+            ||!ge_original_stage_guard_actor_pool_begin(&body_slot->chr,1U))return 0;
     if(new_pair)ge_original_stage_guard_model_set_scale_exact(
         model,model->scale*0.97f);
     if(ge_original_stage_guard_actor_construct_exact(player->prop,model,
-            &player->prop->pos,yaw,player->prop->stan,NULL)==NULL)return 0;
+            &player->prop->pos,yaw,player->prop->stan,NULL)==NULL){
+        (void)ge_original_stage_guard_actor_pool_begin(runtime->chrs,runtime->capacity);
+        return 0;
+    }
+    (void)ge_original_stage_guard_actor_pool_begin(runtime->chrs,runtime->capacity);
     player->bodyModel=model;player->prop->type=PROP_TYPE_VIEWER;
-    runtime->player_owner=player;runtime->player_prop=player->prop;
+    body_slot->player_owner=player;body_slot->player_prop=player->prop;
     self=player->prop->chr;self->chrflags|=CHRFLAG_INIT;
+    self->chrnum=(s16)(0x1388+runtime->capacity+(size_t)(body_slot-runtime->players));
+    self->headnum=(s8)head_id;self->bodynum=(s8)body_id;
     ge_original_stage_guard_model_set_root_offset_exact(
         model,&player->prop->pos);
     ge_original_stage_guard_model_set_root_angle_exact(model,yaw);
@@ -520,16 +583,17 @@ int ge_original_stage_guard_runtime_attach_player_held_item(
 {
     GeOriginalStageGuardRuntime *runtime=context;
     GeOriginalStageGuardWeaponSlot *slot;ChrRecord *chr;
+    GeOriginalStagePlayerBodySlot *body_slot=runtime_player_slot(runtime,player,0);
     ObjectRecord *object;void *header=NULL,*model=NULL;float pitem_scale=0.0f;
     int hand=(flags&PROPFLAG_WEAPON_LEFTHANDED)!=0U?GUNLEFT:GUNRIGHT;
     size_t axis;
     if(runtime==NULL||player==NULL||runtime->weapon_models==NULL
-            ||player!=runtime->player_owner
-            ||runtime_live_player_body(runtime,NULL)==NULL)return 0;
-    slot=&runtime->player_weapon;chr=runtime->player_prop->chr;
-    if(runtime->player_weapon_ready){
+            ||body_slot==NULL
+            ||runtime_live_player_body(runtime,body_slot,NULL)==NULL)return 0;
+    slot=&body_slot->player_weapon;chr=body_slot->player_prop->chr;
+    if(body_slot->player_weapon_ready){
         GeOriginalStageGuardWeaponSlot *live=
-            runtime_live_player_weapon(runtime);
+            runtime_live_player_weapon(runtime,body_slot);
         return live!=NULL&&live->state.model_id==prop_id
             &&live->state.weapon_id==item_id
             &&live->state.hand==(uint8_t)hand;
@@ -569,7 +633,7 @@ int ge_original_stage_guard_runtime_attach_player_held_item(
     slot->state.weapon_id=item_id;slot->state.hand=(uint8_t)hand;
     slot->state.model_instance=model;slot->state.prop_record=slot->prop;
     slot->state.weapon_record=&slot->weapon;
-    runtime->player_weapon_ready=1U;
+    body_slot->player_weapon_ready=1U;
     runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;return 1;
 fail:
     if(slot->prop!=NULL&&slot->prop!=&slot->fallback_prop)
@@ -1720,85 +1784,88 @@ ge_original_stage_guard_runtime_update_matrices(
             hat->state.matrices_ready=1U;
         }
     }
-    runtime->player_matrices_ready=0U;
-    {
-        Model *model;
-        ModelRenderData renderdata;Mtxf base;size_t matrix;int retained;
-        uint8_t room_id;
-        model=runtime_live_player_body(runtime,&room_id);
-        if (model != NULL && !runtime_room_resident(runtime, room_id)) {
-            GeOriginalStageGuardWeaponSlot *weapon = runtime_live_player_weapon(runtime);
-            if (runtime_retain_matrices(model, runtime->player_render_positions,
-                    runtime->player_pair.matrix_count) < 0)
-                return runtime_matrix_failed(runtime, __LINE__, runtime->count);
-            if (weapon != NULL
-                    && (weapon->model->obj == NULL
-                        || weapon->model->obj->numMatrices <= 0
-                        || runtime_retain_matrices(weapon->model, weapon->render_positions,
-                            (size_t)weapon->model->obj->numMatrices) < 0))
-                return runtime_matrix_failed(runtime, __LINE__, runtime->count);
-        }
-        if(model!=NULL&&runtime_room_resident(runtime,room_id)){
-            if(model->obj==NULL||model->render_pos==NULL
-                    ||runtime->player_render_positions==NULL
-                    ||runtime->player_pair.matrix_count==0U
-                    ||!ge_original_character_model_prepare_instance_relations(
-                        runtime->models,model))
-                return runtime_matrix_failed(runtime, __LINE__, index);
-            retained=runtime_retain_matrices(model,
-                runtime->player_render_positions,
-                runtime->player_pair.matrix_count);
-            if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
-            if(retained==0){
-                memcpy(base.m,world_to_view,sizeof(base.m));
-                memset(&renderdata,0,sizeof(renderdata));
-                renderdata.basemtx=&base;
-                renderdata.mtxlist=&model->render_pos[0].pos;
-                subcalcmatrices(&renderdata,model);
+    for(size_t player_index=0U;player_index<4U;++player_index){
+        GeOriginalStagePlayerBodySlot *body_slot=&runtime->players[player_index];
+        body_slot->player_matrices_ready=0U;
+        {
+            Model *model;
+            ModelRenderData renderdata;Mtxf base;size_t matrix;int retained;
+            uint8_t room_id;
+            model=runtime_live_player_body(runtime,body_slot,&room_id);
+            if (model != NULL && !runtime_room_resident(runtime, room_id)) {
+                GeOriginalStageGuardWeaponSlot *weapon = runtime_live_player_weapon(runtime,body_slot);
+                if (runtime_retain_matrices(model, body_slot->player_render_positions,
+                        body_slot->player_pair.matrix_count) < 0)
+                    return runtime_matrix_failed(runtime, __LINE__, runtime->count);
+                if (weapon != NULL
+                        && (weapon->model->obj == NULL
+                            || weapon->model->obj->numMatrices <= 0
+                            || runtime_retain_matrices(weapon->model, weapon->render_positions,
+                                (size_t)weapon->model->obj->numMatrices) < 0))
+                    return runtime_matrix_failed(runtime, __LINE__, runtime->count);
             }
-            for(matrix=0U;matrix<runtime->player_pair.matrix_count;++matrix)
-                if(!matrix_valid(model->render_pos[matrix].pos.m))
+            if(model!=NULL&&runtime_room_resident(runtime,room_id)){
+                if(model->obj==NULL||model->render_pos==NULL
+                        ||body_slot->player_render_positions==NULL
+                        ||body_slot->player_pair.matrix_count==0U
+                        ||!ge_original_character_model_prepare_instance_relations(
+                            runtime->models,model))
                     return runtime_matrix_failed(runtime, __LINE__, index);
-            runtime->player_matrices_ready=1U;
-        }
-    }
-    runtime->player_weapon.state.matrices_ready=0U;
-    if(runtime->player_matrices_ready){
-        GeOriginalStageGuardWeaponSlot *weapon=
-            runtime_live_player_weapon(runtime);
-        if(weapon!=NULL){
-            Model *body=runtime->player_pair.model_instance;
-            ModelRenderData renderdata;Mtxf *attachment;Mtxf left_rotation;
-            size_t weapon_matrix;int retained;
-            if(weapon->model->obj==NULL||weapon->model->render_pos==NULL
-                    ||weapon->render_positions==NULL
-                    ||weapon->model->obj->numMatrices<=0)
-                return runtime_matrix_failed(runtime, __LINE__, index);
-            retained=runtime_retain_matrices(weapon->model,
-                weapon->render_positions,
-                (size_t)weapon->model->obj->numMatrices);
-            if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
-            if(retained==0){
-                attachment=modelFindNodeMtx(body,
-                    weapon->model->attachedto_objinst,0);
-                if(attachment==NULL)return runtime_matrix_failed(runtime, __LINE__, index);
-                memset(&renderdata,0,sizeof(renderdata));
-                renderdata.basemtx=attachment;
-                if(weapon->state.hand==GUNLEFT){
-                    matrix_4x4_set_rotation_around_z(M_PI_F,&left_rotation);
-                    matrix_4x4_multiply_in_place(attachment,&left_rotation);
-                    renderdata.basemtx=&left_rotation;
+                retained=runtime_retain_matrices(model,
+                    body_slot->player_render_positions,
+                    body_slot->player_pair.matrix_count);
+                if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
+                if(retained==0){
+                    memcpy(base.m,world_to_view,sizeof(base.m));
+                    memset(&renderdata,0,sizeof(renderdata));
+                    renderdata.basemtx=&base;
+                    renderdata.mtxlist=&model->render_pos[0].pos;
+                    subcalcmatrices(&renderdata,model);
                 }
-                renderdata.mtxlist=&weapon->model->render_pos[0].pos;
-                subcalcmatrices(&renderdata,weapon->model);
+                for(matrix=0U;matrix<body_slot->player_pair.matrix_count;++matrix)
+                    if(!matrix_valid(model->render_pos[matrix].pos.m))
+                        return runtime_matrix_failed(runtime, __LINE__, index);
+                body_slot->player_matrices_ready=1U;
             }
-            for(weapon_matrix=0U;
-                    weapon_matrix<(size_t)weapon->model->obj->numMatrices;
-                    ++weapon_matrix)
-                if(!matrix_valid(
-                        weapon->model->render_pos[weapon_matrix].pos.m))
+        }
+        body_slot->player_weapon.state.matrices_ready=0U;
+        if(body_slot->player_matrices_ready){
+            GeOriginalStageGuardWeaponSlot *weapon=
+                runtime_live_player_weapon(runtime,body_slot);
+            if(weapon!=NULL){
+                Model *body=body_slot->player_pair.model_instance;
+                ModelRenderData renderdata;Mtxf *attachment;Mtxf left_rotation;
+                size_t weapon_matrix;int retained;
+                if(weapon->model->obj==NULL||weapon->model->render_pos==NULL
+                        ||weapon->render_positions==NULL
+                        ||weapon->model->obj->numMatrices<=0)
                     return runtime_matrix_failed(runtime, __LINE__, index);
-            weapon->state.matrices_ready=1U;
+                retained=runtime_retain_matrices(weapon->model,
+                    weapon->render_positions,
+                    (size_t)weapon->model->obj->numMatrices);
+                if(retained<0)return runtime_matrix_failed(runtime, __LINE__, index);
+                if(retained==0){
+                    attachment=modelFindNodeMtx(body,
+                        weapon->model->attachedto_objinst,0);
+                    if(attachment==NULL)return runtime_matrix_failed(runtime, __LINE__, index);
+                    memset(&renderdata,0,sizeof(renderdata));
+                    renderdata.basemtx=attachment;
+                    if(weapon->state.hand==GUNLEFT){
+                        matrix_4x4_set_rotation_around_z(M_PI_F,&left_rotation);
+                        matrix_4x4_multiply_in_place(attachment,&left_rotation);
+                        renderdata.basemtx=&left_rotation;
+                    }
+                    renderdata.mtxlist=&weapon->model->render_pos[0].pos;
+                    subcalcmatrices(&renderdata,weapon->model);
+                }
+                for(weapon_matrix=0U;
+                        weapon_matrix<(size_t)weapon->model->obj->numMatrices;
+                        ++weapon_matrix)
+                    if(!matrix_valid(
+                            weapon->model->render_pos[weapon_matrix].pos.m))
+                        return runtime_matrix_failed(runtime, __LINE__, index);
+                weapon->state.matrices_ready=1U;
+            }
         }
     }
     return runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
@@ -1892,183 +1959,52 @@ int ge_original_stage_guard_runtime_shadow(
     return 1;
 }
 
+static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
+    GeOriginalStageGuardRuntime *runtime,GeOriginalStageGuardSceneWorkspace *workspace,
+    const float view_to_world[4][4],
+    GeOriginalModelSceneInput **result,size_t *result_count,
+    size_t *resident_count,size_t *published_count);
+
+/* Both uncached and cached decoders use the same ownership publication. The
+ * uncached decoder remains an independent geometry oracle, including players. */
 static GeOriginalStageGuardRuntimeStatus build_scene_internal(
     GeOriginalStageGuardRuntime *runtime,const float view_to_world[4][4],
     const GeDamRoomSceneStorage *storage,GeOriginalStageGuardScene *scene)
 {
+    GeOriginalStageGuardSceneWorkspace scratch={0};
     GeOriginalModelSceneInput *inputs=NULL;GeOriginalModelScene *queries=NULL;
-    size_t input_count=0,guard_index,input_index=0,vertices=0,batches=0;
+    size_t input_count=0,input_index=0,vertices=0,batches=0;
     size_t triangles=0,commands=0,resident=0,published=0;
-    GeOriginalStageGuardRuntimeStatus status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
+    GeOriginalStageGuardRuntimeStatus status;
     if(runtime==NULL||scene==NULL||!matrix_valid(view_to_world))
         return GE_ORIGINAL_STAGE_GUARD_RUNTIME_INVALID_ARGUMENT;
     memset(scene,0,sizeof(*scene));scene->guard_count=runtime->count;
-    for(guard_index=0;guard_index<runtime->count;++guard_index){
-        GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];
-        if(runtime_live_chr(runtime,guard_index)==NULL
-                ||!slot->state.visible
-                ||!runtime_room_resident(runtime,slot->state.room_id))continue;
-        ++resident;
-        if(!slot->state.matrices_ready)continue;
-        ++published;
-        input_count+=ge_original_character_model_instance_scene_part_count(
-            runtime->models,slot->pair.model_instance);
-        for(size_t weapon_index=slot->first_weapon_index;
-                weapon_index!=SIZE_MAX;
-                weapon_index=runtime->weapons[weapon_index].next_owner_index){
-            GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[weapon_index];
-            if(weapon->state.matrices_ready)
-                input_count+=ge_original_pitem_model_scene_part_count(
-                    runtime->weapon_models,weapon->state.model_id);
-        }
-        for(size_t hat_index=slot->first_hat_index;hat_index!=SIZE_MAX;
-                hat_index=runtime->hats[hat_index].next_owner_index){
-            GeOriginalStageGuardHatSlot *hat=&runtime->hats[hat_index];
-            if(hat->state.matrices_ready)
-                input_count+=ge_original_pitem_model_scene_part_count(
-                    runtime->weapon_models,hat->state.model_id);
-        }
-    }
-    scene->resident_guard_count=resident;
-    scene->published_guard_count=published;
-    scene->culled_guard_count=resident-published;
-    scene->input_count=input_count;
+    /* A temporary publication workspace keeps this independent decoder from
+     * changing the hot cached path's reusable buffers/allocation counters. */
+    status=collect_scene_inputs(runtime,&scratch,view_to_world,&inputs,&input_count,
+        &resident,&published);
+    if(status!=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK)goto done;
+    scene->resident_guard_count=resident;scene->published_guard_count=published;
+    scene->culled_guard_count=resident-published;scene->input_count=input_count;
     if(input_count!=0U){
-        inputs=calloc(input_count,sizeof(*inputs));
         queries=calloc(input_count,sizeof(*queries));
-        if(inputs==NULL||queries==NULL){status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;goto done;}
+        if(queries==NULL){status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;goto done;}
     }
-    for(guard_index=0;guard_index<runtime->count;++guard_index){
-        GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];Model *model;
-        size_t parts,part_index;
-        if(runtime_live_chr(runtime,guard_index)==NULL
-                ||!slot->state.visible||!slot->state.matrices_ready
-                ||!runtime_room_resident(runtime,slot->state.room_id))continue;
-        model=slot->pair.model_instance;
-        parts=ge_original_character_model_instance_scene_part_count(
-            runtime->models,model);
-        for(part_index=0;part_index<parts;++part_index){
-            GeOriginalCharacterModelScenePart part;GeOriginalModelSceneInput *input;
-            GeOriginalModelSceneStatus scene_status;size_t row,column;
-            if(input_index>=input_count||!ge_original_character_model_instance_scene_part(
-                    runtime->models,model,part_index,&part)){
-                status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
-            }
-            input=&inputs[input_index];input->blob=part.blob;
-            input->blob_size=part.blob_size;input->primary_offset=part.primary_offset;
-            input->secondary_offset=part.secondary_offset;
-            input->segment4_offset=part.segment4_offset;
-            input->room_id=slot->state.room_id;
-            input->world_zbuffer_enabled=1U;
-            input->segment3_matrices=(const float (*)[4][4])(const void *)model->render_pos;
-            input->segment3_matrix_count=slot->pair.matrix_count;
-            for(row=0;row<4U;++row)for(column=0;column<4U;++column)
-                input->matrix[row][column]=view_to_world[row][column];
-            scene_status=ge_original_model_scene_build(input,NULL,&queries[input_index]);
-            if(scene_status!=GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
-                    ||queries[input_index].required_vertex_count>SIZE_MAX-vertices
-                    ||queries[input_index].required_batch_count>SIZE_MAX-batches
-                    ||queries[input_index].triangle_count>SIZE_MAX-triangles
-                    ||queries[input_index].commands_visited>SIZE_MAX-commands){
-                status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
-            }
-            vertices+=queries[input_index].required_vertex_count;
-            batches+=queries[input_index].required_batch_count;
-            triangles+=queries[input_index].triangle_count;
-            commands+=queries[input_index].commands_visited;++input_index;
+    for(input_index=0U;input_index<input_count;++input_index){
+        GeOriginalModelSceneStatus model_status=ge_original_model_scene_build(
+            &inputs[input_index],NULL,&queries[input_index]);
+        if(model_status!=GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
+                ||queries[input_index].required_vertex_count>SIZE_MAX-vertices
+                ||queries[input_index].required_batch_count>SIZE_MAX-batches
+                ||queries[input_index].triangle_count>SIZE_MAX-triangles
+                ||queries[input_index].commands_visited>SIZE_MAX-commands){
+            status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
         }
-        for(size_t weapon_index=slot->first_weapon_index;
-                weapon_index!=SIZE_MAX;
-                weapon_index=runtime->weapons[weapon_index].next_owner_index){
-            GeOriginalStageGuardWeaponSlot *weapon=&runtime->weapons[weapon_index];
-            size_t weapon_parts,weapon_part_index;
-            if(!weapon->state.matrices_ready)continue;
-            weapon_parts=ge_original_pitem_model_scene_part_count(
-                runtime->weapon_models,weapon->state.model_id);
-            for(weapon_part_index=0U;weapon_part_index<weapon_parts;
-                    ++weapon_part_index){
-                GeOriginalPitemModelScenePart part;
-                GeOriginalModelSceneInput *input;
-                GeOriginalModelSceneStatus scene_status;size_t row,column;
-                if(input_index>=input_count
-                        ||!ge_original_pitem_model_scene_part(
-                            runtime->weapon_models,weapon->state.model_id,
-                            weapon_part_index,&part)){
-                    status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
-                }
-                input=&inputs[input_index];input->blob=part.blob;
-                input->blob_size=part.blob_size;
-                input->primary_offset=part.primary_offset;
-                input->secondary_offset=part.secondary_offset;
-                input->segment4_offset=part.segment4_offset;
-                input->room_id=slot->state.room_id;
-                input->world_zbuffer_enabled=1U;
-                input->segment3_matrices=(const float (*)[4][4])(const void *)
-                    weapon->model->render_pos;
-                input->segment3_matrix_count=(size_t)weapon->model->obj->numMatrices;
-                for(row=0U;row<4U;++row)for(column=0U;column<4U;++column)
-                    input->matrix[row][column]=view_to_world[row][column];
-                scene_status=ge_original_model_scene_build(
-                    input,NULL,&queries[input_index]);
-                if(scene_status!=GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
-                        ||queries[input_index].required_vertex_count>SIZE_MAX-vertices
-                        ||queries[input_index].required_batch_count>SIZE_MAX-batches
-                        ||queries[input_index].triangle_count>SIZE_MAX-triangles
-                        ||queries[input_index].commands_visited>SIZE_MAX-commands){
-                    status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
-                }
-                vertices+=queries[input_index].required_vertex_count;
-                batches+=queries[input_index].required_batch_count;
-                triangles+=queries[input_index].triangle_count;
-                commands+=queries[input_index].commands_visited;++input_index;
-            }
-        }
-        for(size_t hat_index=slot->first_hat_index;hat_index!=SIZE_MAX;
-                hat_index=runtime->hats[hat_index].next_owner_index){
-            GeOriginalStageGuardHatSlot *hat=&runtime->hats[hat_index];
-            size_t hat_parts,hat_part_index;
-            if(!hat->state.matrices_ready)continue;
-            hat_parts=ge_original_pitem_model_scene_part_count(
-                runtime->weapon_models,hat->state.model_id);
-            for(hat_part_index=0U;hat_part_index<hat_parts;++hat_part_index){
-                GeOriginalPitemModelScenePart part;
-                GeOriginalModelSceneInput *input;
-                GeOriginalModelSceneStatus scene_status;size_t row,column;
-                if(input_index>=input_count
-                        ||!ge_original_pitem_model_scene_part(
-                            runtime->weapon_models,hat->state.model_id,
-                            hat_part_index,&part)){
-                    status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
-                }
-                input=&inputs[input_index];input->blob=part.blob;
-                input->blob_size=part.blob_size;
-                input->primary_offset=part.primary_offset;
-                input->secondary_offset=part.secondary_offset;
-                input->segment4_offset=part.segment4_offset;
-                input->room_id=slot->state.room_id;
-                input->world_zbuffer_enabled=1U;
-                input->segment3_matrices=(const float (*)[4][4])(const void *)
-                    hat->model->render_pos;
-                input->segment3_matrix_count=(size_t)hat->model->obj->numMatrices;
-                for(row=0U;row<4U;++row)for(column=0U;column<4U;++column)
-                    input->matrix[row][column]=view_to_world[row][column];
-                scene_status=ge_original_model_scene_build(
-                    input,NULL,&queries[input_index]);
-                if(scene_status!=GE_ORIGINAL_MODEL_SCENE_CAPACITY_EXCEEDED
-                        ||queries[input_index].required_vertex_count>SIZE_MAX-vertices
-                        ||queries[input_index].required_batch_count>SIZE_MAX-batches
-                        ||queries[input_index].triangle_count>SIZE_MAX-triangles
-                        ||queries[input_index].commands_visited>SIZE_MAX-commands){
-                    status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;
-                }
-                vertices+=queries[input_index].required_vertex_count;
-                batches+=queries[input_index].required_batch_count;
-                triangles+=queries[input_index].triangle_count;
-                commands+=queries[input_index].commands_visited;++input_index;
-            }
-        }
+        vertices+=queries[input_index].required_vertex_count;
+        batches+=queries[input_index].required_batch_count;
+        triangles+=queries[input_index].triangle_count;
+        commands+=queries[input_index].commands_visited;
     }
-    if(input_index!=input_count){status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_ERROR;goto done;}
     scene->required_vertex_count=vertices;scene->required_batch_count=batches;
     scene->triangle_count=triangles;scene->commands_visited=commands;
     if(storage==NULL||vertices>storage->vertex_capacity
@@ -2091,12 +2027,14 @@ static GeOriginalStageGuardRuntimeStatus build_scene_internal(
     }
     scene->vertex_count=vertices;scene->batch_count=batches;
 done:
-    free(queries);free(inputs);scene->status=status;
+    free(queries);free(scratch.scene_inputs);free(scratch.scene_character_parts);
+    scene->status=status;
     runtime->last_status=status;return status;
 }
 
 static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
-    GeOriginalStageGuardRuntime *runtime,const float view_to_world[4][4],
+    GeOriginalStageGuardRuntime *runtime,GeOriginalStageGuardSceneWorkspace *workspace,
+    const float view_to_world[4][4],
     GeOriginalModelSceneInput **result,size_t *result_count,
     size_t *resident_count,size_t *published_count)
 {
@@ -2110,8 +2048,8 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
             ||!matrix_valid(view_to_world))
         return GE_ORIGINAL_STAGE_GUARD_RUNTIME_INVALID_ARGUMENT;
     *result=NULL;*result_count=0U;*resident_count=0U;*published_count=0U;
-    allocation_events_before=runtime->scene_scratch_allocation_events;
-    runtime->scene_collect_calls++;
+    allocation_events_before=workspace->scene_scratch_allocation_events;
+    workspace->scene_collect_calls++;
     for(guard_index=0U;guard_index<runtime->count;++guard_index){
         GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];
         size_t attachment;
@@ -2144,9 +2082,12 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
                     runtime->weapon_models,hat->state.model_id);
         }
     }
-    {
-        uint8_t room_id;Model *model=runtime_live_player_body(runtime,&room_id);
-        if(model!=NULL&&runtime->player_matrices_ready
+    for(size_t player_index=0U;player_index<4U;++player_index){
+        GeOriginalStagePlayerBodySlot *body_slot=&runtime->players[player_index];
+        uint8_t room_id;Model *model=runtime_live_player_body(runtime,body_slot,&room_id);
+        if(model!=NULL&&body_slot->player_matrices_ready
+                &&(!runtime->view_first_person
+                    ||body_slot->player_owner!=runtime->view_player)
                 &&runtime_room_resident(runtime,room_id)){
             const size_t parts=
                 ge_original_character_model_instance_scene_part_count(
@@ -2155,7 +2096,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
             if(parts>maximum_character_parts)maximum_character_parts=parts;
             {
                 GeOriginalStageGuardWeaponSlot *weapon=
-                    runtime_live_player_weapon(runtime);
+                    runtime_live_player_weapon(runtime,body_slot);
                 if(weapon!=NULL&&weapon->state.matrices_ready)
                     input_count+=
                         ge_original_pitem_model_instance_scene_part_count(
@@ -2163,31 +2104,31 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
             }
         }
     }
-    if(input_count>runtime->scene_input_capacity){
+    if(input_count>workspace->scene_input_capacity){
         GeOriginalModelSceneInput *candidate;
         if(input_count>SIZE_MAX/sizeof(*candidate))
             return GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;
-        candidate=realloc(runtime->scene_inputs,input_count*sizeof(*candidate));
+        candidate=realloc(workspace->scene_inputs,input_count*sizeof(*candidate));
         if(candidate==NULL)
             return GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;
-        runtime->scene_inputs=candidate;
-        runtime->scene_input_capacity=input_count;
-        runtime->scene_scratch_allocation_events++;
+        workspace->scene_inputs=candidate;
+        workspace->scene_input_capacity=input_count;
+        workspace->scene_scratch_allocation_events++;
     }
-    if(maximum_character_parts>runtime->scene_character_part_capacity){
+    if(maximum_character_parts>workspace->scene_character_part_capacity){
         GeOriginalCharacterModelScenePart *candidate;
         if(maximum_character_parts>SIZE_MAX/sizeof(*candidate))
             return GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;
-        candidate=realloc(runtime->scene_character_parts,
+        candidate=realloc(workspace->scene_character_parts,
             maximum_character_parts*sizeof(*candidate));
         if(candidate==NULL)
             return GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;
-        runtime->scene_character_parts=candidate;
-        runtime->scene_character_part_capacity=maximum_character_parts;
-        runtime->scene_scratch_allocation_events++;
+        workspace->scene_character_parts=candidate;
+        workspace->scene_character_part_capacity=maximum_character_parts;
+        workspace->scene_scratch_allocation_events++;
     }
-    inputs=runtime->scene_inputs;
-    character_parts=runtime->scene_character_parts;
+    inputs=workspace->scene_inputs;
+    character_parts=workspace->scene_character_parts;
     if(input_count!=0U)memset(inputs,0,input_count*sizeof(*inputs));
     for(guard_index=0U;guard_index<runtime->count;++guard_index){
         GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];Model *model;
@@ -2273,10 +2214,13 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
             }
         }
     }
-    {
-        uint8_t room_id;Model *model=runtime_live_player_body(runtime,&room_id);
+    for(size_t player_index=0U;player_index<4U;++player_index){
+        GeOriginalStagePlayerBodySlot *body_slot=&runtime->players[player_index];
+        uint8_t room_id;Model *model=runtime_live_player_body(runtime,body_slot,&room_id);
         size_t parts,part_index;
-        if(model!=NULL&&runtime->player_matrices_ready
+        if(model!=NULL&&body_slot->player_matrices_ready
+                &&(!runtime->view_first_person
+                    ||body_slot->player_owner!=runtime->view_player)
                 &&runtime_room_resident(runtime,room_id)){
             if(!ge_original_character_model_instance_scene_parts(
                     runtime->models,model,character_parts,
@@ -2294,13 +2238,13 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
                 input->room_id=room_id;input->world_zbuffer_enabled=1U;
                 input->segment3_matrices=
                     (const float (*)[4][4])(const void *)model->render_pos;
-                input->segment3_matrix_count=runtime->player_pair.matrix_count;
+                input->segment3_matrix_count=body_slot->player_pair.matrix_count;
                 for(row=0U;row<4U;++row)for(column=0U;column<4U;++column)
                     input->matrix[row][column]=view_to_world[row][column];
             }
             {
                 GeOriginalStageGuardWeaponSlot *weapon=
-                    runtime_live_player_weapon(runtime);
+                    runtime_live_player_weapon(runtime,body_slot);
                 size_t weapon_parts,weapon_part;
                 if(weapon!=NULL&&weapon->state.matrices_ready){
                     weapon_parts=
@@ -2336,8 +2280,8 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
         }
     }
     if(input_index!=input_count)goto fail;
-    if(runtime->scene_scratch_allocation_events==allocation_events_before)
-        runtime->scene_allocation_free_collect_calls++;
+    if(workspace->scene_scratch_allocation_events==allocation_events_before)
+        workspace->scene_allocation_free_collect_calls++;
     *result=inputs;*result_count=input_count;
     return GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;
 fail:
@@ -2358,7 +2302,7 @@ static GeOriginalStageGuardRuntimeStatus build_scene_cached_impl(
         return GE_ORIGINAL_STAGE_GUARD_RUNTIME_INVALID_ARGUMENT;
     }
     memset(scene,0,sizeof(*scene));scene->guard_count=runtime->count;
-    status=collect_scene_inputs(runtime,view_to_world,&inputs,&input_count,
+    status=collect_scene_inputs(runtime,&runtime->scene_workspace,view_to_world,&inputs,&input_count,
         &resident,&published);
     if(status!=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK)goto done;
     model_status=exact_size
@@ -2403,12 +2347,12 @@ void ge_original_stage_guard_runtime_scene_scratch_stats(
     if(stats==NULL)return;
     memset(stats,0,sizeof(*stats));
     if(runtime==NULL)return;
-    stats->input_capacity=runtime->scene_input_capacity;
-    stats->character_part_capacity=runtime->scene_character_part_capacity;
-    stats->collect_calls=runtime->scene_collect_calls;
-    stats->allocation_events=runtime->scene_scratch_allocation_events;
+    stats->input_capacity=runtime->scene_workspace.scene_input_capacity;
+    stats->character_part_capacity=runtime->scene_workspace.scene_character_part_capacity;
+    stats->collect_calls=runtime->scene_workspace.scene_collect_calls;
+    stats->allocation_events=runtime->scene_workspace.scene_scratch_allocation_events;
     stats->allocation_free_collect_calls=
-        runtime->scene_allocation_free_collect_calls;
+        runtime->scene_workspace.scene_allocation_free_collect_calls;
 }
 
 GeOriginalStageGuardRuntimeStatus ge_original_stage_guard_runtime_build_scene(

@@ -26,16 +26,16 @@ typedef struct GeCharacterDependency {
 enum { GE_CHR_ROLE_BODY = 1, GE_CHR_ROLE_HEAD = 2 };
 
 /* Exact union of all 20 solo setup dependencies, both unchanged random-head
- * pools, initializeGunBarrelIntro, and MENU_DISPLAY_CAST.  The 71-record
+ * pools, initializeGunBarrelIntro, MENU_DISPLAY_CAST and mp_chr_setup. The 74-record
  * list is independently derived and hash-locked by
  * scripts/stage_3ds_character_models.py. */
 static const GeCharacterDependency ge_character_dependencies[] = {
     {0,1},{1,1},{2,1},{3,1},{4,1},{5,1},{6,1},{7,1},{8,1},{9,1},
     {10,1},{11,1},{12,1},{13,1},{14,1},{15,1},{16,1},{17,1},{18,1},
-    {19,1},{20,1},{21,1},{22,1},{23,1},{24,1},{25,1},{28,1},{29,1},
+    {19,1},{20,1},{21,1},{22,1},{23,1},{24,1},{25,1},{27,1},{28,1},{29,1},
     {32,1},{33,1},{34,1},{35,1},{36,1},{37,1},{38,1},{39,1},{40,1},
     {42,2},{43,2},{44,2},{45,2},{46,2},{47,2},{48,2},{49,2},{50,2},
-    {51,2},{52,2},{53,2},{54,2},{55,2},{56,2},{57,2},{58,2},{59,2},
+    {51,2},{52,2},{53,2},{54,2},{55,2},{56,2},{57,2},{58,2},{59,2},{60,2},{61,2},
     {62,2},{63,2},{64,2},{65,2},{66,2},{67,2},{68,2},{69,2},{70,2},
     {71,2},{72,2},{73,2},{74,2},{75,2},{78,2},{79,1}
 };

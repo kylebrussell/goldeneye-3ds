@@ -26,7 +26,20 @@ typedef enum GeStageId {
      * mission and therefore intentionally lives outside the generated
      * 20-entry mission-folder registry. */
     GE_STAGE_CUBA,
-    GE_STAGE_COUNT
+    GE_STAGE_COUNT,
+    /* Keep GE_STAGE_COUNT and all solo IDs unchanged. Explicit enumerators
+     * also retain these IDs under the ARM toolchain's -fshort-enums ABI. */
+    GE_STAGE_MP_TEMPLE = GE_MULTIPLAYER_STAGE_ID_BASE,
+    GE_STAGE_MP_COMPLEX,
+    GE_STAGE_MP_CAVES,
+    GE_STAGE_MP_LIBRARY,
+    GE_STAGE_MP_BASEMENT,
+    GE_STAGE_MP_STACK,
+    GE_STAGE_MP_FACILITY,
+    GE_STAGE_MP_BUNKER2,
+    GE_STAGE_MP_ARCHIVES,
+    GE_STAGE_MP_CAVERNS,
+    GE_STAGE_MP_EGYPT
 } GeStageId;
 
 typedef enum GeStageRoomStream {

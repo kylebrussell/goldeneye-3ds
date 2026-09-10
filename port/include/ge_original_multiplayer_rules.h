@@ -57,6 +57,10 @@ GeOriginalMultiplayerStatus ge_original_multiplayer_score(int32_t player,
 /* Exact death-render gate: death animation, red blood and fade must finish;
  * YOLT denies respawn after two recorded deaths. Trigger buttons 0xB000. */
 int ge_original_multiplayer_can_respawn(int32_t player, uint16_t buttons);
+/* Publish the selected replay/recording header before consuming its intro.
+ * Passing both modes as zero restores canonical non-demo intro selection. */
+void ge_original_multiplayer_bind_intro_slot(int playback, int recording,
+                                              uint32_t slot);
 /* Validate and publish all authored spawn pads before calling the original
  * handler. Pads must already have canonical STAN pointers resolved. */
 GeOriginalMultiplayerStatus ge_original_multiplayer_publish_spawns(

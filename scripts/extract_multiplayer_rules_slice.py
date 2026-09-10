@@ -7,6 +7,7 @@ from extract_stage_pickup_slice import function_text
 from extract_bond_move_explosion_slice import extract_data
 
 FUNCTIONS = {
+    "src/game/ramromreplay.c": ("get_is_ramrom_flag", "get_recording_ramrom_flag", "check_ramrom_flags"),
     "src/game/mpmenu.c": ("get_points_for_mp_player",),
     "src/game/bondview.c": ("bondviewGetRandomSpawnPadIndex", "bondviewPlayerBeginLife"),
     "src/game/bondview2.c": ("mp_respawn_handler", "currentPlayerStartChrFade"),
@@ -26,6 +27,7 @@ def render(repo):
 #include "game/gun.h"
 #include "game/lv.h"
 #include "game/mp_weapon.h"
+#include "game/ramromreplay.h"
 #include "random.h"
 #include "assets/obseg/text/LtitleE.h"
 #include "assets/oddtextures.h"
@@ -33,7 +35,10 @@ def render(repo):
 #define BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH 0x65
 #include "game/bondview_internal.h"
 extern stagesetup g_CurrentSetup;
-extern s32 check_ramrom_flags(void);
+extern u32 check_ramrom_flags(void);
+ramromfilestructure *ptr_active_demofile;
+s32 is_ramrom_flag;
+s32 recording_ramrom_flag;
 extern void hudmsgsSetOn(s32);
 extern void bondviewClearUpperTextDisplayFlag(s32);
 extern void give_cur_player_ammo(s32, s32);

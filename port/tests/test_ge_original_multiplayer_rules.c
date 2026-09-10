@@ -42,7 +42,7 @@ s32 get_player_control_style(s32 p) { (void)p; return 1; }
 void cur_player_set_control_type(int p) { (void)p; }
 s32 cur_player_get_control_type(void) { return 1; }
 u32 randomGetNext(void) { rng = rng * 1664525u + 1013904223u; return rng; }
-s32 check_ramrom_flags(void) { return 0; }
+extern u32 check_ramrom_flags(void);
 #ifdef GE_MP_FIXTURE_NATIVE_STAN
 #include "ge_stan_native.h"
 static const GeStanNativeMap *fixture_native_stan;
@@ -189,6 +189,10 @@ static void combat_respawn(int count)
 
 int main(void)
 {
+    ge_original_multiplayer_bind_intro_slot(0,0,42);assert(check_ramrom_flags()==0);
+    ge_original_multiplayer_bind_intro_slot(1,0,7);assert(check_ramrom_flags()==7);
+    ge_original_multiplayer_bind_intro_slot(0,1,3);assert(check_ramrom_flags()==3);
+    ge_original_multiplayer_bind_intro_slot(0,0,0);assert(check_ramrom_flags()==0);
     int score, i, slot;GeOriginalMultiplayerArena arena;GeOriginalMultiplayerWeapon weapon;
     GeOriginalMultiplayerConfig config={4,SCENARIO_NORMAL,0,LEVELID_TEMPLE,{0,0,1,1}};
     for(i=0;i<GE_ORIGINAL_MP_ARENAS;i++) {assert(ge_original_multiplayer_arena(i,&arena));assert(strncmp(arena.setup_key,"Ump_setup",9)==0);}

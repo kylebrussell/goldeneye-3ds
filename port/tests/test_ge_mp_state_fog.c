@@ -99,8 +99,40 @@ static void changed(uint16_t field,uint32_t index,const void *value,size_t size)
     CHANGE(f32,(source).WaterConcavity,floatfield,(row)*(step)+(start)+8); \
 } while(0)
 
+static void reject_malformed_owner(void)
+{
+    GeMpRegistry registry;
+    GeMpRegistryEntry entries[2];
+    GeMpStateFogOwner owner={0};
+    players=2;
+    assert(ge_original_multiplayer_fog_load(LEVELID_DAM,1,2,0.2f));
+    assert(ge_mp_registry_init(&registry,entries,2)==GE_MP_STATE_OK);
+    assert(ge_mp_state_fog_begin(&owner,&registry)==GE_MP_STATE_OK);
+    const uint32_t other_key=ge_mp_registry_key(0xe7,255,0);
+    uint64_t other_id;
+    assert(ge_mp_registry_define(&registry,other_key)==GE_MP_STATE_OK);
+    assert(ge_mp_registry_acquire(&registry,other_key,&other_id)==GE_MP_STATE_OK);
+    GeMpStateFogOwner malformed=owner;
+    malformed.actor_id=other_id;
+    GeMpStateFogOwner before=malformed;
+    assert(ge_mp_state_fog_end(&malformed)==GE_MP_STATE_INVALID);
+    assert(!memcmp(&malformed,&before,sizeof(before)));
+    assert(ge_mp_registry_resolve(&registry,other_id,NULL)==GE_MP_STATE_OK);
+    assert(ge_mp_registry_resolve(&registry,owner.actor_id,NULL)==GE_MP_STATE_OK);
+    malformed=owner;malformed.lifetime=0;before=malformed;
+    assert(ge_mp_state_fog_end(&malformed)==GE_MP_STATE_STALE);
+    assert(!memcmp(&malformed,&before,sizeof(before)));
+    assert(ge_mp_registry_resolve(&registry,owner.actor_id,NULL)==GE_MP_STATE_OK);
+    assert(ge_mp_registry_release(&registry,other_id)==GE_MP_STATE_OK);
+    ge_original_multiplayer_fog_close();
+    /* Structural identity remains valid after native expiry and must retire. */
+    assert(ge_mp_state_fog_end(&owner)==GE_MP_STATE_STALE);
+    for (unsigned i=0;i<2;++i) assert(!entries[i].live);
+}
+
 int main(int argc,char **argv)
 {
+    reject_malformed_owner();
     assert(argc==2);unsigned count=(unsigned)atoi(argv[1]);assert(count==2 || count==4);
     start(count);
     assert(snapshot.fields[24].count==0);

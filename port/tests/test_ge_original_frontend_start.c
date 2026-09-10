@@ -15,6 +15,9 @@ typedef struct Harness {
     int stage;
     int difficulty_calls;
     int stage_calls;
+    int folder_calls;
+    int multiplayer_calls;
+    GeOriginalFrontendStart *request_frontend;
     int progress[4];
     int copy_calls;
     int erase_calls;
@@ -32,11 +35,23 @@ static int highest(void *context,int32_t mission)
 {assert(mission>=SP_LEVEL_DAM&&mission<SP_LEVEL_MAX);
  return ((Harness *)context)->highest;}
 static int folder(void *context,int32_t value)
-{Harness *h=context;h->folder=value;return 1;}
+{Harness *h=context;h->folder=value;++h->folder_calls;return 1;}
 static void difficulty(void *context,int32_t value)
 {Harness *h=context;h->difficulty=value;++h->difficulty_calls;}
 static void stage(void *context,int32_t value)
 {Harness *h=context;h->stage=value;++h->stage_calls;}
+static void multiplayer(void *context)
+{
+    Harness *h=context;
+    GeOriginalFrontendSnapshot snapshot;
+    assert(h->request_frontend!=NULL);
+    assert(ge_original_frontend_start_snapshot(h->request_frontend,&snapshot));
+    assert(snapshot.menu==MENU_MODE_SELECT&&snapshot.multiplayer_requested);
+    assert(!snapshot.stage_requested
+        &&snapshot.mode_index==GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER);
+    assert(h->request_frontend->maybe_prev_menu==MENU_INVALID);
+    ++h->multiplayer_calls;
+}
 static int has_progress(void *context,int32_t value)
 {Harness *h=context;assert(value>=FOLDER1&&value<MAX_FOLDER_COUNT);
  return h->progress[value];}
@@ -97,6 +112,111 @@ static void leave_first_title(GeOriginalFrontendStart *frontend)
         &&snapshot.menu==MENU_FILE_SELECT);
 }
 
+static void test_multiplayer_mode_selection(const GeOriginalFrontendServices *base)
+{
+    Harness h={0};
+    GeOriginalFrontendServices services=*base;
+    GeOriginalFrontendStart frontend;
+    GeOriginalFrontendSnapshot snapshot;
+    services.context=&h;
+    services.request_multiplayer=multiplayer;
+    h.highest=DIFFICULTY_00;
+    h.progress[FOLDER3]=1;
+    h.request_frontend=&frontend;
+    assert(ge_original_frontend_start_reset(&frontend,&services));
+    assert(!ge_original_frontend_start_take_multiplayer_request(NULL));
+    assert(!ge_original_frontend_start_take_multiplayer_request(&frontend));
+    leave_first_title(&frontend);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_RIGHT,MENU_FILE_SELECT);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_RIGHT,MENU_FILE_SELECT);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_MODE_SELECT);
+    assert(frontend.folder==FOLDER3&&h.folder==FOLDER3&&h.folder_calls==1);
+    assert(ge_original_frontend_start_snapshot(&frontend,&snapshot));
+    assert(snapshot.mode_index==GE_ORIGINAL_FRONTEND_MODE_SOLO);
+    assert(snapshot.lines[0].selected&&!snapshot.lines[1].selected);
+    assert(!snapshot.multiplayer_requested&&!snapshot.stage_requested);
+
+    /* Key fallback and pointer hit-testing publish the same selection. */
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_DOWN,MENU_MODE_SELECT);
+    assert(frontend.mode_index==GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER);
+    assert(frontend.cursor.x==126.0f&&frontend.cursor.y==258.0f);
+    assert(ge_original_frontend_start_cursor_tick(&frontend,0,0,1.0f));
+    assert(ge_original_frontend_start_snapshot(&frontend,&snapshot));
+    assert(!snapshot.lines[0].selected&&snapshot.lines[1].selected);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_UP,MENU_MODE_SELECT);
+    assert(frontend.mode_index==GE_ORIGINAL_FRONTEND_MODE_SOLO);
+    assert(frontend.cursor.x==126.0f&&frontend.cursor.y==226.0f);
+    frontend.cursor.y=242.999f;
+    assert(ge_original_frontend_start_cursor_tick(&frontend,0,0,1.0f));
+    assert(frontend.mode_index==GE_ORIGINAL_FRONTEND_MODE_SOLO);
+    frontend.cursor.y=243.0f;
+    assert(ge_original_frontend_start_cursor_tick(&frontend,0,0,1.0f));
+    assert(frontend.mode_index==GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_START,MENU_MODE_SELECT);
+    assert(h.multiplayer_calls==1&&frontend.multiplayer_requested);
+    assert(h.last_sfx==DOOR_METAL_CLOSE_SFX);
+    for(int i=0;i<4;++i){
+        assert(ge_original_frontend_start_tick(&frontend,
+            GE_ORIGINAL_FRONTEND_INPUT_CONFIRM|GE_ORIGINAL_FRONTEND_INPUT_START));
+        assert(ge_original_frontend_start_tick(&frontend,
+            GE_ORIGINAL_FRONTEND_INPUT_UP|GE_ORIGINAL_FRONTEND_INPUT_BACK));
+    }
+    assert(h.multiplayer_calls==1&&frontend.current_menu==MENU_MODE_SELECT);
+    assert(frontend.maybe_prev_menu==MENU_INVALID&&frontend.menu_update==MENU_INVALID);
+    assert(!frontend.stage_requested&&h.stage_calls==0&&h.difficulty_calls==0);
+    assert(frontend.folder==FOLDER3&&h.folder==FOLDER3&&h.folder_calls==1);
+    assert(h.highest==DIFFICULTY_00&&h.progress[FOLDER3]==1);
+    assert(h.copy_calls==0&&h.erase_calls==0);
+    assert(ge_original_frontend_start_take_multiplayer_request(&frontend)==1);
+    assert(ge_original_frontend_start_take_multiplayer_request(&frontend)==0);
+    assert(ge_original_frontend_start_tick(&frontend,0));
+    assert(ge_original_frontend_start_snapshot(&frontend,&snapshot));
+    assert(!snapshot.multiplayer_requested&&snapshot.menu==MENU_MODE_SELECT);
+    assert(snapshot.folder==FOLDER3
+        &&snapshot.mode_index==GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER);
+    assert(h.multiplayer_calls==1);
+    /* A later fresh confirmation can request setup again after cancellation. */
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_MODE_SELECT);
+    assert(h.multiplayer_calls==2);
+    assert(ge_original_frontend_start_take_multiplayer_request(&frontend));
+
+    /* Previous wins over y>=243, including the pointer border at x=390. */
+    frontend.cursor.x=390.0f;frontend.cursor.y=258.0f;
+    assert(ge_original_frontend_start_cursor_tick(&frontend,0,0,1.0f));
+    assert(!frontend.cursor_previous_tab);
+    frontend.cursor.x=390.001f;
+    assert(ge_original_frontend_start_cursor_tick(&frontend,0,0,1.0f));
+    assert(frontend.cursor_previous_tab);
+    assert(ge_original_frontend_start_snapshot(&frontend,&snapshot));
+    assert(!snapshot.lines[0].selected&&!snapshot.lines[1].selected);
+    assert(snapshot.tabs[0].selected);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_FILE_SELECT);
+    assert(!frontend.multiplayer_requested&&h.multiplayer_calls==2);
+    assert(frontend.folder==FOLDER3&&h.folder_calls==1);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_MODE_SELECT);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_MISSION_SELECT);
+    /* Returning from a lower mission row restores authored solo mode cursor. */
+    frontend.cursor.y=270.0f;
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_BACK,MENU_MODE_SELECT);
+    assert(frontend.cursor.x==126.0f&&frontend.cursor.y==226.0f);
+    assert(frontend.mode_index==GE_ORIGINAL_FRONTEND_MODE_SOLO);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_BACK,MENU_FILE_SELECT);
+    assert(!frontend.multiplayer_requested&&h.stage_calls==0);
+
+    /* The new notification is optional; the explicit handoff flag still
+     * prevents a multiplayer confirmation from falling through to solo. */
+    services.request_multiplayer=NULL;
+    assert(ge_original_frontend_start_reset(&frontend,&services));
+    assert(!frontend.multiplayer_requested);
+    leave_first_title(&frontend);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_MODE_SELECT);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_DOWN,MENU_MODE_SELECT);
+    press(&frontend,GE_ORIGINAL_FRONTEND_INPUT_CONFIRM,MENU_MODE_SELECT);
+    assert(frontend.multiplayer_requested&&!frontend.stage_requested);
+    assert(h.multiplayer_calls==2&&h.stage_calls==0&&h.difficulty_calls==0);
+    assert(ge_original_frontend_start_take_multiplayer_request(&frontend));
+}
+
 int main(void)
 {
     {
@@ -136,6 +256,7 @@ int main(void)
     services.play_music=play_music;
     services.stop_music=stop_music;
     services.set_007_sliders=set_sliders;
+    test_multiplayer_mode_selection(&services);
     GeOriginalFrontendStart frontend;GeOriginalFrontendSnapshot snapshot;
     {
         GeOriginalFrontendStart startup;

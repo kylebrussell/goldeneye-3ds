@@ -88,6 +88,11 @@ typedef enum GeOriginalFrontendFileAction {
     GE_ORIGINAL_FRONTEND_FILE_ERASE
 } GeOriginalFrontendFileAction;
 
+typedef enum GeOriginalFrontendMode {
+    GE_ORIGINAL_FRONTEND_MODE_SOLO = 0,
+    GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER = 1
+} GeOriginalFrontendMode;
+
 typedef struct GeOriginalFrontendServices {
     void *context;
     int (*highest_unlocked_difficulty)(void *context,int32_t mission);
@@ -104,6 +109,9 @@ typedef struct GeOriginalFrontendServices {
     void (*stop_music)(void *context);
     void (*set_007_sliders)(void *context,float reaction,float health,
                             float damage,float accuracy);
+    /* Optional platform handoff to multiplayer setup. No solo stage or
+     * selected-folder mutation accompanies this notification. */
+    void (*request_multiplayer)(void *context);
 } GeOriginalFrontendServices;
 
 typedef struct GeOriginalFrontendTextLine {
@@ -150,6 +158,8 @@ typedef struct GeOriginalFrontendSnapshot {
     int32_t difficulty;
     int32_t briefing_page;
     uint8_t stage_requested;
+    uint8_t multiplayer_requested;
+    uint8_t mode_index;
     uint8_t result_valid;
     GeOriginalFrontendPresentation presentation;
     uint8_t file_action;
@@ -190,6 +200,8 @@ typedef struct GeOriginalFrontendStart {
     int32_t briefing_page;
     uint32_t menu_timer;
     uint8_t stage_requested;
+    uint8_t multiplayer_requested;
+    uint8_t mode_index;
     uint8_t result_valid;
     uint8_t logo_button_armed;
     uint8_t first_title_visit;
@@ -237,6 +249,11 @@ int ge_original_frontend_start_reset_canonical(
     const GeOriginalFrontendServices *services);
 int ge_original_frontend_start_tick(
     GeOriginalFrontendStart *frontend,uint32_t input_edges);
+/* Consume the pending setup handoff once. The mode page, cursor and selected
+ * folder remain available when the platform returns from multiplayer setup.
+ * While pending, frontend input cannot repeat the callback or select solo. */
+int ge_original_frontend_start_take_multiplayer_request(
+    GeOriginalFrontendStart *frontend);
 int ge_original_frontend_start_cursor_tick(
     GeOriginalFrontendStart *frontend,int8_t stick_x,int8_t stick_y,
     float timer_delta);

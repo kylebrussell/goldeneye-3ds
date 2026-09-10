@@ -122,3 +122,21 @@ images and verified conversion catalog reproduces the checked-in table
 byte-for-byte. `bash scripts/test_bg_geometry_room_coverage.sh PACK` proves that
 a private mutation disabling all room2 collision fails the real-asset test in
 both native and short-enum builds; production source is untouched.
+## Native room-origin access
+
+`ge_original_bg_geometry_room_origin(int32_t room)` returns a checked
+`const struct coord3d *` into the currently bound owner's `origins` array.
+It includes void room zero and rejects missing/invalid owners, out-of-range
+room IDs and nonfinite coordinates. Values remain in the authored room-origin
+units used by original `getRoomPositionByIndex`; no level-scale conversion is
+applied. The pointer is borrowed, read-only, and must not survive rebind/close.
+Invalid queries neither poison the owner nor fabricate a fallback room table.
+
+The original bullet-impact/scorch/explosion/glass consumers read this origin
+to convert world coordinates to room coordinates. Their retained legacy
+`coord3d *getRoomPositionByIndex(s32)` signature can adapt to this accessor
+under `GE_PORT_NATIVE_BG_GEOMETRY`, casting away const only for those existing
+read-only consumers. Extractor/caller adaptation is separate runtime ownership.
+Focused tests verify exact address/units, void/range/status checks, nonfinite
+query isolation, binding changes and close. The real asset test checks every
+authored room against its parsed original origin across all 32 stage descriptors.

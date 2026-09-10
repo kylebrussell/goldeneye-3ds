@@ -24,6 +24,8 @@ extern void chrpropUpdateAutoaimTarget(void);
 extern void attempt_reload_item_in_hand(GUNHAND hand);
 extern TICKOP ge_original_stage_prop_pickup_exact(PropRecord *prop, bool immediate);
 extern bool ge_original_mp_runtime_interaction_exact(void);
+extern void ge_original_mp_runtime_mission_clock_exact(s32 clock_timer);
+extern void ge_original_mp_runtime_watch_clock_exact(void);
 static int interaction_failed;
 
 static void play_sfx(void *context, uint32_t sound)
@@ -152,9 +154,11 @@ GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_tick(
         currentPlayerSetLookAheadSetting(cur_player_get_lookahead());
         gunSetGunAmmoVisible(GUNAMMOREASON_OPTION, cur_player_get_ammo_onscreen_setting());
         ge_original_player_apply_sight_option_exact();
+        ge_original_mp_runtime_mission_clock_exact(frame->clock_timer);
         if (!ge_original_bond_move_live_tick(frame->lives[slot], frame->clock_timer,
                 frame->global_timer, frame->global_timer_delta))
             FAIL(GE_ORIGINAL_MP_RUNTIME_MOVE_FAILED);
+        ge_original_mp_runtime_watch_clock_exact();
         if (!frame->produce_camera(frame->context, slot, &config, &camera)
                 || ge_original_multiplayer_views_begin_shooter(frame->views,
                     slot, &config, &camera) != GE_ORIGINAL_MULTIPLAYER_VIEW_OK)

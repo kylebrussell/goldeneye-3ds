@@ -328,14 +328,19 @@ int ge_original_stage_guard_runtime_weapon_snapshot(
     GeOriginalStageGuardWeaponSnapshot *snapshot);
 size_t ge_original_stage_guard_runtime_muzzle_flash_count(
     const GeOriginalStageGuardRuntime *runtime);
-/* Opt into simulation-owned flash preparation once per canonical viewport.
- * Call after that player's props/gun tick and update_matrices, with its final
- * renderer room union/margin already installed. The explicit slot must be the
- * current canonical player. Equal tick/slot calls are idempotent; older ticks
- * are rejected. Live canonical parent/held-prop ONSCREEN flags determine
- * simulation eligibility; renderer visibility, residency and frustum do not.
- * Canonical firing draws consume their exact two RNG samples;
- * stereo-only extras use private visual RNG. Payloads survive later viewports. */
+/* Source-render traversal owns RNG. Begin returns 2 for an already completed
+ * viewport; record accepts the actual native model/node and source samples.
+ * End commits the durable publication. None of these hooks sample RNG. */
+int ge_original_stage_guard_runtime_begin_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,uint64_t simulation_tick,unsigned viewport_slot);
+void ge_original_stage_guard_runtime_record_muzzle_flash(
+    GeOriginalStageGuardRuntime *runtime,unsigned viewport_slot,
+    void *model,void *node,uint32_t scale_random,uint32_t angle_random);
+void ge_original_stage_guard_runtime_end_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,unsigned viewport_slot);
+/* After update_matrices, apply renderer-only visibility and supplement widened
+ * views using a private visual RNG. Requires completed source traversal;
+ * never samples gameplay RNG. Equal tick/slot calls are idempotent. */
 int ge_original_stage_guard_runtime_prepare_muzzle_flashes(
     GeOriginalStageGuardRuntime *runtime,uint64_t simulation_tick,unsigned viewport_slot);
 /* Copies a prepared payload without sampling RNG or reading transient models. */

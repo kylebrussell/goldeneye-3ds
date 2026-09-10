@@ -1383,6 +1383,34 @@ static void test_player_muzzle_preparation(GeOriginalStageGuardRuntime *runtime,
             (void)randomGetNextFrom(&expected);(void)randomGetNextFrom(&expected);
             for(size_t peer=0;peer<count;++peer)if(peer!=viewport&&peer!=0U)
                 for(unsigned call=0;call<4U;++call)(void)randomGetNextFrom(&expected);
+            /* Source draw-order sampling is tested separately against the
+             * retained render bodies. This resource fixture supplies explicit
+             * samples and checks that native-node cache publication/collection
+             * cannot advance gameplay RNG under different renderer choices. */
+            assert(ge_original_stage_guard_runtime_begin_muzzle_flashes(runtime,tick,viewport)==1);
+            for(size_t sample_owner=0;sample_owner<=count;++sample_owner){
+                if(sample_owner<count&&(sample_owner==viewport||sample_owner==0U))continue;
+                unsigned hands=sample_owner==count?1U:2U;
+                for(unsigned hand=0;hand<hands;++hand){
+                    Model *model=sample_owner==count?authored.model_instance:
+                        owners[sample_owner]->prop->chr->weapons_held[hand]->obj->model;
+                    ModelNode *node=model->obj->RootNode;
+                    while(node&&(node->Opcode&0xffU)!=MODELNODE_OPCODE_GUNFIRE){
+                        if(node->Child)node=node->Child;
+                        else{while(node&&!node->Next)node=node->Parent;if(node)node=node->Next;}
+                    }
+                    assert(node);GeOriginalPitemModelGunfire resolved;
+                    assert(ge_original_pitem_model_instance_gunfire_for_node(models,model,node,&resolved));
+                    assert(!ge_original_pitem_model_instance_gunfire_for_node(models,model,&resolved,&resolved));
+                    uint32_t scale_sample=randomGetNext(),angle_sample=randomGetNext();
+                    uint64_t unchanged=g_randomSeed;
+                    ge_original_stage_guard_runtime_record_muzzle_flash(runtime,viewport,
+                        model,node,scale_sample,angle_sample);
+                    assert(g_randomSeed==unchanged);
+                }
+            }
+            ge_original_stage_guard_runtime_end_muzzle_flashes(runtime,viewport);
+            assert(ge_original_stage_guard_runtime_begin_muzzle_flashes(runtime,tick,viewport)==2);
             assert(ge_original_stage_guard_runtime_prepare_muzzle_flashes(runtime,tick,viewport));
             assert(g_randomSeed==expected);
             assert(ge_original_stage_guard_runtime_prepare_muzzle_flashes(runtime,tick,viewport)
@@ -1430,7 +1458,7 @@ static void test_player_muzzle_preparation(GeOriginalStageGuardRuntime *runtime,
         authored_owner.visible,authored_owner.room_id));
     ge_original_stage_guard_runtime_set_local_player_view(runtime,NULL,0);
     assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,NULL,0U,0.0f));
-    printf("%zu players: per-viewport flash RNG, private eye extras, idempotent prepare and durable RNG-free capture\n",count);
+    printf("%zu players: native-node source-sample cache, private eye extras, idempotent prepare and durable RNG-free capture\n",count);
 }
 
 static void test_player_item_lifecycle(GeOriginalStageGuardRuntime *runtime,

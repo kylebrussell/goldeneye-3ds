@@ -29,7 +29,7 @@ static unsigned events[256], event_slots[256], event_count;
 static int arena_active, held_frontier, reload, object_present;
 PropRecord *g_InteractProp, *g_OnScreenPropList[3], **g_LastOnScreenProp;
 static PropRecord object_prop, door_prop;
-enum Event {WORLD, REGEN, SHUFFLE, VIEWS_BEGIN, HUD_BEGIN, SELECT, FOV, PRE_DEATH, Y_AIM,
+enum Event {EFFECTS, BG_SEMANTICS, WORLD, REGEN, SHUFFLE, VIEWS_BEGIN, HUD_BEGIN, SELECT, FOV, PRE_DEATH, Y_AIM,
     X_AIM, LOOK, AMMO, SIGHT, MOVE, CAMERA, VIEW, PROPS, ONSCREEN, AUTOAIM,
     HELD, TEST_DOOR, DOOR, TEST_OBJECT, INTERACT, EXECUTE_OP, RELOAD_RIGHT, RELOAD_LEFT,
     PICKUPS, SYNC, GUN, RENDERER, MATRICES, FLASH, HUD_PREPARE, POST_DEATH,
@@ -42,6 +42,9 @@ s32 get_nth_player_from_shuffled(PLAYER_ID ordinal) {return (s32)((count-1-(uint
 u32 osGetCount(void) {return 12345;} /* Wall-clock resource, not game timers. */
 void shuffle_player_ids(void) {event(SHUFFLE);}
 int ge_original_gun_frame_arena_active(void) {return arena_active;}
+int ge_original_effect_runtime_pre_world(void) {event(EFFECTS);return 1;}
+int ge_original_prop_render_semantics_prepare(GeOriginalStageGuardRuntime *r,uint64_t tick,unsigned slot)
+{assert(r&&tick==17&&slot==selected);event(BG_SEMANTICS);return 1;}
 GeOriginalStageActivePropStatus ge_original_stage_active_props_pre_tick_exact(GeOriginalStageActiveProps *s)
 {assert(s);event(WORLD);return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;}
 GeOriginalStageActivePropStatus ge_original_stage_active_props_tick_exact(GeOriginalStageActiveProps *s)
@@ -149,7 +152,7 @@ static void run(uint32_t n,uint32_t display,uint32_t rotation,int activation,int
     arena_active=1;
     assert(ge_original_multiplayer_runtime_begin_world(&active,1,&regen)==GE_ORIGINAL_MP_RUNTIME_OK);
     assert(ge_original_multiplayer_runtime_tick(&frame)==GE_ORIGINAL_MP_RUNTIME_OK);
-    unsigned cursor=0;expect(&cursor,WORLD,display);expect(&cursor,REGEN,display);expect(&cursor,SHUFFLE,display);
+    unsigned cursor=0;expect(&cursor,EFFECTS,display);expect(&cursor,WORLD,display);expect(&cursor,REGEN,display);expect(&cursor,SHUFFLE,display);
     expect(&cursor,VIEWS_BEGIN,display);expect(&cursor,HUD_BEGIN,display);
     for(uint32_t ordinal=0;ordinal<n;++ordinal){
         uint32_t slot=(n-1-ordinal+shuffle_rotation)%n;
@@ -160,7 +163,7 @@ static void run(uint32_t n,uint32_t display,uint32_t rotation,int activation,int
             if(object){expect(&cursor,object==1?TEST_OBJECT:TEST_DOOR,slot);
                 expect(&cursor,object==1?INTERACT:DOOR,slot);expect(&cursor,EXECUTE_OP,slot);}
             else{expect(&cursor,RELOAD_RIGHT,slot);expect(&cursor,RELOAD_LEFT,slot);}}
-        expect(&cursor,PICKUPS,slot);expect(&cursor,SYNC,slot);expect(&cursor,GUN,slot);
+        expect(&cursor,PICKUPS,slot);expect(&cursor,BG_SEMANTICS,slot);expect(&cursor,SYNC,slot);expect(&cursor,GUN,slot);
         if(slot==local)expect(&cursor,RENDERER,slot);
         unsigned suffix[]={MATRICES,FLASH,HUD_PREPARE,POST_DEATH,CAN_RESPAWN,RESPAWN,HUD_CAPTURE};
         for(size_t i=0;i<sizeof(suffix)/sizeof(*suffix);++i)expect(&cursor,suffix[i],slot);

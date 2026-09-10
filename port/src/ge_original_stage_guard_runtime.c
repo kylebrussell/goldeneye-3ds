@@ -84,6 +84,7 @@ typedef struct GeOriginalStagePlayerBodySlot {
 typedef struct GeOriginalStageCachedMuzzleFlash {
     GeOriginalGuardMuzzleFlashPublication publication;
     uint8_t valid;
+    uint8_t sampled;
 } GeOriginalStageCachedMuzzleFlash;
 
 typedef struct GeOriginalStageMuzzleFlashView {
@@ -91,6 +92,7 @@ typedef struct GeOriginalStageMuzzleFlashView {
     size_t capacity;
     uint64_t tick;
     uint8_t prepared;
+    uint8_t finalized;
 } GeOriginalStageMuzzleFlashView;
 
 typedef struct GeOriginalStageGuardSceneWorkspace {
@@ -141,6 +143,7 @@ struct GeOriginalStageGuardRuntime {
     GeOriginalStageMuzzleFlashView muzzle_views[4];
     uint64_t muzzle_tick;
     uint8_t muzzle_cached_mode;
+    uint8_t muzzle_semantic_mode;
     struct player *view_player;
     uint8_t view_first_person;
 };
@@ -1448,48 +1451,92 @@ static GeOriginalStageGuardWeaponSlot *runtime_muzzle_flash_source(
     return weapon;
 }
 
-int ge_original_stage_guard_runtime_prepare_muzzle_flashes(
-    GeOriginalStageGuardRuntime *runtime,uint64_t simulation_tick,unsigned viewport_slot)
+int ge_original_stage_guard_runtime_begin_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,uint64_t tick,unsigned viewport)
 {
     GeOriginalStageMuzzleFlashView *view;size_t count;
-    if(runtime==NULL||viewport_slot>=4U||g_CurrentPlayer==NULL
-            ||g_playerPointers[viewport_slot]!=g_CurrentPlayer||!runtime->draw_camera_ready
-            ||(runtime->muzzle_cached_mode&&simulation_tick<runtime->muzzle_tick))return 0;
-    view=&runtime->muzzle_views[viewport_slot];
-    if(view->prepared&&view->tick==simulation_tick)return 1;
+    if(!runtime||viewport>=4U||!g_CurrentPlayer
+            ||g_playerPointers[viewport]!=g_CurrentPlayer
+            ||(runtime->muzzle_cached_mode&&tick<runtime->muzzle_tick))return 0;
+    view=&runtime->muzzle_views[viewport];
+    if(view->prepared&&view->tick==tick)return 2;
     count=runtime->weapon_count+GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;
     if(count>view->capacity){
         GeOriginalStageCachedMuzzleFlash *candidate;
         if(count>SIZE_MAX/sizeof(*candidate))return 0;
-        candidate=calloc(count,sizeof(*candidate));if(candidate==NULL)return 0;
+        candidate=calloc(count,sizeof(*candidate));if(!candidate)return 0;
         free(view->flashes);view->flashes=candidate;view->capacity=count;
     }else memset(view->flashes,0,count*sizeof(*view->flashes));
+    view->tick=tick;view->prepared=0;view->finalized=0;
+    runtime->muzzle_tick=tick;runtime->muzzle_cached_mode=1;
+    runtime->muzzle_semantic_mode=1;return 1;
+}
+
+void ge_original_stage_guard_runtime_record_muzzle_flash(
+    GeOriginalStageGuardRuntime *runtime,unsigned viewport,void *native_model,
+    void *native_node,uint32_t scale_random,uint32_t angle_random)
+{
+    Model *model=native_model;GeOriginalStageMuzzleFlashView *view;
+    GeOriginalPitemModelGunfire gunfire;
+    if(!runtime||viewport>=4U||!runtime->muzzle_semantic_mode||!model)return;
+    view=&runtime->muzzle_views[viewport];
+    if(view->prepared||view->tick!=runtime->muzzle_tick)return;
+    for(size_t index=0;index<view->capacity;++index){
+        GeOriginalStageGuardWeaponSlot *weapon=index<runtime->weapon_count
+            ?&runtime->weapons[index]:&runtime->player_items[index-runtime->weapon_count];
+        if(weapon->model!=model)continue;
+        view->flashes[index].sampled=1;
+        if(!model->obj||!model->render_pos
+                ||!ge_original_pitem_model_instance_gunfire_for_node(runtime->weapon_models,
+                    model,native_node,&gunfire)
+                ||gunfire.matrix_index>=(uint16_t)model->obj->numMatrices)return;
+        uint16_t phase=(uint16_t)((angle_random*UINT32_C(1024))&UINT32_C(0xffff));
+        view->flashes[index].valid=(uint8_t)ge_original_guard_muzzle_flash_build(&gunfire,
+            model->render_pos[gunfire.matrix_index].pos.m,model->scale,scale_random,
+            sins((uint16_t)(phase+UINT16_C(0x4000))),sins(phase),
+            &view->flashes[index].publication);
+        return;
+    }
+}
+
+void ge_original_stage_guard_runtime_end_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,unsigned viewport)
+{
+    if(runtime&&viewport<4U)runtime->muzzle_views[viewport].prepared=1;
+}
+
+int ge_original_stage_guard_runtime_prepare_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,uint64_t simulation_tick,unsigned viewport_slot)
+{
+    GeOriginalStageMuzzleFlashView *view;size_t count;
+    if(runtime==NULL||!runtime->muzzle_semantic_mode||viewport_slot>=4U||g_CurrentPlayer==NULL
+            ||g_playerPointers[viewport_slot]!=g_CurrentPlayer||!runtime->draw_camera_ready
+            ||(runtime->muzzle_cached_mode&&simulation_tick<runtime->muzzle_tick))return 0;
+    view=&runtime->muzzle_views[viewport_slot];
+    if(view->prepared&&view->finalized&&view->tick==simulation_tick)return 1;
+    if(runtime->muzzle_semantic_mode&&(!view->prepared||view->tick!=simulation_tick))return 0;
+    count=runtime->weapon_count+GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;
     for(size_t index=0U;index<count;++index){
         GeOriginalStagePlayerBodySlot *body;GeOriginalPitemModelGunfire gunfire;
         GeOriginalStageGuardWeaponSlot *weapon=runtime_muzzle_flash_source(runtime,index,&body,&gunfire);
-        uint32_t scale_random,angle_random;uint16_t phase;int canonical,draw;
+        uint32_t scale_random,angle_random;uint16_t phase;int draw;
         if(weapon==NULL)continue;
         if(body==NULL){
             size_t owner=(size_t)(weapon->owner-runtime->slots);
-            canonical=(weapon->prop->parent->flags&PROPFLAG_ONSCREEN)!=0U
-                &&(weapon->prop->flags&PROPFLAG_ONSCREEN)!=0U;
             draw=weapon->state.matrices_ready&&runtime_guard_room_draw_visible(runtime,weapon->owner)
                 &&runtime_guard_draw_visible(runtime,owner);
         }else{
             uint8_t room;
             Model *model=runtime_live_player_body(runtime,body,&room);
-            canonical=body->player_owner!=g_CurrentPlayer
-                &&(body->player_prop->flags&PROPFLAG_ONSCREEN)!=0U
-                &&(weapon->prop->flags&PROPFLAG_ONSCREEN)!=0U;
             draw=model!=NULL&&weapon->state.matrices_ready
                 &&(!runtime->view_first_person||body->player_owner!=runtime->view_player)
                 &&runtime_player_body_draw_visible(runtime,body,model,room);
         }
-        if(canonical){
-            /* Simulation owns these original dogfnegx samples once per
-             * canonical viewport, independent of the console's local view. */
-            scale_random=randomGetNext();angle_random=randomGetNext();
-        }else if(draw){
+        if(runtime->muzzle_semantic_mode&&view->flashes[index].sampled){
+            view->flashes[index].valid &= draw!=0;
+            continue;
+        }
+        if(draw){
             u64 visual_seed=UINT64_C(0x9e3779b97f4a7c15)
                 ^((uint64_t)(uint32_t)weapon->state.owner_chr_id<<32)
                 ^(simulation_tick<<1)^index^((uint64_t)viewport_slot<<48);
@@ -1503,7 +1550,7 @@ int ge_original_stage_guard_runtime_prepare_muzzle_flashes(
             sins((uint16_t)(phase+UINT16_C(0x4000))),sins(phase),
             &view->flashes[index].publication);
     }
-    view->tick=simulation_tick;view->prepared=1U;
+    view->tick=simulation_tick;view->prepared=1U;view->finalized=1U;
     runtime->muzzle_tick=simulation_tick;runtime->muzzle_cached_mode=1U;return 1;
 }
 

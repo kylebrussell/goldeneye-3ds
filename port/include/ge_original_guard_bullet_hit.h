@@ -7,6 +7,7 @@
 typedef size_t (*GeOriginalGuardBulletHitCount)(void *context);
 typedef int (*GeOriginalGuardBulletHitActor)(
     void *context, size_t index, void **prop_record, void **chr_record);
+typedef void *(*GeOriginalGuardBulletHitPlayer)(void *context, size_t slot);
 
 typedef enum GeOriginalGuardBulletHitStatus {
     GE_ORIGINAL_GUARD_BULLET_IDLE = 0,
@@ -59,17 +60,27 @@ void ge_original_guard_bullet_hit_bind_stage_guards(
     void *context, GeOriginalGuardBulletHitCount count,
     GeOriginalGuardBulletHitActor actor);
 
+/* Appends the canonical two-to-four-player roster to character shot candidates.
+ * The callback returns the actual struct player for each stable slot. Models,
+ * hit lists and visibility remain owned by the canonical playerTick/chrTick
+ * pass. The current shooter is excluded, as in chrprop.c's original dispatch.
+ * Bind/unbind at a stopped match boundary; clear pending hits before respawn.
+ * A null/incomplete binding removes players without changing stage guards. */
+void ge_original_guard_bullet_hit_bind_players(void *context,
+    GeOriginalGuardBulletHitCount count, GeOriginalGuardBulletHitPlayer player);
+
 /* Selects one authored guard for read-only shot-time room ABI diagnostics.
  * This never changes hit testing or canonical visibility flags. */
 void ge_original_guard_bullet_hit_observe_guard(int32_t guard_index);
 
-/* Tests a camera-space shot against all currently constructed authored Dam
- * guards using the original ModelHitEntry/BBOX/ShotData registration chain. */
+/* Tests a camera-space shot against bound guards and other player bodies using
+ * the original ModelHitEntry/BBOX/ShotData registration chain. Diagnostic
+ * last_guard_index is the combined authored-guard-then-player candidate index. */
 GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_test(
     const float view_origin[3], const float view_direction[3],
     const float world_direction[3], int32_t weapon, float max_distance);
 
-/* Appends the live authored guards to an existing canonical ShotData hit list.
+/* Appends bound guards and other players to a canonical ShotData hit list.
  * This is the shared-list boundary used by the unchanged PP7 object/character
  * dispatch, where chrpropAddBulletHit retains the original depth ordering. */
 GeOriginalGuardBulletHitStatus

@@ -41,7 +41,8 @@ typedef struct GeTextureAsset {
     uint8_t image_id_valid;
 } GeTextureAsset;
 
-/* The caller retains ownership of data and must keep it alive while catalog is used. */
+/* The caller retains ownership of data and must keep it alive and unchanged while
+ * catalog is used. A failed open leaves catalog closed. */
 int ge_texture_catalog_open_memory(GeTextureCatalog *catalog, const void *data, size_t data_size);
 void ge_texture_catalog_close(GeTextureCatalog *catalog);
 
@@ -57,6 +58,8 @@ int ge_texture_catalog_find_image_id(const GeTextureCatalog *catalog,
                                      GeTextureCatalogFallback fallback,
                                      GeTextureAsset *asset);
 
+/* A successful read requires the pack payload size to match the catalog. On
+ * failure bytes_read is zero, and selected_asset is not changed. */
 int ge_texture_catalog_read(GeTextureCatalog const *catalog, GeAssetPack *pack,
                             const char *source, uint32_t requested_lod,
                             GeTextureCatalogFallback fallback, void *destination,

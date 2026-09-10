@@ -39,6 +39,7 @@ uint64_t ge_asset_path_hash(const char *path);
 int ge_asset_pack_open(GeAssetPack *pack, const char *filename);
 void ge_asset_pack_close(GeAssetPack *pack);
 const GeAssetPackEntry *ge_asset_pack_find(const GeAssetPack *pack, const char *path);
+/* On failure bytes_read is zero; an I/O failure may partially fill destination. */
 int ge_asset_pack_read(GeAssetPack *pack, const char *path, void *destination,
                        size_t destination_size, size_t *bytes_read);
 

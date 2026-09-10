@@ -111,11 +111,11 @@ int ge_texture_catalog_open_memory(GeTextureCatalog *catalog, const void *data, 
     uint64_t entries_size;
     uint32_t index;
 
-    if (catalog == NULL || data == NULL) {
+    if (catalog == NULL) {
         return GE_TEXTURE_CATALOG_INVALID;
     }
     memset(catalog, 0, sizeof(*catalog));
-    if (data_size < GE_TEXTURE_CATALOG_HEADER_SIZE ||
+    if (data == NULL || data_size < GE_TEXTURE_CATALOG_HEADER_SIZE ||
         memcmp(bytes, ge_texture_catalog_magic, sizeof(ge_texture_catalog_magic)) != 0 ||
         (read_u32_le(bytes + 8U) != 1U &&
          read_u32_le(bytes + 8U) != GE_TEXTURE_CATALOG_VERSION) ||
@@ -312,8 +312,13 @@ int ge_texture_catalog_read(GeTextureCatalog const *catalog, GeAssetPack *pack,
                             GeTextureAsset *selected_asset)
 {
     GeTextureAsset local_asset;
+    const GeAssetPackEntry *packed_asset;
+    size_t actual_bytes_read = 0;
     int result;
 
+    if (bytes_read != NULL) {
+        *bytes_read = 0;
+    }
     if (pack == NULL || destination == NULL) {
         return GE_TEXTURE_CATALOG_INVALID;
     }
@@ -324,10 +329,17 @@ int ge_texture_catalog_read(GeTextureCatalog const *catalog, GeAssetPack *pack,
     if (local_asset.data_size > destination_size) {
         return GE_TEXTURE_CATALOG_BUFFER_TOO_SMALL;
     }
-    result = ge_asset_pack_read(pack, local_asset.resource_path, destination,
-                                destination_size, bytes_read);
-    if (result != GE_ASSET_PACK_OK) {
+    packed_asset = ge_asset_pack_find(pack, local_asset.resource_path);
+    if (packed_asset == NULL || packed_asset->data_size != local_asset.data_size) {
         return GE_TEXTURE_CATALOG_PACK_ERROR;
+    }
+    result = ge_asset_pack_read(pack, local_asset.resource_path, destination,
+                                destination_size, &actual_bytes_read);
+    if (result != GE_ASSET_PACK_OK || actual_bytes_read != local_asset.data_size) {
+        return GE_TEXTURE_CATALOG_PACK_ERROR;
+    }
+    if (bytes_read != NULL) {
+        *bytes_read = actual_bytes_read;
     }
     if (selected_asset != NULL) {
         *selected_asset = local_asset;

@@ -40,6 +40,18 @@ uint64_t ge_asset_path_hash(const char *path)
     return hash;
 }
 
+static uint64_t hash_path_bytes(const char *path, size_t length)
+{
+    uint64_t hash = UINT64_C(14695981039346656037);
+    size_t i;
+
+    for (i = 0; i < length; i++) {
+        hash ^= (uint8_t)path[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
 void ge_asset_pack_close(GeAssetPack *pack)
 {
     if (pack == NULL) {
@@ -90,6 +102,7 @@ int ge_asset_pack_open(GeAssetPack *pack, const char *filename)
 
     if (memcmp(header, ge_asset_pack_magic, sizeof(ge_asset_pack_magic)) != 0 ||
         read_u32_le(header + 8) != GE_ASSET_PACK_VERSION ||
+        read_u32_le(header + 12) != 0 ||
         read_u32_le(header + 20) != GE_ASSET_PACK_HEADER_SIZE ||
         pack->entry_count > GE_ASSET_PACK_MAX_ENTRIES || index_offset != GE_ASSET_PACK_HEADER_SIZE ||
         paths_offset != index_offset + index_size || data_offset < paths_offset ||
@@ -124,7 +137,8 @@ int ge_asset_pack_open(GeAssetPack *pack, const char *filename)
         entry->path_length = read_u32_le(encoded + 12);
         entry->data_offset = read_u64_le(encoded + 16);
         entry->data_size = read_u64_le(encoded + 24);
-        if ((uint64_t)entry->path_offset + entry->path_length > pack->paths_size ||
+        if (entry->path_length == 0 ||
+            (uint64_t)entry->path_offset + entry->path_length > pack->paths_size ||
             entry->data_offset < data_offset || entry->data_offset > pack->file_size ||
             entry->data_size > pack->file_size - entry->data_offset ||
             (i > 0 && pack->entries[i - 1].path_hash > entry->path_hash)) {
@@ -137,17 +151,48 @@ int ge_asset_pack_open(GeAssetPack *pack, const char *filename)
         ge_asset_pack_close(pack);
         return GE_ASSET_PACK_IO_ERROR;
     }
+    for (i = 0; i < pack->entry_count; i++) {
+        const GeAssetPackEntry *entry = &pack->entries[i];
+        const char *path = pack->paths + entry->path_offset;
+
+        /* Pack paths are length-delimited, unlike catalog strings. Hash only
+         * the validated slice, and reject names C-string lookup cannot reach. */
+        if (memchr(path, 0, entry->path_length) != NULL ||
+            hash_path_bytes(path, entry->path_length) != entry->path_hash) {
+            ge_asset_pack_close(pack);
+            return GE_ASSET_PACK_INVALID;
+        }
+        if (i > 0 && pack->entries[i - 1].path_hash == entry->path_hash) {
+            const GeAssetPackEntry *previous = &pack->entries[i - 1];
+            const size_t common = previous->path_length < entry->path_length
+                ? previous->path_length : entry->path_length;
+            const int order = memcmp(pack->paths + previous->path_offset, path, common);
+
+            /* The writer orders hash collisions by path; duplicate names
+             * would otherwise silently select one of conflicting payloads. */
+            if (order > 0 || (order == 0 && previous->path_length >= entry->path_length)) {
+                ge_asset_pack_close(pack);
+                return GE_ASSET_PACK_INVALID;
+            }
+        }
+    }
     return GE_ASSET_PACK_OK;
 }
 
 const GeAssetPackEntry *ge_asset_pack_find(const GeAssetPack *pack, const char *path)
 {
-    const uint64_t wanted_hash = ge_asset_path_hash(path);
-    const size_t wanted_length = strlen(path);
+    uint64_t wanted_hash;
+    size_t wanted_length;
     uint32_t left = 0;
-    uint32_t right = pack->entry_count;
+    uint32_t right;
     uint32_t i;
 
+    if (pack == NULL || pack->entries == NULL || pack->paths == NULL || path == NULL) {
+        return NULL;
+    }
+    wanted_hash = ge_asset_path_hash(path);
+    wanted_length = strlen(path);
+    right = pack->entry_count;
     while (left < right) {
         const uint32_t middle = left + (right - left) / 2;
         if (pack->entries[middle].path_hash < wanted_hash) {
@@ -171,6 +216,9 @@ int ge_asset_pack_read(GeAssetPack *pack, const char *path, void *destination,
 {
     const GeAssetPackEntry *entry;
 
+    if (bytes_read != NULL) {
+        *bytes_read = 0;
+    }
     if (pack == NULL || pack->file == NULL || path == NULL || destination == NULL) {
         return GE_ASSET_PACK_INVALID;
     }

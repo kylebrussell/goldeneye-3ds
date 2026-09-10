@@ -106,6 +106,12 @@
 #include "ge_original_multiplayer_death.h"
 #include "ge_original_multiplayer_regen.h"
 #include "ge_original_multiplayer_views.h"
+#include "ge_mp_state_core.h"
+#include "ge_mp_state_inventory.h"
+#include "ge_mp_state_props.h"
+#include "ge_mp_state_guns.h"
+#include "ge_mp_state_players.h"
+#include "ge_mp_state_bg.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
@@ -4425,6 +4431,130 @@ typedef struct RuntimeMultiplayerMatch {
 static RuntimeMultiplayerMatch multiplayer;
 static GeOriginalMultiplayerFrontend multiplayer_frontend;
 
+/* Keep released keys across stage restarts so physical storage reuse advances
+ * generations. These identities alone do not attest complete match state. */
+static struct {
+    GeMpRegistry registry;
+    GeMpRegistryEntry entries[GE_MP_STATE_MAX_RECORDS];
+    GeMpStateInventoryOwner inventory;
+    GeMpStatePropsOwner props;
+    GeMpStatePlayersOwner players;
+    GeMpStateBgSnapshot background;
+    uint64_t core;
+    uint64_t bg;
+    uint64_t hands[4][2];
+    bool failed;
+} multiplayer_state;
+
+static bool runtime_multiplayer_state_status(const char *operation, GeMpStateStatus status)
+{
+    if (status == GE_MP_STATE_OK) return true;
+    printf("Multiplayer state %s failed: %u.\n", operation, (unsigned)status);
+    multiplayer_state.failed = true;
+    multiplayer.failed = true;
+    return false;
+}
+
+static bool runtime_multiplayer_state_acquire(uint8_t kind, uint8_t space,
+    uint16_t slot, uint64_t *id)
+{
+    GeMpRegistry *registry = &multiplayer_state.registry;
+    const uint32_t key = ge_mp_registry_key(kind, space, slot);
+    size_t index;
+    for (index = 0U; index < registry->count; ++index)
+        if (registry->entries[index].key == key) break;
+    if (index == registry->count && !runtime_multiplayer_state_status("define",
+            ge_mp_registry_define(registry, key))) return false;
+    return runtime_multiplayer_state_status("acquire",
+        ge_mp_registry_acquire(registry, key, id));
+}
+
+static void runtime_multiplayer_state_release(uint64_t *id)
+{
+    if (*id != 0U) {
+        (void)runtime_multiplayer_state_status("release",
+            ge_mp_registry_release(&multiplayer_state.registry, *id));
+        *id = 0U;
+    }
+}
+
+static bool runtime_multiplayer_state_registry_ready(void)
+{
+    if (multiplayer_state.failed) return false;
+    return multiplayer_state.registry.entries != NULL
+        || runtime_multiplayer_state_status("registry init",
+            ge_mp_registry_init(&multiplayer_state.registry,
+                multiplayer_state.entries, GE_MP_STATE_MAX_RECORDS));
+}
+
+static bool runtime_multiplayer_state_begin_geometry(const GeOriginalBgGeometry *geometry)
+{
+    return runtime_multiplayer_state_registry_ready()
+        && runtime_multiplayer_state_acquire(GE_MP_BG_KIND, GE_MP_BG_NAMESPACE,
+            GE_MP_BG_SLOT, &multiplayer_state.bg)
+        && runtime_multiplayer_state_status("BG capture storage",
+            ge_mp_state_bg_init(&multiplayer_state.background, geometry));
+}
+
+static void runtime_multiplayer_state_end_geometry(void)
+{
+    ge_mp_state_bg_close(&multiplayer_state.background);
+    runtime_multiplayer_state_release(&multiplayer_state.bg);
+}
+
+/* Must run immediately after successful native prop reset, before even a
+ * partial constructor can allocate and free a physical slot. */
+static bool runtime_multiplayer_state_begin_stage(void)
+{
+    if (!runtime_multiplayer_state_registry_ready()) return false;
+    if (!runtime_multiplayer_state_status("prop begin",
+            ge_mp_state_props_begin(&multiplayer_state.props, &multiplayer_state.registry)))
+        return false;
+    return runtime_multiplayer_state_acquire(GE_MP_CORE_KIND,
+        GE_MP_CORE_CREATION_NAMESPACE, GE_MP_CORE_SLOT, &multiplayer_state.core);
+}
+
+static bool runtime_multiplayer_state_begin_players(void)
+{
+    if (!runtime_multiplayer_state_status("inventory begin",
+            ge_mp_state_inventory_begin(&multiplayer_state.inventory,
+                &multiplayer_state.registry))) return false;
+    for (unsigned slot = 0U; slot < 4U; ++slot)
+        for (unsigned hand = 0U; hand < 2U; ++hand)
+            if (!runtime_multiplayer_state_acquire(GE_MP_GUN_KIND,
+                    (uint8_t)slot, (uint16_t)hand, &multiplayer_state.hands[slot][hand]))
+                return false;
+    return runtime_multiplayer_state_status("player begin",
+        ge_mp_state_players_begin(&multiplayer_state.players, &multiplayer_state.registry));
+}
+
+static void runtime_multiplayer_state_end_players(void)
+{
+    if (multiplayer_state.players.live)
+        (void)runtime_multiplayer_state_status("player end",
+            ge_mp_state_players_end(&multiplayer_state.players));
+    for (unsigned slot = 0U; slot < 4U; ++slot)
+        for (unsigned hand = 0U; hand < 2U; ++hand)
+            runtime_multiplayer_state_release(&multiplayer_state.hands[slot][hand]);
+    if (multiplayer_state.inventory.live)
+        (void)runtime_multiplayer_state_status("inventory end",
+            ge_mp_state_inventory_end(&multiplayer_state.inventory));
+}
+
+static void runtime_multiplayer_state_end_stage(void)
+{
+    if (multiplayer_state.props.live)
+        (void)runtime_multiplayer_state_status("prop end",
+            ge_mp_state_props_end(&multiplayer_state.props));
+    runtime_multiplayer_state_release(&multiplayer_state.core);
+    for (size_t index = 0U; index < multiplayer_state.registry.count; ++index)
+        if (multiplayer_state.registry.entries[index].live) {
+            (void)runtime_multiplayer_state_status("live identity after stage end",
+                GE_MP_STATE_STALE);
+            break;
+        }
+}
+
 
 static stagesetup *dam_intro_load_setup(void *context, int32_t stage_id)
 {
@@ -4607,7 +4737,8 @@ static bool runtime_multiplayer_place_players(GeAssetPack *pack,
     multiplayer.count = (uint32_t)config->player_count;
     multiplayer.local = 0U;
     if (!ge_original_multiplayer_players_create(multiplayer.count, 0U,
-            UINT64_C(0x0073D600), UINT64_C(0x0073D601))
+            UINT64_C(0x0073D600), UINT64_C(0x0073D601))) return false;
+    if (!runtime_multiplayer_state_begin_players()
             || ge_original_multiplayer_configure(config) != GE_ORIGINAL_MP_OK
             || !ge_original_stage_setup_publish(setup)
             || ge_original_stage_multiplayer_setup_prepare(setup,
@@ -19521,6 +19652,8 @@ static bool runtime_multiplayer_tick(RuntimeMultiplayerFrame *frame,
     multiplayer.last_status = ge_original_multiplayer_runtime_tick(&native);
     multiplayer.last_slot = native.last_slot;
     if (multiplayer.last_status != GE_ORIGINAL_MP_RUNTIME_OK) return false;
+    if (!runtime_multiplayer_state_status("prop tick", multiplayer_state.props.fault))
+        return false;
     ++multiplayer.tick;
     return true;
 }
@@ -19581,6 +19714,7 @@ int main(void)
     const GeStageAssetDescriptor *stage_assets;
     int32_t selected_level_id;
     bool stage_setup_loaded = false;
+    bool prop_state_ready = false;
     bool dam_stage;
     bool is_new_3ds = false;
     bool cstick_available = false;
@@ -19845,20 +19979,33 @@ start_stage_runtime:
             goto cleanup_runtime;
         }
         ge_original_bg_geometry_bind(dam_preview.bg_geometry);
+        if (multiplayer.requested
+                && !runtime_multiplayer_state_begin_geometry(dam_preview.bg_geometry))
+            goto cleanup_runtime;
         ge_original_player_held_items_bind_lights(dam_preview.bg_geometry,
             ge_original_bg_geometry_light_break);
     }
     const uint64_t setup_initial_rng[2] = {g_randomSeed, g_chrObjRandomSeed};
-    (void)initialize_dam_prop_state(&dam_objects);
+    prop_state_ready = initialize_dam_prop_state(&dam_objects) != 0;
+    if (!prop_state_ready) {
+        multiplayer.failed = multiplayer.requested;
+        printf("Native prop pool initialization failed.\n");
+        goto cleanup_runtime;
+    }
     if (multiplayer.requested) {
-        if (!stage_setup_loaded || !runtime_multiplayer_place_players(&asset_pack,
+        if (!runtime_multiplayer_state_begin_stage() || !stage_setup_loaded
+                || !runtime_multiplayer_place_players(&asset_pack,
                 &dam_collision, &dam_intro, &first_person_models, &dam_objects.props,
                 &packaged_stage_setup)) {
             multiplayer.failed = true;
             printf("Multiplayer player/spawn preparation failed.\n");
             goto cleanup_runtime;
         }
-        (void)ge_original_effect_buffers_reset_players(multiplayer.count, selected_level_id);
+        if (!ge_original_effect_buffers_reset_players(multiplayer.count, selected_level_id)) {
+            multiplayer.failed = true;
+            printf("Multiplayer effect buffer initialization failed.\n");
+            goto cleanup_runtime;
+        }
     } else {
         ge_original_effect_buffers_reset_single_player();
         initialize_original_stage_intro(&dam_collision, &dam_intro,
@@ -20057,7 +20204,11 @@ start_stage_runtime:
             &dam_objects.props, &dam_collision, &dam_preview);
     }
 
-    (void)ge_port_start_stage(&port, selected_level_id);
+    if (!ge_port_start_stage(&port, selected_level_id)) {
+        multiplayer.failed = multiplayer.requested;
+        printf("Native stage timer initialization failed.\n");
+        goto cleanup_runtime;
+    }
     /* This is the unchanged mp_music.c stage initializer. It chooses the
      * authored main/background state and owns subsequent watch, death and
      * mission transitions; the native runtime only mirrors its three CSeq
@@ -20127,7 +20278,8 @@ start_stage_runtime:
         }
     }
     if (multiplayer.requested) {
-        if (stage_ordinary_objects.actor_tick_status != RUNTIME_STAGE_ACTOR_TICK_READY
+        if (!runtime_multiplayer_state_status("prop construction", multiplayer_state.props.fault)
+                || stage_ordinary_objects.actor_tick_status != RUNTIME_STAGE_ACTOR_TICK_READY
                 || ge_original_multiplayer_frontend_started(&multiplayer_frontend,
                     multiplayer.request.request_id, 1) != GE_ORIGINAL_MP_FRONTEND_OK) {
             multiplayer.failed = true;
@@ -21868,6 +22020,7 @@ finish_original_player_tick:
     }
 
 cleanup_runtime:
+    multiplayer.running = false;
     if (multiplayer.requested && !next_stage_requested
             && multiplayer_frontend.phase == GE_ORIGINAL_MP_FRONTEND_LOADING) {
         (void)ge_original_multiplayer_frontend_started(&multiplayer_frontend,
@@ -21933,6 +22086,7 @@ cleanup_runtime:
     close_stage_ordinary_objects(&stage_ordinary_objects);
     ge_original_player_held_items_bind_lights(NULL, NULL);
     ge_original_bg_geometry_bind(NULL);
+    runtime_multiplayer_state_end_geometry();
     ge_original_bg_geometry_close(dam_preview.bg_geometry);
     dam_preview.bg_geometry = NULL;
     if (multiplayer.count != 0U) {
@@ -21943,6 +22097,7 @@ cleanup_runtime:
             if (slot != 0U && multiplayer.models[slot] != NULL)
                 close_first_person_models(multiplayer.models[slot]);
         }
+        runtime_multiplayer_state_end_players();
         ge_original_multiplayer_players_destroy();
         multiplayer.count = 0U;
     }
@@ -21958,6 +22113,20 @@ cleanup_runtime:
     close_dam_collision(&dam_collision);
     if (renderer_ready) renderer_exit();
     renderer_ready = false;
+    if (prop_state_ready) {
+        /* All native consumers are closed. The distinct arena-end event
+         * preserves residual PropRecord bytes and checks observed lifetimes. */
+        if (!ge_original_prop_state_end(&dam_objects.props)) {
+            printf("Native prop pool retirement failed.\n");
+            multiplayer_state.failed = true;
+        }
+        prop_state_ready = false;
+    }
+    runtime_multiplayer_state_end_stage();
+    if (multiplayer_state.failed) {
+        result = 1;
+        goto exit_citro3d;
+    }
 
     if (next_stage_requested) {
         const GeStageAssetDescriptor *next_stage = multiplayer.requested

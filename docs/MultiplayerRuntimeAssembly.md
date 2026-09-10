@@ -20,9 +20,18 @@ Every gameplay stage now requires a complete native BG geometry owner before pro
 
 Focused sanitizer checks for the constituent player/input, spawn, supplies, regeneration, session, combat, death, body, HUD, view and shared-loop owners are tracked in their individual documents and scripts. Root additionally ran the language, mission-exit, HUD, session and gun helper regressions while assembling this entrypoint. Actual two/four-player gun producer checks now execute the retained gun/model/RW/matrix/beam owners with real ROM weapon models, including distinct hands and cross-player storage persistence; preceding firing flags are fixture inputs, so this is still narrower than a complete match. Selected input providers refresh native stop-play, game-over, menu and lock gates at each live-input/MoveBond boundary; sanitizer checks cover freeze and release while ticks continue. The assembled loop, native BG/light closure, generated stage-intro reset, viewport timers and retained core/inventory/prop exports linked into the ARM ELF and 3DSX; integration performs the forced frozen build and independent aggregate checks. Main/bootstrap lifetime review and actual retained gun/world acceptance remain ongoing.
 
+The native prop arena now has an explicit retirement event after all resource
+consumers and the renderer close. Main binds E3/E5 before any allocation,
+E1/E2/E4/E6 after player creation and E7 after BG load; each identity ends at
+its native storage boundary. Released keys persist across restarts so a new
+lifetime advances its generation. Native 2/4/2 lifecycle tests cover partial
+loads and deliberately missed free callbacks, with faults preventing restart.
+These ownership bindings do not produce a complete state digest.
+
 Known work still required at this checkpoint:
 
-- Complete independent BG parser/lifetime review and end-to-end held-item wall/light acceptance. Native and short-enum real-asset ray/light/scene tests cover all 32 stage descriptors, but do not by themselves prove a complete match.
+- End-to-end held-item wall/light acceptance. Independent BG parser/query fixes now reject inconsistent vertex mapping, overlapping scene ranges and wrong origins/provenance, while invalid queries leave a valid owner usable. Native and short-enum real-asset geometry and E7 capture tests cover all 32 stage descriptors, but do not by themselves prove a complete match.
+- Complete the native effect initialization/update paths and restore source render-side state order. Shard storage is currently absent, explosion/smoke part retirement belongs to the canonical BG alpha pass, and third-person flash RNG must follow native prop/room render order before the first-person gun producer. These are active gameplay blockers found by the source audit.
 - Exercise actual two/four-player hit, pickup, death, respawn and results progression through the shared loop, including restart after different prior match histories. Producer-order fixtures alone do not satisfy this acceptance.
 - Complete all native state export domains and stable-reference lifetime hooks before any protocol finish-tick digest is certified. Core/inventory domain work and the reviewed codec are insufficient as a full-state attestation.
 - Connect the match protocol and UDS transport to the accepted native loop and implement the actual network lobby/start/result flow. The existing pre-start radio probe is not a synchronized match.

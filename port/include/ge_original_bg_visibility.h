@@ -81,6 +81,10 @@ typedef struct GeOriginalBgVisibilityResult {
 } GeOriginalBgVisibilityResult;
 
 typedef struct GeOriginalBgRenderRoom { int32_t room,depth; } GeOriginalBgRenderRoom;
+/* Original sub_GAME_7F0B8D78 pre-return mutation: the first Dam lake room
+ * receives depth zero. Call after validating native room count and before
+ * canonical render ordering; this mutates the current native publication. */
+void ge_original_bg_visibility_render_prefix_exact(void);
 /* Copies current canonical publication order and signed native depth. */
 int ge_original_bg_visibility_render_rooms(GeOriginalBgRenderRoom *rooms,
     size_t capacity,size_t *count);
@@ -95,7 +99,7 @@ typedef enum GeOriginalBgVisibilityStatus {
 
 /* Read-only view of the exact mutable room publication consumed by
  * getROOMID_isRendered/posIsOnScreen.  This is diagnostic state only: the
- * visibility body above remains its sole writer. */
+ * native visibility body and render prefix own its publication writes. */
 typedef struct GeOriginalBgRoomVisibilitySnapshot {
     int32_t current_room;
     int32_t maximum_room_count;

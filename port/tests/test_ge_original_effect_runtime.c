@@ -31,7 +31,7 @@ extern s32 D_800483C0;
 extern ALSoundState *g_CasingSfxState;
 PropRecord *g_OnScreenPropList[601],**g_LastOnScreenProp=g_OnScreenPropList;
 s32 bossGetStageNum(void){return LEVELID_LIBRARY;}
-s32 getROOMID_isRendered(s32 room){return room>=1&&room<=3;}
+s32 getROOMID_isRendered(s32 room){return (room>=1&&room<=3)||room==35;}
 static unsigned room_visits;
 void chraiGetPropRoomIds(PropRecord *prop,s32 *rooms)
 {++room_visits;rooms[0]=prop->rooms[0];rooms[1]=-1;}
@@ -111,9 +111,46 @@ static void retirement(void)
     ge_original_effect_impact_semantic_exact(&object,1);assert(object_alias.unk02==1);
     ge_original_effect_impact_semantic_exact(&object,0);assert(object_alias.unk02==0);
 }
+void fixture_render_rooms(int index);
+void fixture_original_render(unsigned *sequence,size_t *count);
+int fixture_arena_index(unsigned slot);
+static void dam_prefix(void)
+{
+    _Static_assert(LEVEL_INDEX_DAM==13,"native Dam table index");
+    PropRecord props[2]={{0}};
+    unsigned reference[32];size_t reference_count,count;
+    GeOriginalBgRenderRoom rooms[2];
+    props[0].rooms[0]=35;props[1].rooms[0]=1;
+    g_OnScreenPropList[0]=&props[0];g_OnScreenPropList[1]=&props[1];
+    g_LastOnScreenProp=g_OnScreenPropList+2;
+    assert(ge_original_effect_runtime_reset(2,LEVELID_DAM));
+    for(unsigned test=0;test<12;++test) {
+        int index=test==0?LEVEL_INDEX_DAM:fixture_arena_index(test-1);
+        assert(index>=0 && (test==0 || index!=LEVEL_INDEX_DAM));
+        fixture_render_rooms(index);
+        fixture_original_render(reference,&reference_count);
+        assert(reference_count==4);
+        const unsigned expected_dam[]={350,10,11,351};
+        const unsigned expected_arena[]={10,350,351,11};
+        assert(!memcmp(reference,test==0?expected_dam:expected_arena,4*sizeof(unsigned)));
+        fixture_render_rooms(index);sequence_count=0;
+        assert(ge_original_effect_runtime_render_view(NULL,record));
+        assert(sequence_count==reference_count && !memcmp(sequence,reference,4*sizeof(unsigned)));
+        assert(ge_original_bg_visibility_render_rooms(rooms,2,&count) && count==2);
+        assert(rooms[0].room==35 && rooms[0].depth==(test==0?0:5));
+        assert(rooms[1].room==1 && rooms[1].depth==1);
+        /* Depth remains changed in native state; a second view is idempotent. */
+        sequence_count=0;assert(ge_original_effect_runtime_render_view(NULL,record));
+        assert(!memcmp(sequence,reference,4*sizeof(unsigned)));
+    }
+    fixture_render_rooms(LEVEL_INDEX_DAM);D_800483C0=0;sequence_count=0;
+    assert(ge_original_effect_runtime_render_view(NULL,record) && !sequence_count);
+    assert(ge_original_bg_visibility_render_rooms(rooms,2,&count) && rooms[0].depth==0);
+    D_800483C0=1;g_LastOnScreenProp=g_OnScreenPropList;
+}
 int main(void)
 {
-    randomSetSeed(17);reset_and_update(2);reset_and_update(4);retirement();
-    puts("native effects: real shard/spark/particle construction, 2/4 resets and updates, signed BG pass ordering and eligible alpha/impact retirement passed");
+    randomSetSeed(17);reset_and_update(2);reset_and_update(4);retirement();dam_prefix();
+    puts("native effects: real shard/spark/particle construction, 2/4 resets and updates, signed BG pass ordering, original Dam prefix/all11 arenas and eligible alpha/impact retirement passed");
     return 0;
 }

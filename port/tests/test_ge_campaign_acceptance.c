@@ -26,6 +26,7 @@ enum CAMERAMODE g_CameraMode;
 static int current_difficulty, current_ticks, title_requests;
 static LEVELID current_level;
 extern s32 cameraBufferToggle, cameraFrameCounter2;
+extern CutsceneRecord *gBondViewCutscene;
 DIFFICULTY lvlGetSelectedDifficulty(void) { return current_difficulty; }
 s32 getMissiontimer(void) { return current_ticks; }
 LEVELID bossGetStageNum(void) { return current_level; }
@@ -115,14 +116,83 @@ static void fixture_open(Fixture *f, GeAssetPack *pack, GeStageId stage)
         &f->registry, &providers) == GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_OK);
 }
 
-static void fixture_close(Fixture *f)
+static void fixture_close(Fixture *f, int use_foreign_camera)
 {
+    static CutsceneRecord foreign_camera;
+    size_t i;
+    gBondViewCutscene = use_foreign_camera ? &foreign_camera : NULL;
+    if (!use_foreign_camera)
+        for (i = 0; i < f->registry.tag_count; ++i) {
+            gBondViewCutscene = ge_original_stage_objective_live_camera_by_tag(
+                f->registry.tags[i].tag_id);
+            if (gBondViewCutscene != NULL) break;
+        }
     ge_original_stage_objectives_close(&f->registry);
+    assert(gBondViewCutscene == (use_foreign_camera ? &foreign_camera : NULL));
+    gBondViewCutscene = NULL;
     assert(ge_original_stage_objective_live_count() == 0);
     free(f->inventory);
     free(f->props);
     free(f->objects);
     ge_original_stage_setup_close(&f->setup);
+}
+
+static void reject_malformed_camera_records(void)
+{
+    uint32_t words[7] = {0};
+    GeOriginalStagePropRecord record = {0};
+    GeOriginalStageSetupRuntime setup = {0};
+    GeOriginalStageObjectiveRegistry registry = {0};
+    GeOriginalStageObjectiveRuntime runtime = {0};
+    record.type = PROPDEF_CAMERAPOS;
+    record.words = words;
+    record.word_count = 6;
+    setup.prop_records = &record;
+    setup.prop_record_count = 1;
+    registry.initialized = 1;
+    registry.setup = &setup;
+    assert(ge_original_stage_objective_runtime_begin(&runtime, &registry, NULL)
+        == GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_INVALID_ARGUMENT);
+    record.word_count = 7;
+    record.words = NULL;
+    assert(ge_original_stage_objective_runtime_begin(&runtime, &registry, NULL)
+        == GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_INVALID_ARGUMENT);
+    setup.prop_records = NULL;
+    assert(ge_original_stage_objective_runtime_begin(&runtime, &registry, NULL)
+        == GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_INVALID_ARGUMENT);
+    assert(!runtime.bound && !runtime.native_cameras && !runtime.native_tags);
+}
+
+static size_t verify_camera_tags(Fixture *f)
+{
+    size_t i, count = 0;
+    for (i = 0; i < f->registry.tag_count; ++i) {
+        const GeOriginalStageTagEntry *tag = &f->registry.tags[i];
+        const GeOriginalStageTagEntry *selected =
+            ge_original_stage_objectives_find_tag(&f->registry, tag->tag_id);
+        const GeOriginalStagePropRecord *record;
+        CutsceneRecord *camera;
+        if (selected != tag) continue;
+        record = &f->setup.prop_records[tag->target_command_index];
+        camera = ge_original_stage_objective_live_camera_by_tag(tag->tag_id);
+        if (record->type != PROPDEF_CAMERAPOS) {
+            assert(camera == NULL);
+            continue;
+        }
+        assert(camera != NULL && (void *)camera != (void *)record->words);
+        assert(((PropDefHeaderRecord *)camera)->type == PROPDEF_CAMERAPOS);
+        assert(camera->pos.f[0] == (int32_t)record->words[1] / 100.0f);
+        assert(camera->pos.f[1] == (int32_t)record->words[2] / 100.0f);
+        assert(camera->pos.f[2] == (int32_t)record->words[3] / 100.0f);
+        assert(camera->theta == (int32_t)record->words[4] / 65536.0f);
+        assert(camera->verta == (int32_t)record->words[5] / 65536.0f);
+        assert(camera->pad == (int32_t)record->words[6]);
+        assert(ge_original_stage_objective_runtime_camera_by_tag(
+            &f->runtime, tag->tag_id) == camera);
+        ++count;
+    }
+    assert(ge_original_stage_objective_live_camera_by_tag(UINT16_MAX) == NULL);
+    return count;
 }
 
 static void reject_wrong_events(Fixture *f)
@@ -282,7 +352,9 @@ int main(int argc, char **argv)
     char path[] = "/tmp/ge-campaign-save.XXXXXX";
     int fd, difficulty, mission;
     size_t total_criteria = 0;
+    size_t total_camera_tags = 0;
     assert(argc == 2);
+    reject_malformed_camera_records();
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
     fd = mkstemp(path); assert(fd >= 0); close(fd); assert(unlink(path) == 0);
     assert(ge_3ds_save_provider_init(&save, path, FOLDER1) == GE_3DS_SAVE_PROVIDER_OK);
@@ -298,6 +370,8 @@ int main(int argc, char **argv)
             int time = difficulty < DIFFICULTY_007 && targets[mission][difficulty]
                 ? targets[mission][difficulty] : 100;
             fixture_open(&f, &pack, stages[mission]);
+            if (difficulty == DIFFICULTY_AGENT)
+                total_camera_tags += verify_camera_tags(&f);
             reject_wrong_events(&f);
             current_difficulty = difficulty;
             current_ticks = time * 60 + 59;
@@ -370,11 +444,14 @@ int main(int argc, char **argv)
             }
             printf("%s\t%d\t%u\t%lu\tfixture-pass\t", f.setup.descriptor->key,
                 difficulty, outcome.enabled_objective_count, (unsigned long)failures);
-            fixture_close(&f);
+            fixture_close(&f, 0);
+            assert(ge_original_stage_objective_live_camera_by_tag(0x24) == NULL);
+            assert(ge_original_stage_objective_live_camera_by_tag(0x25) == NULL);
             fixture_open(&f, &pack, stages[mission]);
+            (void)verify_camera_tags(&f);
             snapshot(&f, difficulty, &restarted);
             assert(memcmp(&initial, &restarted, sizeof(initial)) == 0);
-            fixture_close(&f);
+            fixture_close(&f, 1);
             puts("fixture-pass\tfixture-pass\tunverified");
             total_criteria += failures;
         }
@@ -385,5 +462,7 @@ int main(int argc, char **argv)
     assert(unlink(path) == 0);
     fprintf(stderr, "Campaign: 80 lifecycle fixtures, %lu criterion perturbations; no gameplay completion asserted\n",
         (unsigned long)total_criteria);
+    fprintf(stderr, "Campaign cameras: %lu tagged authored cameras convert and resolve; restart/unbound/non-camera lookup checked\n",
+        (unsigned long)total_camera_tags);
     return 0;
 }

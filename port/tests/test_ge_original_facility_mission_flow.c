@@ -8,6 +8,7 @@
 #include "chraction.h"
 #include "chrai.h"
 #include "ge_original_global_ai.h"
+#include "ge_original_stage_objective_live.h"
 #include "gun.h"
 #include "initanitable.h"
 #include "lv.h"
@@ -55,6 +56,8 @@ static int fade_to_black_count;
 static int hide_weapon_count;
 static int hud_lock_count;
 static int removed_chr_item_count;
+static int camera_requests;
+static int expect_native_cameras;
 
 /* Exact small chraction services used by the three authored lists. */
 void chrSetFlags2(ChrRecord *self, u8 flags2) { self->flags2 |= flags2; }
@@ -169,11 +172,24 @@ void countdownTimerSetVisible(int bits, bool visible)
 }
 void ge_original_dam_mission_set_camera_posend_exact(int32_t mode)
 {
-    (void)mode;
+    assert(mode == CAMERAMODE_POSEND);
+    ++camera_requests;
 }
 
-/* Explicitly unbound service frontiers are canonical no-ops for absent tags. */
-TagObjectRecord *sub_GAME_7F057080(s32 tag) { (void)tag; return NULL; }
+int ge_original_stage_objective_photograph_bounds_inside_view_exact(
+    void *context, const void *obj, const void *prop)
+{ (void)context; (void)obj; (void)prop; return -1; }
+
+/* Original reverse-authored lookup over the runtime's actual native tags.
+ * Legacy tagGetCommandIndex cannot find those sidecar addresses in propDefs. */
+TagObjectRecord *sub_GAME_7F057080(s32 id)
+{
+    extern u32 *ptr_last_tag_entry_type16;
+    TagObjectRecord *tag = (TagObjectRecord *)ptr_last_tag_entry_type16;
+    while (tag != NULL && tag->ID != (u16)id) tag = tag->NextTag;
+    return tag;
+}
+/* Door construction remains an explicit unbound service frontier here. */
 ObjectRecord *objFindByTagId(s32 tag) { (void)tag; return NULL; }
 ObjectRecord *setupGetPtrToCommandByIndex(s32 index)
 {
@@ -264,6 +280,8 @@ static void reset_flow(s16 room, bool complete)
     hide_weapon_count = 0;
     hud_lock_count = 0;
     removed_chr_item_count = 0;
+    camera_requests = 0;
+    gBondViewCutscene = NULL;
     objectives_complete = complete;
     stop_time_flag = 0;
     g_PlayerInvincible = FALSE;
@@ -315,6 +333,23 @@ static void run_complete_cutscene_branch(s16 room,
     assert(hud_lock_count == 1);
     assert(hide_weapon_count == 2);
     assert(boss_return_count == 0);
+    if (expect_native_cameras) {
+        assert(camera_requests == 1 && gBondViewCutscene != NULL);
+        if (expected_cutscene == ai_37) {
+            assert(gBondViewCutscene->pad == 135);
+            assert(fabsf(gBondViewCutscene->pos.f[0] - 7969.43f) < 0.001f);
+            assert(fabsf(gBondViewCutscene->pos.f[1] + 311.01f) < 0.001f);
+            assert(fabsf(gBondViewCutscene->theta - 3.17169189453125f) < 0.000001f);
+        } else {
+            assert(gBondViewCutscene->pad == 309);
+            assert(fabsf(gBondViewCutscene->pos.f[0] - 6810.16f) < 0.001f);
+            assert(fabsf(gBondViewCutscene->pos.f[1] + 288.99f) < 0.001f);
+            assert(fabsf(gBondViewCutscene->theta - 3.1485595703125f) < 0.000001f);
+        }
+        assert(dword_CODE_bss_80079A18 == 2 && dword_CODE_bss_80079A1C == 0);
+    } else {
+        assert(camera_requests == 0 && gBondViewCutscene == NULL);
+    }
 
     /* Continue the selected authored list through teleport/animation/timer,
      * stopped-animation wait, fade, and unchanged AI_EndLevel. */
@@ -332,7 +367,7 @@ static void run_complete_cutscene_branch(s16 room,
     if (expected_cutscene == ai_38) assert(removed_chr_item_count == 1);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     bool is_global = FALSE;
     s32 ticks;
@@ -359,6 +394,34 @@ int main(void)
     assert(boss_return_count == 1);
     assert(stage_actor.ailist == ge_original_global_ai_find(1));
     assert(g_PlayerInvincible == TRUE);
+
+    if (argc == 2) {
+        GeAssetPack pack;
+        GeOriginalStageSetupRuntime setup = {0};
+        GeOriginalStageObjectiveRegistry registry = {0};
+        GeOriginalStageObjectiveRuntime runtime = {0};
+        assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
+        assert(ge_original_stage_setup_load(&pack, ge_stage_asset_facility(),
+            &setup) == GE_ORIGINAL_STAGE_SETUP_OK);
+        /* Camera tags are valid even without a gameplay object provider;
+         * CAMERAPOS is not a health-bearing ObjectRecord. */
+        assert(ge_original_stage_objectives_build(&registry, &setup, NULL)
+            == GE_ORIGINAL_STAGE_OBJECTIVE_OK);
+        assert(ge_original_stage_objective_runtime_begin(&runtime, &registry,
+            NULL) == GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_OK);
+        expect_native_cameras = 1;
+        run_complete_cutscene_branch(0x35, ai_38);
+        run_complete_cutscene_branch(0x87, ai_37);
+        ge_original_stage_objectives_close(&registry);
+        assert(ge_original_stage_objective_live_camera_by_tag(0x24) == NULL);
+        assert(ge_original_stage_objective_live_camera_by_tag(0x25) == NULL);
+        ge_original_stage_setup_close(&setup);
+        ge_asset_pack_close(&pack);
+        puts("Facility native cameras: authored tags24/25 resolve, convert and publish in real ai_47 branches");
+    } else {
+        assert(argc == 1);
+        puts("Facility native camera positive cases not run: supply a stage pack");
+    }
 
     printf("Facility mission flow: exact 0x1006 multi-tick branches ai_37/ai_38 "
            "and global AI_EndLevel path ok\n");

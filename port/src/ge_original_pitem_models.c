@@ -75,6 +75,20 @@ struct GeOriginalPitemModelProvider {
 
 static GeOriginalPitemModelProvider *ge_pitem_provider_registry;
 
+int ge_original_pitem_model_resource_topology(const GeOriginalPitemModelProvider *provider,
+    int32_t model_id,GeOriginalModelTopologyView *view)
+{
+    if (!provider || !view) return 0;
+    for (size_t i=0;i<provider->resource_count;++i) {
+        const GeOriginalPitemModelResource *r=&provider->resources[i];
+        if (r->model_id!=model_id) continue;
+        *view=(GeOriginalModelTopologyView){&r->header,sizeof(r->header),r->nodes,
+            r->node_count,sizeof(*r->nodes),r->node_offsets,r->rodatas,sizeof(*r->rodatas),r->model_id};
+        return 1;
+    }
+    return 0;
+}
+
 size_t ge_original_pitem_model_physical_capacity(const GeOriginalPitemModelProvider *provider)
 { return provider ? provider->instance_capacity : 0; }
 

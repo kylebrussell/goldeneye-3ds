@@ -4,6 +4,7 @@
 #include "game/player.h"
 #include "game/front.h"
 #include "game/mp_weapon.h"
+#include "game/ramromreplay.h"
 #include "game/bondview.h"
 #include <stdio.h>
 #include <limits.h>
@@ -22,6 +23,19 @@ extern void mp_respawn_handler(void);
 extern stagesetup g_CurrentSetup;
 static const int32_t *ge_mp_validated_intro;
 static char ge_mp_setup_keys[GE_ORIGINAL_MP_ARENAS][32];
+
+extern ramromfilestructure *ptr_active_demofile;
+extern s32 is_ramrom_flag, recording_ramrom_flag;
+static ramromfilestructure ge_mp_intro_header;
+
+void ge_original_multiplayer_bind_intro_slot(int playback, int recording,
+                                              uint32_t slot)
+{
+    ge_mp_intro_header.slotnum = slot;
+    ptr_active_demofile = &ge_mp_intro_header;
+    is_ramrom_flag = playback != 0;
+    recording_ramrom_flag = recording != 0;
+}
 
 int ge_original_multiplayer_arena(size_t index, GeOriginalMultiplayerArena *out)
 {

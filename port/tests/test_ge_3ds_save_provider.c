@@ -102,6 +102,8 @@ int main(void)
         &provider, SP_LEVEL_AZTEC, DIFFICULTY_AGENT)
         == STAGESTATUS_LOCKED);
     assert(!ge_3ds_save_provider_007_unlocked(&provider));
+    assert(ge_3ds_save_provider_stage_time(
+        &provider, SP_LEVEL_DAM, DIFFICULTY_007) == 0);
     {
         int32_t mission = -99;
         int32_t difficulty = -99;
@@ -209,6 +211,48 @@ int main(void)
     assert(fseek(stream, 0, SEEK_END) == 0);
     assert(ftell(stream) == GE_3DS_SAVE_SLOT_BYTES);
     assert(fclose(stream) == 0);
+
+    /* Campaign unlock ladder on the independently erased folder: Aztec
+     * needs the original Secret Agent prefix; Egyptian requires 00 Agent
+     * through Aztec; all twenty 00 Agent results unlock custom 007. */
+    assert(ge_3ds_save_provider_select(&copy, copy_path, FOLDER2)
+        == GE_3DS_SAVE_PROVIDER_OK);
+    ge_3ds_save_provider_make_mission_result_providers(&copy, &result_providers);
+    ge_original_mission_result_bind(&result_providers);
+    for (int mission = SP_LEVEL_DAM; mission < SP_LEVEL_AZTEC; ++mission) {
+        assert(ge_3ds_save_provider_stage_status(&copy, mission,
+            DIFFICULTY_SECRET) == STAGESTATUS_UNLOCKED);
+        assert(ge_original_mission_result_set_current_mission(mission));
+        assert(ge_original_mission_result_apply_exact(DIFFICULTY_SECRET, 60000));
+    }
+    assert(ge_3ds_save_provider_stage_status(&copy, SP_LEVEL_AZTEC,
+        DIFFICULTY_AGENT) == STAGESTATUS_LOCKED);
+    assert(ge_3ds_save_provider_stage_status(&copy, SP_LEVEL_AZTEC,
+        DIFFICULTY_SECRET) == STAGESTATUS_UNLOCKED);
+    assert(ge_3ds_save_provider_stage_status(&copy, SP_LEVEL_EGYPT,
+        DIFFICULTY_00) == STAGESTATUS_LOCKED);
+    for (int mission = SP_LEVEL_DAM; mission < SP_LEVEL_MAX; ++mission) {
+        assert(ge_3ds_save_provider_stage_status(&copy, mission,
+            DIFFICULTY_00) == STAGESTATUS_UNLOCKED);
+        assert(ge_original_mission_result_set_current_mission(mission));
+        assert(ge_original_mission_result_apply_exact(DIFFICULTY_00, 60000));
+        assert(ge_3ds_save_provider_007_unlocked(&copy)
+            == (mission == SP_LEVEL_EGYPT));
+    }
+    ge_3ds_save_provider_close(&copy);
+    assert(ge_3ds_save_provider_init(&copy, copy_path, FOLDER2)
+        == GE_3DS_SAVE_PROVIDER_OK);
+    for (int mission = SP_LEVEL_DAM; mission < SP_LEVEL_MAX; ++mission) {
+        assert(ge_3ds_save_provider_stage_status(&copy, mission,
+            DIFFICULTY_007) == STAGESTATUS_UNLOCKED);
+        assert(ge_3ds_save_provider_stage_time(&copy, mission,
+            DIFFICULTY_007) == 0x3ff);
+    }
+    assert(ge_3ds_save_provider_stage_time(&copy, -1, DIFFICULTY_007) == 0);
+    assert(ge_3ds_save_provider_stage_time(&copy, SP_LEVEL_MAX,
+        DIFFICULTY_007) == 0);
+    ge_original_mission_result_bind(NULL);
+    ge_3ds_save_provider_close(&copy);
     ge_3ds_save_provider_close(&reloaded);
 
     stream = fopen(path, "r+b");

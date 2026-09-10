@@ -251,6 +251,12 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
 
 python3 "${repo_dir}/scripts/tests/test_stage_objective_photo_exact.py"
 
+# Keep full mission/difficulty lifecycle fixture results distinct from room
+# stream probes and gameplay completion evidence. This uses the existing
+# generated pack and writes only host-test evidence.
+bash "${repo_dir}/scripts/test_campaign_acceptance.sh" \
+    "${test_dir}/stages.gepack" > "${test_dir}/campaign-acceptance.tsv"
+
 # Construct every authored CCTV and autogun through the exact serialized tail
 # conversion and post-default-object setup ordering. Runtime capability masks
 # prevent the unchanged objTick target/alarm/fire/SFX bodies from being made

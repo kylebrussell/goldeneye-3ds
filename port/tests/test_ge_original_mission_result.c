@@ -118,6 +118,14 @@ int main(void)
     assert(snapshot.completion_mutations == 0U);
 
     ge_original_mission_result_bind(&providers);
+    /* Invalid native boundary inputs must never reach the canonical table
+     * index or mutate a durable completion/cheat. */
+    assert(!ge_original_mission_result_apply_exact(-1, 60));
+    assert(!ge_original_mission_result_apply_exact(DIFFICULTY_MAX, 60));
+    assert(!ge_original_mission_result_apply_exact(INT32_MAX, 60));
+    assert(!ge_original_mission_result_apply_exact(DIFFICULTY_AGENT, -1));
+    assert(persistence.unlock_stage_calls == 0);
+    assert(persistence.unlock_cheat_calls == 0);
     assert(ge_original_mission_result_apply_exact(
         DIFFICULTY_SECRET, 60 * 100));
     ge_original_mission_result_snapshot(&snapshot);

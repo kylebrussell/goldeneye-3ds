@@ -17,10 +17,14 @@ from extract_dam_guard_chr_scheduler_slice import function_text
 source = (repo / "port/src/ge_original_stage_guard_runtime.c").read_text()
 extract_source = re.sub(r"\bGeOriginalStageGuardRuntimeStatus\s*\n", "GeOriginalStageGuardRuntimeStatus ", source)
 for name, count in (("ge_original_stage_guard_runtime_update_matrices", 1),
-                    ("build_scene_internal", 2), ("collect_scene_inputs", 2)):
+                    ("collect_scene_inputs", 2)):
     body = function_text(extract_source, name)
     assert body.count("runtime_guard_room_draw_visible(") == count, name
     assert "!slot->state.visible" not in body, name
+
+uncached = function_text(extract_source, "build_scene_internal")
+assert "collect_scene_inputs(" in uncached
+assert "!slot->state.visible" not in uncached
 
 main_source = (repo / "platform/3ds/source/main.c").read_text()
 for name in ("update_stage_guard_visibility", "publish_stage_ordinary_visibility"):

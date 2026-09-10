@@ -62,6 +62,9 @@ publication_paths = {
         r"if\s*\(\s*!multiplayer\.running\s*&&\s*dam_preview\.original_camera_ready\s*&&\s*"
         r"dam_preview\.renderer_visibility_slider\s*!=\s*stereo_slider\s*\)\s*\{",
         r"if\s*\(\s*stream_dam_renderer_camera\([^{}]*?\)\s*\)\s*\{"),
+    "background colour publication": (
+        r"if\s*\(\s*!multiplayer\.running\s*&&\s*dam_preview\.bg_geometry\s*!=\s*NULL\s*\)\s*\{",
+        None),
 }
 
 
@@ -69,10 +72,16 @@ def assert_publication_flushes(source: str) -> None:
     assert len(camera_flush.findall(source)) == len(publication_paths)
     for name, (path_pattern, success_pattern) in publication_paths.items():
         path = statement_body(source, path_pattern, name)
-        successful = statement_body(path, success_pattern, f"{name} successful upload")
+        successful = (statement_body(path, success_pattern, f"{name} successful upload")
+            if success_pattern is not None else path)
         dirty = statement_body(successful,
             r"if\s*\(\s*dam_preview\.gpu_dirty_vertex_count\s*!=\s*0U\s*\)\s*\{",
             f"{name} nonempty dirty span")
+        if success_pattern is None:
+            rejection = statement_body(path,
+                r"if\s*\(\s*!refresh_dam_background_colours\([^;]*?\)\s*\)\s*\{",
+                "background colour rejection")
+            assert "break;" in rejection and path.index(rejection) < path.index(dirty)
         flushes = list(camera_flush.finditer(dirty))
         clears = list(re.finditer(r"dam_preview\.gpu_dirty_vertex_count\s*=\s*0U\s*;", dirty))
         assert len(flushes) == len(clears) == 1, name
@@ -98,7 +107,8 @@ def assert_multiplayer_flush(source: str) -> None:
     assert len(flushes) == len(clears) == 1
     assert clears[0].start() > flushes[0].end()
     assert len(re.findall(r"GSPGPU_FlushDataCache\s*\(", dirty)) == 1
-    for call in ("stream_dam_renderer_camera", "refresh_stage_live_overlays"):
+    for call in ("stream_dam_renderer_camera", "refresh_stage_live_overlays",
+                 "refresh_dam_background_colours"):
         rejection = re.search(rf"if\s*\(\s*!{call}\([^;]*?\)\s*\)\s*return 0;", capture, re.S)
         assert rejection is not None and rejection.end() < capture.index(dirty)
 
@@ -209,4 +219,4 @@ assert "assert(vertex_count <= vertex_capacity);" in helper
 assert "assert(vertex_capacity <= TOTAL_VERTEX_COUNT);" in helper
 assert "TOTAL_VERTEX_COUNT <= SIZE_MAX / sizeof(Vertex)" in source
 
-print("3DS cache flush spans: full init, 6-vertex sight, bounded solo/slider/multiplayer, independent pre-death dual hands")
+print("3DS cache flush spans: full init, 6-vertex sight, bounded solo/slider/background/multiplayer, independent pre-death dual hands")

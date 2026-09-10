@@ -12,7 +12,8 @@ typedef enum GeOriginalMultiplayerViewStatus {
     GE_ORIGINAL_MULTIPLAYER_VIEW_SELECTION_FAILED,
     GE_ORIGINAL_MULTIPLAYER_VIEW_CAMERA_FAILED,
     GE_ORIGINAL_MULTIPLAYER_VIEW_VISIBILITY_FAILED,
-    GE_ORIGINAL_MULTIPLAYER_VIEW_CAPTURE_FAILED
+    GE_ORIGINAL_MULTIPLAYER_VIEW_CAPTURE_FAILED,
+    GE_ORIGINAL_MULTIPLAYER_VIEW_PRESENTATION_FAILED
 } GeOriginalMultiplayerViewStatus;
 
 typedef struct GeOriginalMultiplayerViewProviders {
@@ -29,9 +30,10 @@ typedef struct GeOriginalMultiplayerViewProviders {
     int (*capture_local)(void *context, uint32_t slot,
         const GeOriginalBondCameraConfig *config,
         const GeOriginalBondCameraResult *camera);
-    /* Restore the saved local canonical visibility publication after the last
-     * shooter. Keep the renderer eye union separate from canonical state. */
-    int (*restore_local_visibility)(void *context, uint32_t slot,
+    /* Restore only owned local renderer data after the last shooter. This
+     * must not select a player or change native camera/frustum/visibility,
+     * model state, RNG, or any other canonical state. */
+    int (*restore_local_presentation)(void *context, uint32_t slot,
         const GeOriginalBondCameraConfig *config,
         const GeOriginalBondCameraResult *camera);
 } GeOriginalMultiplayerViewProviders;
@@ -70,9 +72,10 @@ GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_begin_shooter(
 GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_capture_local(
     GeOriginalMultiplayerViews *views);
 
-/* Call once after every shuffled shooter pass and local capture. Re-selects
- * local player and refreshes shared frustum globals without republishing its
- * matrices or changing previous-frame history. No per-eye canonical work. */
+/* Call once after every shuffled shooter pass and local capture. Keeps the
+ * last shuffled shooter selected, with its native frustum/visibility intact.
+ * Only the provider's owned local renderer data is restored. Both eyes and the
+ * canonical state capture therefore share the same completed simulation. */
 GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_finish_local(
     GeOriginalMultiplayerViews *views);
 

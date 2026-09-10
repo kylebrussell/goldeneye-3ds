@@ -88,6 +88,7 @@
 #include "ge_original_mission_result.h"
 #include "ge_original_music_port.h"
 #include "ge_original_music_runtime.h"
+#include "ge_original_bg_geometry.h"
 #include "ge_original_bond_camera.h"
 #include "ge_original_bond_input_provider.h"
 #include "ge_original_bond_live.h"
@@ -100,6 +101,7 @@
 #include "ge_original_multiplayer_runtime.h"
 #include "ge_original_player_held_items.h"
 #include "ge_original_multiplayer_spawn.h"
+#include "ge_original_multiplayer_stage_reset.h"
 #include "ge_original_multiplayer_death.h"
 #include "ge_original_multiplayer_regen.h"
 #include "ge_original_multiplayer_views.h"
@@ -1541,6 +1543,8 @@ typedef struct RuntimeDamPreview {
     size_t camera_output_triangles;
     GeDamWorld world;
     GeDamWorldStatus world_status;
+    GeOriginalBgGeometry *bg_geometry;
+    GeOriginalBgGeometryReport bg_geometry_report;
     GeDamVisibilityRuntime visibility_runtime;
     GeDamVisibilityRuntimeStatus visibility_status;
     GeOriginalBgVisibilityResult visibility_result;
@@ -4570,6 +4574,7 @@ static bool runtime_multiplayer_place_players(GeAssetPack *pack,
                 config->player_count, config->scenario, config->weapon_set,
                 &multiplayer.prepared) != GE_ORIGINAL_STAGE_SUPPLY_OK)
         return false;
+    ge_original_multiplayer_stage_intro_shared_reset_exact();
     for (uint32_t slot = 0U; slot < multiplayer.count; ++slot) {
         multiplayer.intro[slot] = slot == 0U ? local_intro
             : &multiplayer.extra_intro[slot - 1U];
@@ -12273,6 +12278,30 @@ static bool upload_dam_gpu_world_scene_range(RuntimeDamPreview *preview,
     return true;
 }
 
+/* Room light mutations belong to the complete canonical BG owner. Reapply
+ * its authored colours after local room imports, then publish that room-only
+ * prefix through the existing shade upload. Actor overlays are excluded. */
+static bool refresh_dam_background_colours(RuntimeDamPreview *preview,
+                                           Vertex *destination)
+{
+    size_t changed_vertices = 0U;
+    if (preview == NULL || destination == NULL || preview->bg_geometry == NULL
+            || preview->dynamic_scene.overlay_vertex_count > preview->source_vertex_count
+            || preview->dynamic_scene.overlay_batch_count > preview->batch_count)
+        return false;
+    const size_t room_vertices = preview->source_vertex_count
+        - preview->dynamic_scene.overlay_vertex_count;
+    const size_t room_batches = preview->batch_count
+        - preview->dynamic_scene.overlay_batch_count;
+    if (!ge_original_bg_geometry_apply_scene(preview->bg_geometry,
+            preview->source_vertices, room_vertices, preview->batches,
+            room_batches, &changed_vertices))
+        return false;
+    return changed_vertices == 0U
+        || upload_dam_gpu_world_scene_range(preview, destination,
+            0U, room_vertices, 0U, room_batches, 0U);
+}
+
 static bool upload_dam_gpu_world_scene(RuntimeDamPreview *preview,
                                        Vertex *destination)
 {
@@ -19226,7 +19255,6 @@ typedef struct RuntimeMultiplayerFrame {
     RuntimeStageOrdinaryObjects *objects;
     RuntimeFirstPersonScene *first_person_scene[2];
     GeTextureCache *texture_cache;
-    uint8_t local_portal_controls[GE_DAM_WORLD_MAX_PORTALS];
 } RuntimeMultiplayerFrame;
 
 static int runtime_multiplayer_view_select(void *context, uint32_t slot)
@@ -19299,8 +19327,6 @@ static int runtime_multiplayer_view_visibility(void *context, uint32_t slot,
         ge_dam_preload_queue_begin_visibility(&preview->preload_queue);
         providers.context = &preview->preload_queue;
         providers.preload_room = ge_dam_preload_queue_request;
-        memcpy(frame->local_portal_controls, preview->portal_controls,
-            preview->world.portal_count);
     }
     if (ge_dam_visibility_runtime_run_with_providers(&preview->visibility_runtime,
             camera, config->camera_position, &providers, &visibility)
@@ -19333,6 +19359,8 @@ static int runtime_multiplayer_view_capture(void *context, uint32_t slot,
         return 0;
     if (!refresh_stage_live_overlays(frame->objects,
             (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET)) return 0;
+    if (!refresh_dam_background_colours(preview,
+            (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET)) return 0;
     multiplayer.local_autogun_beam_vertices = update_stage_autogun_beam_vertices(
         frame->objects, preview, (Vertex *)vertex_buffer + AUTOGUN_BEAM_VERTEX_OFFSET);
     if (preview->gpu_dirty_vertex_count != 0U) {
@@ -19348,15 +19376,12 @@ static int runtime_multiplayer_view_restore(void *context, uint32_t slot,
     const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
 {
     RuntimeMultiplayerFrame *frame = context;
-    const GeOriginalBgVisibilityProviders providers = {
-        .portal_controls = frame->local_portal_controls,
-        .portal_control_count = frame->preview->world.portal_count,
-    };
     (void)slot;
+    /* All draw inputs are owned by the local capture. Preserve the last
+     * shuffled player's native selection/frustum/BG for the next tick and
+     * complete state export; restoring a device-local owner would diverge. */
     runtime_multiplayer_publish_preview(frame->preview, config, camera);
-    return ge_dam_visibility_runtime_restore_with_providers(&frame->preview->visibility_runtime,
-        camera, config->camera_position, &providers, &frame->preview->visibility_result)
-            == GE_DAM_VISIBILITY_RUNTIME_OK;
+    return 1;
 }
 
 static int runtime_multiplayer_camera(void *context, uint32_t slot,
@@ -19412,7 +19437,7 @@ static bool runtime_multiplayer_tick(RuntimeMultiplayerFrame *frame,
             .context = frame, .select_player = runtime_multiplayer_view_select,
             .publish_visibility = runtime_multiplayer_view_visibility,
             .capture_local = runtime_multiplayer_view_capture,
-            .restore_local_visibility = runtime_multiplayer_view_restore,
+            .restore_local_presentation = runtime_multiplayer_view_restore,
         },
         .context = frame, .select_player = runtime_multiplayer_view_select,
         .produce_camera = runtime_multiplayer_camera,
@@ -19730,6 +19755,21 @@ start_stage_runtime:
          * backing globals are intentionally not part of the 3DS link. */
         g_randomSeed = header->random_seed;
         g_chrObjRandomSeed = header->character_random_seed;
+    }
+    {
+        dam_preview.bg_geometry = ge_original_bg_geometry_load(&asset_pack,
+            stage_assets, &dam_preview.world,
+            dam_preview.visibility_runtime.room_bounds, &dam_preview.bg_geometry_report);
+        if (dam_preview.bg_geometry == NULL) {
+            multiplayer.failed = multiplayer.requested;
+            printf("BG geometry failed: %s status=%u room=%lu.\n",
+                stage_assets->key, (unsigned)dam_preview.bg_geometry_report.status,
+                (unsigned long)dam_preview.bg_geometry_report.failed_room);
+            goto cleanup_runtime;
+        }
+        ge_original_bg_geometry_bind(dam_preview.bg_geometry);
+        ge_original_player_held_items_bind_lights(dam_preview.bg_geometry,
+            ge_original_bg_geometry_light_break);
     }
     const uint64_t setup_initial_rng[2] = {g_randomSeed, g_chrObjRandomSeed};
     (void)initialize_dam_prop_state(&dam_objects);
@@ -20165,6 +20205,12 @@ start_stage_runtime:
         stereo_slider = right_target != NULL && stereo_config.enabled
             ? osGet3DSliderState() : 0.0f;
         stereo_active = stereo_slider > 0.0f;
+        /* Diagnostic touch controls inspect the displayed player. Restore
+         * canonical selection before accepting raw input or a simulation tick. */
+        if (multiplayer.running && !runtime_multiplayer_select(multiplayer.local)) {
+            multiplayer.failed = multiplayer.ended = true;
+            break;
+        }
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (multiplayer.running && (hidKeysHeld() & (KEY_SELECT | KEY_START))
@@ -20206,6 +20252,10 @@ start_stage_runtime:
             if (multiplayer.running)
                 printf("\x1b[0;0HMultiplayer - Player %lu/%lu\x1b[K\nSELECT: player  SELECT+START: end\x1b[K",
                     (unsigned long)multiplayer.local + 1UL, (unsigned long)multiplayer.count);
+        }
+        if (multiplayer.running && !runtime_multiplayer_select(multiplayer.last_slot)) {
+            multiplayer.failed = multiplayer.ended = true;
+            break;
         }
         const uint64_t frame_start_ticks = input_probe.enabled ? svcGetSystemTick() : 0U;
         const uint64_t frame_counters_before[15] = {
@@ -21376,6 +21426,23 @@ finish_original_player_tick:
             }
         }
 
+        if (!multiplayer.running && dam_preview.bg_geometry != NULL) {
+            if (!refresh_dam_background_colours(&dam_preview,
+                    (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET)) {
+                printf("BG room colour publication failed: %s.\n", stage_assets->key);
+                result = 1;
+                break;
+            }
+            if (dam_preview.gpu_dirty_vertex_count != 0U) {
+                GSPGPU_FlushDataCache(
+                    (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET
+                        + dam_preview.gpu_dirty_vertex_offset,
+                    renderer_vertex_flush_bytes(dam_preview.gpu_dirty_vertex_count,
+                        DAM_ROOM_VERTEX_COUNT));
+                dam_preview.gpu_dirty_vertex_count = 0U;
+            }
+        }
+
         if (!multiplayer.running && texture_cache_ready) {
             const u64 first_person_start = osGetTime();
             const bool first_person_updated = update_first_person_scene(
@@ -21744,6 +21811,10 @@ cleanup_runtime:
     ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);
     close_dam_world_objects(&dam_objects);
     close_stage_ordinary_objects(&stage_ordinary_objects);
+    ge_original_player_held_items_bind_lights(NULL, NULL);
+    ge_original_bg_geometry_bind(NULL);
+    ge_original_bg_geometry_close(dam_preview.bg_geometry);
+    dam_preview.bg_geometry = NULL;
     if (multiplayer.count != 0U) {
         ge_original_guard_bullet_hit_bind_players(NULL, NULL, NULL);
         for (uint32_t slot = 0U; slot < multiplayer.count; ++slot) {

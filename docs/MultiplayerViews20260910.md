@@ -38,10 +38,12 @@ simulation calls in the outer multiplayer loop:
    `ge_original_stage_guard_runtime_set_local_player_view(runtime, player, 1)`
    suppresses the local body while retaining opponents. Body and held-item
    geometry use the WORLD stereo layer; local hands use FIRST_PERSON.
-5. After all slots, `finish_local` selects the local player, restores its camera
-   frustum and invokes the provider that restores the saved local canonical
-   visibility. Both eye draws use the captured scene and shader eye shifts.
-   Neither eye invokes camera publication, prop ticks or model simulation.
+5. After all slots, `finish_local` preserves the last shuffled player’s native
+   selection, frustum and background visibility. Its provider restores only
+   owned local renderer data. Both eye draws use the captured scene and shader
+   eye shifts. Neither eye invokes camera publication, prop ticks or model
+   simulation. Choosing another local display must not alter the canonical
+   state exported at the completed tick boundary.
 
 `begin_shooter` accepts an already-produced config/result pair so the native
 loop need not run the camera producer twice. Its visibility callback must use
@@ -59,10 +61,11 @@ the local pass instead. Subsequent remote simulation may change canonical
 character state, as in the original shuffled render loop, but must not overwrite
 the baked local geometry.
 
-The final restore does not invent local character flags or rebuild hit lists.
-Every later gun dispatch must again follow its own canonical prop pass. The
-saved local room publication and renderer eye-room union are separate; the
-renderer-only union must never feed canonical `chrTick` or shooting.
+The final presentation callback must not select a player, restore native
+frustum/room state, rebuild hit lists or mutate any gameplay owner. Completion
+checks that the last shooter remains selected before and after the callback.
+Every later gun dispatch follows its own canonical prop pass. The captured
+local room publication and renderer eye-room union remain renderer-owned.
 
 The multiplayer owner supplies the concrete main-loop providers and adds
 `ge_original_multiplayer_views.o` to its build. This isolated change does not
@@ -80,9 +83,12 @@ modify `main.c`, active-prop orchestration or the player-body provider.
   producers plus instrumented caller-owned prop/capture boundaries; 216 frames
   across two, three and four players, every local slot and rotating/reversed
   order. Verifies copied local presentation and camera lifetime, correct
-  selected camera before the simulated prop boundary, final local restoration,
-  symmetric WORLD eye shifts and no canonical camera changes during either
-  eye. Missing capture, duplicate slots and provider failures are rejected.
+  selected camera before the simulated prop boundary, canonical last-shooter
+  preservation, symmetric WORLD eye shifts and no canonical camera changes
+  during either eye. Actual native player records, both generations of camera
+  matrices, projection, selected owner and frustum compare identically across
+  every local choice in one process; these raw test comparisons are not the
+  portable network encoding. Missing capture, duplicate slots and provider failures are rejected.
   A source audit checks the original prop/interaction/gun ordering.
 
 Both ABI variants run with ASan/UBSan. Only the original `guMtxF2L` translation
@@ -119,13 +125,13 @@ The main-loop split should therefore be:
    loaded the remote room.
 3. During local capture only, update the preview's local camera/result, run
    the renderer's own preload/eye-union/stream operations and build the durable
-   local scene. Retain copies of the local camera, position and door controls.
-4. At finish, restore the selected player's camera frustum and call
-   `ge_dam_visibility_runtime_restore_with_providers` with the saved local
-   camera/position/door controls and NULL preload callback. This rebuilds all
-   canonical room/portal publication, including internal boxes and caches that
-   are not contained in the public result alone. It preserves the original
-   modulo-ten room-load cycle and rejects a preload callback.
+   local scene. Retain copies of the local camera and renderer visibility.
+4. At finish, restore only the local preview fields from those owned copies.
+   Preserve the last shuffled shooter’s canonical selection, frustum and full
+   room/portal publication. Re-running native visibility for the device-local
+   camera would make canonical state differ between peers. Diagnostic UI may
+   inspect the displayed player temporarily, but must restore canonical
+   selection before accepting raw input or executing another tick.
 
 The full STAN data is already materialized and bound at stage initialization.
 Despite its name, `materialize_stage_ordinary_resident` constructs setup model

@@ -10,6 +10,8 @@
 extern Unk80081600 ge_bg_visibility_interpreter_state;
 GeOriginalBgVisibilityStatus ge_renderer_private_ge_original_bg_visibility_run(
     const GeOriginalBgVisibilityInput *,GeOriginalBgVisibilityResult *);
+GeOriginalBgVisibilityStatus ge_renderer_private_ge_original_bg_visibility_restore(
+    const GeOriginalBgVisibilityInput *,GeOriginalBgVisibilityResult *);
 static GeMpStateVisibilitySnapshot snapshot, durable;
 static GeMpRegistry registry;
 static GeMpRegistryEntry registry_entry;
@@ -220,6 +222,98 @@ static void actual(const char *path)
     printf("E9 captured %zu canonical room-camera passes across all32 stages\n",passes);
 }
 
+static void boundary_failures(void)
+{
+    GeDamVisibilityRuntime r=fixture();
+    uint8_t controls[2]={0},preload_result=0;
+    GeOriginalBgVisibilityProviders providers={.portal_controls=controls,.portal_control_count=2};
+    GeOriginalBgVisibilityInput in=input(&r,&providers);
+    GeOriginalBgVisibilityResult result;
+    uint8_t positive[32],negative[32];
+    /* Numeric equality does not prove the duplicate future inputs have the
+     * same binary32 values. Matching signed zero must still be preserved. */
+    for (unsigned bound=0;bound<2;++bound) {
+        float *future=bound==0?&r.near_distance:&r.far_distance;
+        float *published=bound==0?&in.near_distance:&in.far_distance;
+        float original=*future;
+        *future=*published=0.0f;D_80044858=0;
+        assert(ge_original_bg_visibility_run(&in,&result)==GE_ORIGINAL_BG_VISIBILITY_OK);
+        capture(&r,controls,2,positive);
+        *future=-0.0f;reject(&r,controls,2);
+        assert(snapshot.coverage.unclassified_fields==1);
+        *published=-0.0f;D_80044858=0;
+        assert(ge_original_bg_visibility_run(&in,&result)==GE_ORIGINAL_BG_VISIBILITY_OK);
+        capture(&r,controls,2,negative);
+        assert(signbit(snapshot.values.clip_range[bound]) && memcmp(positive,negative,32));
+        *future=0.0f;reject(&r,controls,2); /* Both mismatch directions. */
+        *future=*published=original;
+    }
+    GeOriginalBondCameraResult camera={0};
+    camera.room=1;camera.viewport_scale[0]=640;camera.viewport_scale[1]=480;
+    memcpy(camera.view,in.world_to_screen,sizeof(camera.view));
+    float position[3]={0};
+    /* Run and restore wrappers reject every argument/camera early return.
+     * Repaired calls must publish again; failed attempts never advance cycle. */
+    for (unsigned restore=0;restore<2;++restore) {
+        for (unsigned failure=0;failure<8;++failure) {
+            assert(ge_dam_visibility_runtime_run_with_providers(&r,&camera,position,&providers,&result)
+                ==GE_DAM_VISIBILITY_RUNTIME_OK);
+            capture(&r,controls,2,positive);
+            s32 cycle=D_80044858;
+            GeOriginalBondCameraResult broken=camera;
+            if (failure==5) broken.viewport_scale[0]=0;
+            if (failure==6) broken.viewport_scale[1]=0;
+            if (failure==7) broken.room=(uint8_t)r.room_count;
+            if (failure==4) r.loaded=0;
+            GeDamVisibilityRuntime *runtime=failure==0?NULL:&r;
+            GeOriginalBondCameraResult *view=failure==1?NULL:&broken;
+            float *pos=failure==2?NULL:position;
+            GeOriginalBgVisibilityResult *out=failure==3?NULL:&result;
+            GeDamVisibilityRuntimeStatus status=restore
+                ? ge_dam_visibility_runtime_restore_with_providers(runtime,view,pos,&providers,out)
+                : ge_dam_visibility_runtime_run_with_providers(runtime,view,pos,&providers,out);
+            assert(status==(failure<5?GE_DAM_VISIBILITY_RUNTIME_INVALID_ARGUMENT
+                :GE_DAM_VISIBILITY_RUNTIME_CAMERA_INVALID));
+            if (runtime != NULL)
+                assert(r.last_original_status==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+            r.loaded=1;
+            /* Test bridge freshness itself, not just the status safeguard. */
+            GeOriginalBgVisibilityStateSource source;
+            assert(!ge_original_bg_visibility_state_read(r.program,r.background,r.background_size,&source));
+            reject(&r,controls,2);assert(D_80044858==cycle);
+        }
+    }
+    for (unsigned failure=0;failure<3;++failure) {
+        assert(ge_dam_visibility_runtime_run_with_providers(&r,&camera,position,&providers,&result)
+            ==GE_DAM_VISIBILITY_RUNTIME_OK);
+        capture(&r,controls,2,positive);s32 cycle=D_80044858;
+        GeOriginalBgVisibilityInput broken=input(&r,&providers);
+        GeOriginalBgVisibilityProviders disallowed=providers;
+        disallowed.context=&preload_result;disallowed.preload_room=preload;
+        if (failure==0) broken.providers=&disallowed;
+        const GeOriginalBgVisibilityInput *arg=failure==1?NULL:&broken;
+        GeOriginalBgVisibilityResult *out=failure==2?NULL:&result;
+        assert(ge_renderer_private_ge_original_bg_visibility_restore(arg,out)
+            ==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+        capture(&r,controls,2,negative);assert(!memcmp(positive,negative,32));
+        if (failure != 0) {
+            assert(ge_renderer_private_ge_original_bg_visibility_run(arg,out)
+                ==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+            capture(&r,controls,2,negative);assert(!memcmp(positive,negative,32));
+        }
+        assert(ge_original_bg_visibility_restore(arg,out)==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+        /* Low-level failures do not own the wrapper status, so the bridge
+         * must independently prevent a stale success from being captured. */
+        assert(r.last_original_status==GE_ORIGINAL_BG_VISIBILITY_OK);
+        reject(&r,controls,2);assert(D_80044858==cycle);
+    }
+    assert(ge_dam_visibility_runtime_restore_with_providers(&r,&camera,position,&providers,&result)
+        ==GE_DAM_VISIBILITY_RUNTIME_OK);
+    capture(&r,controls,2,positive);
+    ge_dam_visibility_runtime_close(&r);
+    puts("E9 bit-exact float bindings and all early run/restore failure paths passed");
+}
+
 int main(int argc,char **argv)
 {
     assert(argc>=2);digests=fopen(argv[1],"wb");assert(digests);
@@ -227,7 +321,7 @@ int main(int argc,char **argv)
     assert(ge_mp_registry_init(&registry,&registry_entry,1)==GE_MP_STATE_OK);
     assert(ge_mp_registry_define(&registry,key)==GE_MP_STATE_OK);
     assert(ge_mp_registry_acquire(&registry,key,&actor)==GE_MP_STATE_OK);
-    focused();if(argc>2)actual(argv[2]);
+    focused();boundary_failures();if(argc>2)actual(argv[2]);
     assert(ge_mp_registry_release(&registry,actor)==GE_MP_STATE_OK);
     GeDamVisibilityRuntime r={0};reject(&r,NULL,0);
     assert(fclose(digests)==0);

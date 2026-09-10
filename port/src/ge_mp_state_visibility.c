@@ -142,6 +142,11 @@ static int room_metadata_unused(const s_room_info *room)
         && room->field_35 == 0 && room->field_36 == 0;
 }
 
+static int same_float_bits(const float *first, const float *second)
+{
+    return memcmp(first,second,sizeof(*first)) == 0;
+}
+
 GeMpStateStatus ge_mp_state_visibility_capture(GeMpStateVisibilitySnapshot *snapshot,
     const GeDamVisibilityRuntime *runtime, const uint8_t *portal_controls,
     size_t portal_control_count, const GeMpRegistry *registry, uint64_t actor_id)
@@ -174,10 +179,11 @@ GeMpStateStatus ge_mp_state_visibility_capture(GeMpStateVisibilitySnapshot *snap
             || D_80044898 < 0 || D_8004489C < 0
             || ge_bg_visibility_interpreter_state.unk14 != 0)
         return incomplete(snapshot,0);
-    if (runtime->level_index != levelentry_index || runtime->level_scale != room_data_float1
-            || runtime->visibility_scale != mCurrentLevelVisibilityScale
-            || runtime->near_distance != source.clip_range[0]
-            || runtime->far_distance != source.clip_range[1]) return incomplete(snapshot,0);
+    if (runtime->level_index != levelentry_index
+            || !same_float_bits(&runtime->level_scale,&room_data_float1)
+            || !same_float_bits(&runtime->visibility_scale,&mCurrentLevelVisibilityScale)
+            || !same_float_bits(&runtime->near_distance,&source.clip_range[0])
+            || !same_float_bits(&runtime->far_distance,&source.clip_range[1])) return incomplete(snapshot,0);
     GeMpVisibilityValues *v=&snapshot->values;
     memset(v,0,sizeof(*v));
     v->room_count=source.room_count; v->portal_count=source.portal_count;

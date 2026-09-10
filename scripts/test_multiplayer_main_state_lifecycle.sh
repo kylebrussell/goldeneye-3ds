@@ -15,6 +15,8 @@ main = (root / 'platform/3ds/source/main.c').read_text()
 start = main.index('/* Identities are scoped to one canonical match session.')
 end = main.index('static stagesetup *dam_intro_load_setup', start)
 (out / 'main_state_lifecycle.c').write_text(main[start:end])
+(out / 'main_object_bindings.c').write_text('\n'.join(function_text(main,name) for name in (
+    'runtime_multiplayer_object_key_compare','runtime_multiplayer_state_begin_objects')))
 source = (root / 'src/game/chrprop.c').read_text()
 parts = [render(root), '#include "ge_original_prop_lifetime.h"',
          'extern PropRecord *g_FreeProps,*g_ActivePropsHead,*g_ActivePropsTail;']
@@ -29,7 +31,7 @@ flags=(-std=gnu11 -O1 -g -fno-omit-frame-pointer -ffunction-sections -fdata-sect
     -DGE_PORT_MS_INHERITS -DVERSION_US -DPLAYERFLAG=int -fms-extensions -Wno-everything
     -I"${test_dir}" -I"${repo_dir}" -I"${repo_dir}/port/include" -I"${repo_dir}/src/game"
     -idirafter "${repo_dir}/include" -idirafter "${repo_dir}/include/PR" -idirafter "${repo_dir}/src")
-sources=(ge_mp_state ge_mp_state_inventory ge_mp_state_props ge_mp_state_players
+sources=(ge_mp_state ge_mp_state_inventory ge_mp_state_props ge_mp_state_players ge_mp_state_objects
     ge_original_prop_state ge_original_prop_state_source ge_original_multiplayer_players
     ge_original_multiplayer_rules ge_original_bond_input_provider ge_original_input
     ge_libultra ge_services random_port ge_original_chr_obj_random)

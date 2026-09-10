@@ -48,6 +48,8 @@ bash "${repo_dir}/scripts/test_mp_state.sh"
 bash "${repo_dir}/scripts/test_mp_state_core.sh"
 bash "${repo_dir}/scripts/test_mp_state_inventory.sh"
 bash "${repo_dir}/scripts/test_mp_state_props.sh"
+bash "${repo_dir}/scripts/test_mp_state_objects.sh" -fno-short-enums
+bash "${repo_dir}/scripts/test_mp_state_objects.sh" -fshort-enums
 bash "${repo_dir}/scripts/test_mp_state_guns.sh"
 bash "${repo_dir}/scripts/test_mp_state_players.sh"
 bash "${repo_dir}/scripts/test_mp_state_session.sh"

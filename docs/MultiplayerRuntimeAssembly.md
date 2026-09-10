@@ -23,7 +23,11 @@ Focused sanitizer checks for the constituent player/input, spawn, supplies, rege
 The native prop arena now has an explicit retirement event after all resource
 consumers and the renderer close. Main binds E3/E5 before any allocation,
 E1/E2/E4/E6 after player creation, E7 after BG load, EB after fog load
-and E9 after visibility load. E8 begins only after both native effect and projectile resets. E9 ends
+and E9 after visibility load. E8 begins only after both native effect and projectile resets. EA begins after
+all stage definition containers exist, with namespace 0 for setup command IDs,
+1 for authored guard weapon slots, 2 for all 30 player-item slots and 3 for all
+20 native ammo-crate slots. It includes retained inactive definitions and ends
+before the ordinary-object/guard runtime destroys their storage. E9 ends
 before visibility closes; E8 ends after native consumers and the renderer,
 before the effect storage observation is retired. Each identity ends at its
 native storage boundary. Released keys persist within a match so reuse
@@ -47,7 +51,7 @@ reloads and ten bullet impacts. Native player hits, death/respawn and complete
 results progression remain acceptance work; these advances do not yet
 establish the complete shared-loop contract.
 
-Kind0, E8, E9 and EB capture/schema entrypoints are force-retained in the ARM link.
+Kind0, E8, E9, EA and EB capture/schema entrypoints are force-retained in the ARM link.
 Unresolved native resource references, unowned transitions and retained
 visibility room-cycle/parser-state initialization still prevent complete state
 attestation. Host model callback tokens must resolve to stable callback roles;

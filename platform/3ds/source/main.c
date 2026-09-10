@@ -115,6 +115,7 @@
 #include "ge_mp_state_effects.h"
 #include "ge_mp_state_visibility.h"
 #include "ge_mp_state_fog.h"
+#include "ge_mp_state_objects.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
@@ -4448,6 +4449,7 @@ static struct {
     GeMpStatePlayersOwner players;
     GeMpStateEffectsOwner effects;
     GeMpStateFogOwner fog;
+    GeMpStateObjectsOwner objects;
     GeMpStateBgSnapshot background;
     uint64_t core;
     uint64_t bg;
@@ -4581,6 +4583,13 @@ static void runtime_multiplayer_state_end_fog(void)
             ge_mp_state_fog_end(&multiplayer_state.fog));
 }
 
+static void runtime_multiplayer_state_end_objects(void)
+{
+    if (multiplayer_state.objects.live)
+        (void)runtime_multiplayer_state_status("objects end",
+            ge_mp_state_objects_end(&multiplayer_state.objects));
+}
+
 static void runtime_multiplayer_state_end_players(void)
 {
     if (multiplayer_state.players.live)
@@ -4617,6 +4626,58 @@ static stagesetup *dam_intro_load_setup(void *context, int32_t stage_id)
     RuntimeDamIntroContext *intro = context;
     return intro != NULL && stage_id == intro->stage_id
         ? intro->setup : NULL;
+}
+
+/* EA namespace policy is physical and independent of allocation/render order:
+ * 0 authored setup command, 1 authored guard weapon slot, 2 player-item slot,
+ * 3 native ammo-crate slot. Include free/inactive containers in every pool. */
+static int runtime_multiplayer_object_key_compare(const void *left,const void *right)
+{
+    const GeMpObjectDefinition *a=left,*b=right;
+    if (a->creation_namespace!=b->creation_namespace)
+        return a->creation_namespace<b->creation_namespace?-1:1;
+    return a->slot<b->slot?-1:a->slot!=b->slot;
+}
+
+static bool runtime_multiplayer_state_begin_objects(const RuntimeStageOrdinaryObjects *objects)
+{
+    GeMpStateObjectsOwner *owner=&multiplayer_state.objects;
+    GeMpObjectDefinition *definitions=owner->definitions;
+    size_t count=0;
+    if (!objects || !objects->guards || owner->live
+            || (objects->entry_count && !objects->entries))
+        return runtime_multiplayer_state_status("object definitions",GE_MP_STATE_INVALID);
+    for (size_t i=0;i<objects->entry_count;++i) {
+        const RuntimeStageOrdinaryEntry *entry=&objects->entries[i];
+        if (!ge_mp_state_objects_native_size(entry->type)) continue;
+        if (count==GE_MP_OBJECTS_CAPACITY || entry->command_index>UINT16_MAX)
+            return runtime_multiplayer_state_status("authored object capacity",GE_MP_STATE_CAPACITY);
+        definitions[count++]=(GeMpObjectDefinition){entry->definition,entry->definition_size,
+            0,entry->type,(uint16_t)entry->command_index};
+    }
+    size_t weapons=ge_original_stage_guard_runtime_weapon_count(objects->guards);
+    if (weapons>UINT16_MAX || weapons>GE_MP_OBJECTS_CAPACITY-count)
+        return runtime_multiplayer_state_status("weapon definition capacity",GE_MP_STATE_CAPACITY);
+    for (size_t slot=0;slot<weapons;++slot) {
+        GeMpObjectDefinition *d=&definitions[count++];
+        *d=(GeMpObjectDefinition){.creation_namespace=1,.type=PROPDEF_COLLECTABLE,.slot=(uint16_t)slot};
+        if (!ge_original_stage_guard_runtime_weapon_definition(objects->guards,slot,&d->definition,&d->bytes))
+            return runtime_multiplayer_state_status("weapon definition",GE_MP_STATE_INCOMPLETE);
+    }
+    if (GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY>GE_MP_OBJECTS_CAPACITY-count)
+        return runtime_multiplayer_state_status("player item capacity",GE_MP_STATE_CAPACITY);
+    for (size_t slot=0;slot<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++slot) {
+        GeMpObjectDefinition *d=&definitions[count++];
+        *d=(GeMpObjectDefinition){.creation_namespace=2,.type=PROPDEF_COLLECTABLE,.slot=(uint16_t)slot};
+        if (!ge_original_stage_guard_runtime_player_item_definition(objects->guards,slot,&d->definition,&d->bytes))
+            return runtime_multiplayer_state_status("player item definition",GE_MP_STATE_INCOMPLETE);
+    }
+    size_t ammo=ge_mp_state_objects_native_ammo_definitions(3,definitions+count,GE_MP_OBJECTS_CAPACITY-count);
+    if (!ammo) return runtime_multiplayer_state_status("ammo definitions",GE_MP_STATE_CAPACITY);
+    count+=ammo;
+    qsort(definitions,count,sizeof(*definitions),runtime_multiplayer_object_key_compare);
+    return runtime_multiplayer_state_status("objects begin",
+        ge_mp_state_objects_begin(owner,&multiplayer_state.props,definitions,count));
 }
 
 static float dam_intro_room_scale_reciprocal(void *context)
@@ -20353,6 +20414,7 @@ start_stage_runtime:
     if (multiplayer.requested) {
         if (!runtime_multiplayer_state_status("prop construction", multiplayer_state.props.fault)
                 || stage_ordinary_objects.actor_tick_status != RUNTIME_STAGE_ACTOR_TICK_READY
+                || !runtime_multiplayer_state_begin_objects(&stage_ordinary_objects)
                 || ge_original_multiplayer_frontend_started(&multiplayer_frontend,
                     multiplayer.request.request_id, 1) != GE_ORIGINAL_MP_FRONTEND_OK) {
             multiplayer.failed = true;
@@ -22167,6 +22229,7 @@ cleanup_runtime:
     free(dam_preview.gpu_batch_bounds);
     free(dam_preview.gpu_batch_run_ends);
     close_dam_world_objects(&dam_objects);
+    runtime_multiplayer_state_end_objects();
     close_stage_ordinary_objects(&stage_ordinary_objects);
     runtime_multiplayer_state_end_fog();
     ge_original_multiplayer_fog_close();

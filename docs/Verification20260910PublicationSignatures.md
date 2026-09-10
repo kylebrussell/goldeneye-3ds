@@ -108,3 +108,17 @@ offline producer fixture exposed address masking of a valid native pointer;
 low heap addresses can hide that problem. This signature-only source change
 does not fix or depend on the audio producer, and an obsolete audio baseline
 must not be used to claim a game-frame improvement.
+
+## Final software validation
+
+The hardened implementation (`173ba27e` plus `8f7745d9`) and measurement
+instrumentation (`86109ead`) pass a full ARM build and the complete host suite
+on frozen source `a3dd8464`, including the campaign audio repair dependency.
+Source hashes remain unchanged across both runs. The final candidate,
+validation receipt, logs and planned route requests are under
+`build/performance-20260910/final/`; see the
+[measurement report](Verification20260910PerformanceMeasurement.md) for hashes
+and the physical test procedure. The frozen synthetic benchmark is prepared
+under `build/performance-20260910/signature-final/`, with its own exact source
+and executable receipt. Timing remains scheduled through integration; this
+task's result is a verified operation reduction, not a measured FPS gain.

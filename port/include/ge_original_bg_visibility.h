@@ -106,6 +106,13 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     const GeOriginalBgVisibilityInput *input,
     GeOriginalBgVisibilityResult *result);
 
+/* Rebuild a previously captured camera/door publication without scheduling
+ * loads or advancing the original room-load cycle. Rejects preload callbacks.
+ * The caller must retain the local pass's camera and door-control bytes. */
+GeOriginalBgVisibilityStatus ge_original_bg_visibility_restore(
+    const GeOriginalBgVisibilityInput *input,
+    GeOriginalBgVisibilityResult *result);
+
 GeOriginalBgVisibilityProgram *ge_original_bg_visibility_program_create(
     const uint8_t *background, size_t background_size, size_t room_count,
     GeOriginalBgVisibilityStatus *status);

@@ -240,12 +240,12 @@ GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run(
         player_position, NULL, result);
 }
 
-GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run_with_providers(
+static GeDamVisibilityRuntimeStatus ge_dam_visibility_evaluate(
     GeDamVisibilityRuntime *runtime,
     const GeOriginalBondCameraResult *camera,
     const float player_position[3],
     const GeOriginalBgVisibilityProviders *providers,
-    GeOriginalBgVisibilityResult *result)
+    GeOriginalBgVisibilityResult *result, int restore)
 {
     GeOriginalBgVisibilityInput input;
     GeOriginalBgVisibilityStatus visibility_status;
@@ -283,11 +283,35 @@ GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run_with_providers(
     input.view_height = (int16_t)height;
     input.providers = providers;
     input.program = runtime->program;
-    visibility_status = ge_original_bg_visibility_run(&input, result);
+    visibility_status = restore
+        ? ge_original_bg_visibility_restore(&input, result)
+        : ge_original_bg_visibility_run(&input, result);
     runtime->last_original_status = visibility_status;
     return visibility_status == GE_ORIGINAL_BG_VISIBILITY_OK
         ? GE_DAM_VISIBILITY_RUNTIME_OK
         : GE_DAM_VISIBILITY_RUNTIME_VISIBILITY_FAILED;
+}
+
+GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run_with_providers(
+    GeDamVisibilityRuntime *runtime,
+    const GeOriginalBondCameraResult *camera,
+    const float player_position[3],
+    const GeOriginalBgVisibilityProviders *providers,
+    GeOriginalBgVisibilityResult *result)
+{
+    return ge_dam_visibility_evaluate(runtime, camera, player_position,
+        providers, result, 0);
+}
+
+GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_restore_with_providers(
+    GeDamVisibilityRuntime *runtime,
+    const GeOriginalBondCameraResult *camera,
+    const float player_position[3],
+    const GeOriginalBgVisibilityProviders *providers,
+    GeOriginalBgVisibilityResult *result)
+{
+    return ge_dam_visibility_evaluate(runtime, camera, player_position,
+        providers, result, 1);
 }
 
 const char *ge_dam_visibility_runtime_status_name(

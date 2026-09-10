@@ -55,11 +55,11 @@ camera_flush = re.compile(
 )
 publication_paths = {
     "simulation publication": (
-        r"if\s*\(\s*dam_intro\.player\.initialized\s*&&\s*"
+        r"if\s*\(\s*!multiplayer\.running\s*&&\s*dam_intro\.player\.initialized\s*&&\s*"
         r"dam_intro\.player\.publication_generation\s*!=\s*rendered_player_generation\s*\)\s*\{",
         r"if\s*\(\s*camera_updated\s*\)\s*\{"),
     "stereo slider publication": (
-        r"if\s*\(\s*dam_preview\.original_camera_ready\s*&&\s*"
+        r"if\s*\(\s*!multiplayer\.running\s*&&\s*dam_preview\.original_camera_ready\s*&&\s*"
         r"dam_preview\.renderer_visibility_slider\s*!=\s*stereo_slider\s*\)\s*\{",
         r"if\s*\(\s*stream_dam_renderer_camera\([^{}]*?\)\s*\)\s*\{"),
 }
@@ -82,6 +82,43 @@ def assert_publication_flushes(source: str) -> None:
 
 
 assert_publication_flushes(source)
+
+# The selected multiplayer view owns a separate publication. Failed room or
+# overlay uploads must return before its bounded dirty-span flush.
+multiplayer_flush = re.compile(camera_flush.pattern.replace(r"dam_preview\.", "preview->"), re.S)
+
+
+def assert_multiplayer_flush(source: str) -> None:
+    capture = function_body(source, "runtime_multiplayer_view_capture")
+    dirty = statement_body(capture,
+        r"if\s*\(\s*preview->gpu_dirty_vertex_count\s*!=\s*0U\s*\)\s*\{",
+        "multiplayer nonempty dirty span")
+    flushes = list(multiplayer_flush.finditer(dirty))
+    clears = list(re.finditer(r"preview->gpu_dirty_vertex_count\s*=\s*0U\s*;", dirty))
+    assert len(flushes) == len(clears) == 1
+    assert clears[0].start() > flushes[0].end()
+    assert len(re.findall(r"GSPGPU_FlushDataCache\s*\(", dirty)) == 1
+    for call in ("stream_dam_renderer_camera", "refresh_stage_live_overlays"):
+        rejection = re.search(rf"if\s*\(\s*!{call}\([^;]*?\)\s*\)\s*return 0;", capture, re.S)
+        assert rejection is not None and rejection.end() < capture.index(dirty)
+
+
+assert_multiplayer_flush(source)
+capture = function_body(source, "runtime_multiplayer_view_capture")
+for original, replacement in (
+    ("preview->gpu_dirty_vertex_count != 0U", "1"),
+    ("DAM_ROOM_VERTEX_COUNT", "TOTAL_VERTEX_COUNT"),
+    ("+ preview->gpu_dirty_vertex_offset", ""),
+    ("preview->gpu_dirty_vertex_count = 0U;", "/* omitted clear */"),
+):
+    changed = capture.replace(original, replacement, 1)
+    assert changed != capture
+    try:
+        assert_multiplayer_flush(source.replace(capture, changed, 1))
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError(f"multiplayer regression not detected: {original}")
 
 # Each path is independently required: duplicating one flush cannot substitute
 # for the other. These mutations also prove the assertions detect regressions
@@ -110,4 +147,4 @@ assert "assert(vertex_count <= vertex_capacity);" in helper
 assert "assert(vertex_capacity <= TOTAL_VERTEX_COUNT);" in helper
 assert "TOTAL_VERTEX_COUNT <= SIZE_MAX / sizeof(Vertex)" in source
 
-print("3DS cache flush spans: full init, 6-vertex sight, independently bounded simulation/slider publication")
+print("3DS cache flush spans: full init, 6-vertex sight, independently bounded solo/slider/multiplayer publication")

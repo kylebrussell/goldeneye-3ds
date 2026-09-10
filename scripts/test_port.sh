@@ -46,6 +46,7 @@ bash "${repo_dir}/scripts/test_multiplayer_gait.sh"
 bash "${repo_dir}/scripts/test_multiplayer_spawn.sh"
 bash "${repo_dir}/scripts/test_multiplayer_regen.sh"
 bash "${repo_dir}/scripts/test_multiplayer_session.sh"
+bash "${repo_dir}/scripts/test_multiplayer_watch.sh"
 bash "${repo_dir}/scripts/test_multiplayer_results.sh"
 bash "${repo_dir}/scripts/test_multiplayer_death.sh"
 bash "${repo_dir}/scripts/test_multiplayer_port_tick.sh"
@@ -294,7 +295,7 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
 language_objects=()
 for language_bank in LdamE LarkE LrunE LsevxE LsevE LsiloE LdestE \
         LsevxbE LsevbE LstatE LarchE LpeteE LdepoE LtraE LjunE LarecE \
-        LcaveE LcradE LaztE LcrypE LmpweaponsE LgunE LmiscE LoptionsE LpropobjE LtitleE; do
+        LcaveE LcradE LaztE LcrypE LmpweaponsE LmpmenuE LgunE LmiscE LoptionsE LpropobjE LtitleE; do
     language_object="${original_dam_setup_dir}/${language_bank}.o"
     cc -std=gnu11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
         -fsanitize=address,undefined -fno-omit-frame-pointer \

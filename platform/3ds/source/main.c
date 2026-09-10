@@ -4398,7 +4398,8 @@ static GeOriginalMultiplayerFrontend multiplayer_frontend;
 
 /* Identities are scoped to one canonical match session. Within that session,
  * released keys retain generations through allocation and respawn. A new
- * match starts identically regardless of each peer's prior local history. */
+ * match starts with the same identity registry regardless of local history.
+ * Native globals that retain prior history still need a session-start policy. */
 static struct {
     GeMpRegistry registry;
     GeMpRegistryEntry entries[GE_MP_STATE_MAX_RECORDS];
@@ -20683,9 +20684,10 @@ start_stage_runtime:
             multiplayer.frozen = session.stop_play != 0;
             multiplayer.elapsed60 += port.original_clock_timer;
             if (session.decision == GE_ORIGINAL_MP_END_RESULTS) {
+                /* Awards begin the native results/watch flow. Keep accepting
+                 * committed pads and dispatching every player until the last
+                 * MENU_FINISHED requests TITLE from mpwatchMenuTick. */
                 multiplayer.end_reason = session.end_reason;
-                multiplayer.ended = true;
-                break;
             }
         }
         {
@@ -21742,7 +21744,18 @@ finish_original_player_tick:
                     &first_person_models, &first_person_scene.cache, &dam_intro);
             }
             (void)ge_original_boss_commit_requested_stage();
-            gameplay_stage_ended = true;
+            if (multiplayer.running) {
+                GeOriginalMultiplayerSessionState session;
+                GeOriginalBossState boss_state;
+                ge_original_boss_snapshot(&boss_state);
+                if (boss_state.current_stage != LEVELID_TITLE
+                        || ge_original_multiplayer_session_snapshot(&session)
+                            != GE_ORIGINAL_MP_SESSION_OK
+                        || session.decision != GE_ORIGINAL_MP_END_RESULTS)
+                    multiplayer.failed = true;
+                else multiplayer.end_reason = session.end_reason;
+                multiplayer.ended = true;
+            } else gameplay_stage_ended = true;
             break;
         }
         {

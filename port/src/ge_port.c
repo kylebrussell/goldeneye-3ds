@@ -18,7 +18,6 @@
 
 extern struct player *g_CurrentPlayer;
 extern struct player *g_playerPointers[4];
-int32_t ge_port_level_is_paused(void);
 
 /* Presents the logical port actions as N64 buttons. The single-stick layout
  * feeds GoldenEye's 1.1 (Honey) body: Z fire, L aim, R crouch, C-buttons for
@@ -302,7 +301,8 @@ unsigned ge_port_advance_multiplayer_tick(GePortState *state,
         for (prior = 0; prior < slot && slot < count; ++prior)
             if (g_playerPointers[prior] == g_playerPointers[slot]) return 0;
     }
-    if (ge_port_level_is_paused()) return 0;
+    /* Paused/locked native frames still consume joy and advance the watch
+     * cadence. The original level timer alone sets their gameplay delta0. */
     if (!ge_original_input_tick_pad_pairs(pads, count)) return 0;
     /* The validated input count is >1, so the common tick's solo publication
      * is a no-op. Only this committed all-pad publication consumes joy.c. */

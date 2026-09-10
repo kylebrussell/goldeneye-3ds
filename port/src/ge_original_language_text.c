@@ -35,6 +35,7 @@ extern char *LoptionsE[];
 extern char *LpropobjE[];
 extern char *LtitleE[];
 extern char *LmpweaponsE[];
+extern char *LmpmenuE[];
 
 const char *ge_original_language_text_by_bank(
     uint16_t bank, uint16_t slot)
@@ -69,6 +70,7 @@ const char *ge_original_language_text_by_bank(
     case LPROPOBJ: strings = LpropobjE; break;
     case LTITLE: strings = LtitleE; break;
     case LMPWEAPONS: strings = LmpweaponsE; break;
+    case LMPMENU: strings = LmpmenuE; break;
     default: return NULL;
     }
     /* The slot is authored by the same setup/briefing source as the selected

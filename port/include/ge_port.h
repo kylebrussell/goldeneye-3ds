@@ -70,12 +70,14 @@ int ge_port_input_sample_pads(const GePortInput *input,
                               GeOriginalInputPad pads[2]);
 /* One committed lockstep tick: validate the active canonical roster and input
  * selection, publish every already-quantized pad exactly once, then run the
- * existing original timer/boss boundary with one retrace. Reject paused,
+ * existing original timer/boss boundary with one retrace. Reject
  * malformed, mismatched or overflowing state before mutation. No wall-clock
  * accumulation, solo reset, sensitivity rescaling, or additional RNG draw.
  * Controls-locked frames still dispatch; canonical lv.c determines their
- * clock/delta. Select the same canonical input slot on every peer before the
- * once-per-world timer boundary; idle-button accounting observes that slot.
+ * clock/delta; a paused frame likewise consumes input and advances the watch
+ * cadence with no gameplay time. Select the same canonical input slot on
+ * every peer before the once-per-world timer boundary; idle-button accounting
+ * observes that slot.
  * Caller owns all-player movement/props/gun order after this timer boundary. */
 unsigned ge_port_advance_multiplayer_tick(GePortState *state,
     const GeOriginalInputPad (*pads)[2], uint32_t count);

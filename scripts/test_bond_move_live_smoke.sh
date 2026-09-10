@@ -97,7 +97,7 @@ compile_support src/game/bg.c bg_connectivity.o -DGE_PORT_BG_CONNECTIVITY_SLICE
 language_objects=()
 for language_bank in LdamE LarkE LrunE LsevxE LsevE LsiloE LdestE \
         LsevxbE LsevbE LstatE LarchE LpeteE LdepoE LtraE LjunE LarecE \
-        LcaveE LcradE LaztE LcrypE LmpweaponsE LgunE LmiscE LoptionsE LpropobjE LtitleE; do
+        LcaveE LcradE LaztE LcrypE LmpweaponsE LmpmenuE LgunE LmiscE LoptionsE LpropobjE LtitleE; do
     compile_support "assets/obseg/text/${language_bank}.c" \
         "${language_bank}.o"
     language_objects+=("${smoke_dir}/${language_bank}.o")

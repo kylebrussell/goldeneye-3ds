@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include <bondconstants.h>
+#include "assets/obseg/text/LmpmenuE.h"
 
 #define SOLO_BANKS(X) \
     X(LARCH, LarchE) \
@@ -35,6 +36,7 @@ extern char *LmiscE[];
 extern char *LoptionsE[];
 extern char *LpropobjE[];
 extern char *LtitleE[];
+extern char *LmpmenuE[];
 #undef DECLARE_BANK
 
 int main(void)
@@ -55,6 +57,9 @@ int main(void)
     CHECK_BANK(LOPTIONS, LoptionsE)
     CHECK_BANK(LPROPOBJ, LpropobjE)
     CHECK_BANK(LTITLE, LtitleE)
+    /* Watch pages and every award use this native bank. */
+    for (uint16_t slot=0;slot<=MPMENU_STR_23_TOCONTINUE_LF;++slot)
+        assert(ge_original_language_text((LMPMENU<<10U)|slot)==LmpmenuE[slot]);
 #undef CHECK_BANK
     assert(ge_original_language_text_by_bank(LNULL, 0U) == NULL);
     return 0;

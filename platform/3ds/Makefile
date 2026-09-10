@@ -21,7 +21,7 @@ SETUP_SOURCES := ../../assets/obseg/setup
 SETUP_CFILES := UsetupdamZ.c
 SOLO_LANGUAGE_NAMES := LdamE LarkE LrunE LsevxE LsevE LsiloE LdestE \
                        LsevxbE LsevbE LstatE LarchE LpeteE LdepoE LtraE \
-                       LjunE LarecE LcaveE LcradE LaztE LcrypE LlenE LmpweaponsE
+                       LjunE LarecE LcaveE LcradE LaztE LcrypE LlenE LmpweaponsE LmpmenuE
 SOLO_LANGUAGE_CFILES := $(addprefix $(TOPDIR)/../../assets/obseg/text/,\
                            $(addsuffix .c,$(SOLO_LANGUAGE_NAMES)))
 INCLUDES    := include ../../port/include ../../src ../..
@@ -308,6 +308,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_multiplayer_death_slice.c \
             ge_original_multiplayer_results_slice.c \
             ge_original_multiplayer_session_slice.c \
+            ge_original_multiplayer_watch_slice.c \
             ge_original_multiplayer_runtime_slice.c \
             ge_original_multiplayer_stage_reset_slice.c \
             ge_original_player_held_items_slice.c \
@@ -492,9 +493,10 @@ ge_original_multiplayer_death.o ge_original_multiplayer_death_slice.o \
 ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
+ge_original_multiplayer_watch.o ge_original_multiplayer_watch_slice.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
 ge_mp_state_props.o ge_mp_state_guns.o ge_mp_state_players.o ge_mp_state_bg.o \
-ge_mp_state_session.o ge_mp_state_effects.o \
+ge_mp_state_session.o ge_mp_state_effects.o ge_mp_state_objects.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
 ge_original_multiplayer_session_slice.o ge_original_multiplayer_stage_reset.o \
 ge_original_player_held_items.o \
@@ -503,6 +505,7 @@ ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
     -Wno-missing-braces -Wno-incompatible-pointer-types -Wno-error
+ge_original_guard_damage_support_slice.o: CFLAGS += -DGE_PORT_NATIVE_BG_GEOMETRY
 ge_original_effect_runtime.o ge_original_effect_runtime_slice.o \
 ge_original_prop_render_semantics.o ge_original_prop_render_semantics_slice.o \
 ge_original_multiplayer_fog.o ge_original_multiplayer_fog_slice.o: CFLAGS += \
@@ -1215,6 +1218,14 @@ ge_original_multiplayer_session_slice.c: \
         $(TOPDIR)/../../scripts/extract_multiplayer_session_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_session_slice.py \
 		$(TOPDIR)/../.. $@
+ge_original_multiplayer_watch_slice.c: \
+        $(TOPDIR)/../../scripts/extract_multiplayer_watch_slice.py \
+        $(TOPDIR)/../../scripts/extract_stage_pickup_slice.py \
+        $(TOPDIR)/../../scripts/extract_bond_move_explosion_slice.py \
+        $(TOPDIR)/../../src/game/mpmenu.c $(TOPDIR)/../../src/game/front.c \
+        $(TOPDIR)/../../src/game/file.c $(TOPDIR)/../../src/game/bondinv.c \
+        $(TOPDIR)/../../src/game/gunfire.c
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_watch_slice.py $(TOPDIR)/../.. $@
 ge_original_player_held_items_slice.c: \
         $(TOPDIR)/../../src/game/chrprop.c $(TOPDIR)/../../src/game/bondview2.c \
         $(TOPDIR)/../../scripts/extract_player_held_items_slice.py

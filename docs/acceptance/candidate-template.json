@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "areas": {
+    "original_fidelity": {
+      "owner": "rendering",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Matched N64 reference captures for campaign, menus, watch, results, effects, audio and transitions."
+    },
+    "campaign_completion": {
+      "owner": "campaign",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Complete every mission and difficulty with success/failure, death, save/unlock, exit and restart records."
+    },
+    "stereo_room_visibility": {
+      "owner": "rendering",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Both-eye doorway/streaming captures; unchanged canonical gameplay visibility; slider-zero equivalence."
+    },
+    "sustained_60fps": {
+      "owner": "performance",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Physical New 3DS XL: audible music/SFX, maximum stereo, 3600 frames after declared warmup, cold/repeat routes and separate loading records."
+    },
+    "control_ergonomics": {
+      "owner": "campaign",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Physical C-Stick, aiming, crouch, zoom, mines, handedness, touch accuracy and reboot/save routes."
+    },
+    "touchscreen": {
+      "owner": "campaign",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Physical readability and gesture comfort; canonical watch parity and inventory semantics."
+    },
+    "wireless_game_state": {
+      "owner": "multiplayer",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Canonical two/four local players complete authored matches with ownership, spawn/respawn, damage, pickups, kills and results."
+    },
+    "wireless_synchronization": {
+      "owner": "multiplayer",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Delay/drop/duplicate/reorder simulation, then two/four physical devices with state agreement and peer/host-loss handling."
+    },
+    "release": {
+      "owner": "integration",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Rebuild identity and clean install; physical sleep/resume, low-memory and shutdown acceptance. Device availability remains unestablished."
+    }
+  }
+}

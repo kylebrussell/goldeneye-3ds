@@ -2,6 +2,18 @@
 #define GE_ORIGINAL_MULTIPLAYER_PLAYERS_H
 #include <stdint.h>
 struct player;
+struct InvItem;
+typedef struct GeOriginalMultiplayerInventoryStorage {
+    const struct InvItem *items;
+    const struct player *player;
+    uint64_t lifetime; /* Host ownership guard; never simulation state. */
+    uint32_t capacity;
+    uint8_t active_player;
+} GeOriginalMultiplayerInventoryStorage;
+/* Read-only physical storage, including unused player rows. Borrowed until
+ * players_destroy. Lifetime detects address reuse across native sessions. */
+int ge_original_multiplayer_inventory_storage(uint32_t slot,
+    GeOriginalMultiplayerInventoryStorage *storage);
 /* Stage-owned canonical storage. All allocation completes before publication;
  * a failed create preserves the prior game state. Close after freeing props
  * and model consumers. This allocates players, not a playable arena.

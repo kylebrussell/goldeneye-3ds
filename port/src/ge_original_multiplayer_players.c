@@ -33,8 +33,10 @@ typedef struct GeMultiplayerStorage {
     int32_t previous_control_style;
     uint32_t count;
     uint32_t local;
+    uint64_t lifetime;
 } GeMultiplayerStorage;
 static GeMultiplayerStorage *g_players;
+static uint64_t g_players_lifetime;
 
 struct player *ge_original_multiplayer_player_storage(s32 slot)
 {
@@ -49,12 +51,14 @@ int ge_original_multiplayer_players_create(uint32_t count, uint32_t local_slot,
     struct player_data *permissions[4];
     uint32_t i;
     GeMultiplayerStorage *storage;
-    if (g_players != NULL || count < 2 || count > 4 || local_slot >= count)
+    if (g_players != NULL || count < 2 || count > 4 || local_slot >= count
+            || g_players_lifetime == UINT64_MAX)
         return 0;
     storage = calloc(1, sizeof(*storage));
     if (storage == NULL) return 0;
     storage->count = count;
     storage->local = local_slot;
+    storage->lifetime = ++g_players_lifetime;
     memcpy(storage->previous_players, g_playerPointers, sizeof(g_playerPointers));
     memcpy(storage->previous_data, g_playerPlayerData, sizeof(storage->previous_data));
     storage->previous_current = g_CurrentPlayer;
@@ -141,5 +145,17 @@ int ge_original_multiplayer_player_bind_inventory(uint32_t slot)
     memset(g_players->inventory[slot], 0, sizeof(g_players->inventory[slot]));
     g_players->players[slot].p_itemcur = g_players->inventory[slot];
     g_players->players[slot].equipmaxitems = 30;
+    return 1;
+}
+
+int ge_original_multiplayer_inventory_storage(uint32_t slot,
+    GeOriginalMultiplayerInventoryStorage *storage)
+{
+    if (g_players == NULL || slot >= 4 || storage == NULL) return 0;
+    storage->items = g_players->inventory[slot];
+    storage->player = &g_players->players[slot];
+    storage->lifetime = g_players->lifetime;
+    storage->capacity = 30;
+    storage->active_player = slot < g_players->count;
     return 1;
 }

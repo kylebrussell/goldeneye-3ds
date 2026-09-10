@@ -358,6 +358,15 @@ static GeMpStateStatus validate(const GeMpCanonicalSnapshot *snapshot,
     }
     report->missing_systems = snapshot->enabled_systems & ~declared_systems;
     if (report->missing_systems) return GE_MP_STATE_INCOMPLETE;
+    /* Free slots retain canonical lifetime history and can be SLOT_REF
+     * targets. Their kind needs coverage even before an actor is acquired. */
+    for (i = 0; i < snapshot->registry->count; ++i) {
+        uint8_t kind = (uint8_t)(snapshot->registry->entries[i].key >> 24);
+        if (record_schema(schema, kind) == NULL) {
+            ++report->unclassified_fields;
+            return GE_MP_STATE_INCOMPLETE;
+        }
+    }
     if (!snapshot->record_count) return GE_MP_STATE_INCOMPLETE;
     if (snapshot->record_count > GE_MP_STATE_MAX_RECORDS) return GE_MP_STATE_CAPACITY;
     if (snapshot->records == NULL) return GE_MP_STATE_INVALID;

@@ -256,12 +256,16 @@ static void test_limits(void)
 {
     Fixture f;
     uint8_t *values = calloc(GE_MP_STATE_MAX_VALUES, 1);
+    uint8_t *encoded = malloc(GE_MP_STATE_MAX_BYTES + 2U);
+    uint8_t streamed[32], buffered[32];
     GeMpRegistryEntry *entries = calloc(GE_MP_STATE_MAX_RECORDS, sizeof(*entries));
     GeMpStateRecord *records = calloc(GE_MP_STATE_MAX_RECORDS, sizeof(*records));
+    GeMpFieldSchema many_schema[GE_MP_STATE_MAX_FIELDS];
+    GeMpStateField many_fields[GE_MP_STATE_MAX_FIELDS];
     GeMpCoverageReport report;
-    size_t size, overhead;
+    size_t size, overhead, written;
     unsigned i;
-    assert(values && entries && records);
+    assert(values && encoded && entries && records);
     fixture_init(&f, 0);
     for (i = 0; i < 16; ++i) {
         field(&f.global_schema[i], &f.globals[i], (uint16_t)(256U + i), GE_MP_STATE_U8, 0, values);
@@ -273,6 +277,12 @@ static void test_limits(void)
     f.globals[15].count -= (uint32_t)overhead;
     assert(ge_mp_state_measure(&f.snapshot, &size, &report) == GE_MP_STATE_OK);
     assert(size == GE_MP_STATE_MAX_BYTES && report.encoded_size == size);
+    encoded[0] = encoded[GE_MP_STATE_MAX_BYTES + 1U] = 0xa9;
+    assert(ge_mp_state_encode(&f.snapshot, encoded + 1U, size, &written, NULL) == GE_MP_STATE_OK);
+    assert(written == size && encoded[0] == 0xa9 && encoded[size + 1U] == 0xa9);
+    assert(ge_mp_state_sha256(&f.snapshot, streamed, NULL) == GE_MP_STATE_OK);
+    assert(ge_mp_sha256(encoded + 1U, written, buffered) == GE_MP_STATE_OK);
+    assert(memcmp(streamed, buffered, sizeof(streamed)) == 0);
     ++f.globals[15].count; expect_failure(&f, GE_MP_STATE_CAPACITY);
     f.globals[0].count = GE_MP_STATE_MAX_VALUES + 1U; expect_failure(&f, GE_MP_STATE_INVALID);
     fixture_init(&f, 0);
@@ -288,7 +298,52 @@ static void test_limits(void)
     entries[GE_MP_STATE_MAX_RECORDS - 1U] = (GeMpRegistryEntry){ge_mp_registry_key(1, 255,
         GE_MP_STATE_MAX_RECORDS - 1U), 1, 1};
     ++f.registry.count; expect_failure(&f, GE_MP_STATE_INCOMPLETE);
-    free(values); free(entries); free(records);
+    --f.registry.count;
+    /* Empty payloads can exceed the wire budget through field framing alone.
+     * Exercise maximum record/field shapes without allocating repeated arrays. */
+    for (i = 0; i < GE_MP_STATE_MAX_FIELDS; ++i)
+        field(&many_schema[i], &many_fields[i], (uint16_t)(256U + i), GE_MP_STATE_U8, 0, NULL);
+    for (i = 0; i < 2U; ++i) {
+        f.record_schema[i].fields = many_schema;
+        f.record_schema[i].field_count = GE_MP_STATE_MAX_FIELDS;
+    }
+    for (i = 0; i < GE_MP_STATE_MAX_RECORDS; ++i) {
+        records[i].fields = many_fields;
+        records[i].field_count = GE_MP_STATE_MAX_FIELDS;
+    }
+    expect_failure(&f, GE_MP_STATE_CAPACITY);
+    free(encoded); free(values); free(entries); free(records);
+}
+
+static void test_free_slot_schema_coverage(void)
+{
+    Fixture f;
+    GeMpRecordSchema declared[3];
+    GeMpCoverageReport report;
+    uint8_t digest[32];
+    fixture_init(&f, 0);
+    /* Free allocation pools carry future lifetime state too. A defined key
+     * alone cannot supply the missing native schema for its actor kind. */
+    f.keys[3] = ge_mp_registry_key(2, 255, UINT16_MAX);
+    f.storage[3].key = f.keys[3];
+    f.free_order[1] = f.slot = f.keys[3];
+    expect_failure(&f, GE_MP_STATE_INCOMPLETE);
+    assert(ge_mp_state_sha256(&f.snapshot, digest, &report) == GE_MP_STATE_INCOMPLETE);
+    assert(report.unclassified_fields == 1U && report.record_index == SIZE_MAX
+        && report.field_index == SIZE_MAX);
+    /* The declaration is also required when the free slot is unreferenced. */
+    f.free_order[1] = f.slot = f.keys[2];
+    expect_failure(&f, GE_MP_STATE_INCOMPLETE);
+    memcpy(declared, f.record_schema, sizeof(f.record_schema));
+    declared[2] = (GeMpRecordSchema){2, GE_MP_SYSTEM_PROPS, NULL, 0};
+    f.schema.records = declared; f.schema.record_count = 3U;
+    f.schema.registered_systems |= GE_MP_SYSTEM_PROPS;
+    f.snapshot.enabled_systems |= GE_MP_SYSTEM_PROPS;
+    f.snapshot.coverage.enumerated_systems |= GE_MP_SYSTEM_PROPS;
+    f.free_order[1] = f.slot = f.keys[3];
+    assert(ge_mp_state_sha256(&f.snapshot, digest, NULL) == GE_MP_STATE_OK);
+    f.storage[3].generation = UINT32_MAX; /* retired lifetime history is allowed */
+    assert(ge_mp_state_sha256(&f.snapshot, digest, NULL) == GE_MP_STATE_OK);
 }
 
 static void test_values_and_atomicity(void)
@@ -403,7 +458,8 @@ static void test_canonical(const char *path)
 int main(int argc, char **argv)
 {
     test_sha(); test_registry(); test_coverage_and_references();
-    test_values_and_atomicity(); test_limits(); test_canonical(argc > 1 ? argv[1] : NULL);
+    test_free_slot_schema_coverage(); test_values_and_atomicity(); test_limits();
+    test_canonical(argc > 1 ? argv[1] : NULL);
     puts("mp state: SHA-256 vectors, canonical types/order, coverage/ref rejection and 20,000 registry transitions passed");
     return 0;
 }

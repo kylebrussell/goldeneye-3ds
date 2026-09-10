@@ -30,3 +30,4 @@ cc -std=gnu11 -O1 -g -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces -Wno
     "${build_dir}/interaction.c" "${build_dir}/timers.c" \
     -o "${build_dir}/test_runtime"
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 "${build_dir}/test_runtime"
+python3 "${repo_dir}/scripts/tests/test_multiplayer_music_world.py"

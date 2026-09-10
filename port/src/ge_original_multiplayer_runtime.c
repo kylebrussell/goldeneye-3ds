@@ -21,6 +21,8 @@
 #include "game/bondview.h"
 #include "game/gun.h"
 #include "game/options.h"
+#include "game/mp_music.h"
+#include "game/lv.h"
 
 extern void chraiUpdateOnscreenPropCount(void);
 extern void chrpropUpdateAutoaimTarget(void);
@@ -86,7 +88,8 @@ GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_begin_world(
     GeOriginalMultiplayerRegenBatch *regeneration)
 {
     GeOriginalMultiplayerRegenStatus regen;
-    if (active_props == NULL || tick60 < 0 || regeneration == NULL)
+    if (active_props == NULL || tick60 < 0 || regeneration == NULL
+            || lvlGetCurrentStageToLoad() == LEVELID_TITLE)
         return GE_ORIGINAL_MP_RUNTIME_INVALID_ARGUMENT;
     if (!ge_original_effect_runtime_pre_world())
         return GE_ORIGINAL_MP_RUNTIME_WORLD_FAILED;
@@ -95,6 +98,10 @@ GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_begin_world(
     regen = ge_original_multiplayer_regen_tick_all(tick60, regeneration);
     if (regen != GE_ORIGINAL_MP_REGEN_OK && regen != GE_ORIGINAL_MP_REGEN_IDLE)
         return GE_ORIGINAL_MP_RUNTIME_WORLD_FAILED;
+    /* chrpropTick runs background AI and regeneration before the common
+     * non-title lv.c slot countdown. The native helper observes unchanged
+     * g_ClockTimer even when background AI was paused or already pending. */
+    reset_all_music_slots();
     shuffle_player_ids();
     return GE_ORIGINAL_MP_RUNTIME_OK;
 }

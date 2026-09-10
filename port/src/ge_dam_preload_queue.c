@@ -32,6 +32,12 @@ GeDamPreloadStatus ge_dam_preload_queue_init(
     return GE_DAM_PRELOAD_OK;
 }
 
+void ge_dam_preload_queue_begin_visibility(GeDamPreloadQueue *queue)
+{
+    if (queue != NULL)
+        memset(queue->visibility_requested, 0, sizeof(queue->visibility_requested));
+}
+
 uint8_t ge_dam_preload_queue_request(void *context, uint8_t room)
 {
     GeDamPreloadQueue *queue = context;
@@ -41,6 +47,7 @@ uint8_t ge_dam_preload_queue_request(void *context, uint8_t room)
         if (queue != NULL) ++queue->invalid_count;
         return 1U;
     }
+    queue->visibility_requested[room] = 1U;
     state = queue->states[room];
     if (state == GE_DAM_PRELOAD_ROOM_RESIDENT) return 0U;
     if (state == GE_DAM_PRELOAD_ROOM_QUEUED

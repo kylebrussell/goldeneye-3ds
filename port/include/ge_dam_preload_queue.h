@@ -22,6 +22,10 @@ typedef enum GeDamPreloadRoomState {
 typedef struct GeDamPreloadQueue {
     uint8_t requests[GE_DAM_PRELOAD_MAX_ROOMS];
     uint8_t states[GE_DAM_PRELOAD_MAX_ROOMS];
+    /* Current camera's authored load checks, including already-resident
+     * rooms. Residency may protect these without publishing them for draw,
+     * AI, or gameplay visibility. Eye interpreters use value snapshots. */
+    uint8_t visibility_requested[GE_DAM_PRELOAD_MAX_ROOMS];
     size_t room_count;
     size_t capacity;
     size_t read_index;
@@ -50,6 +54,11 @@ GeDamPreloadStatus ge_dam_preload_queue_init(
     size_t capacity,
     const uint8_t *initial_rooms,
     size_t initial_room_count);
+
+/* Begin one canonical camera evaluation. Clears only the per-camera request
+ * membership; queued work, residency and statistics remain unchanged. Call
+ * before canonical visibility, never between its private eye snapshots. */
+void ge_dam_preload_queue_begin_visibility(GeDamPreloadQueue *queue);
 
 /* Exact bgCheckIfRoomModelNeedsLoad provider semantics: resident rooms return
  * zero. A missing, already-pending, or capacity-blocked room returns nonzero,

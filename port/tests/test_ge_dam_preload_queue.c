@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 int main(void)
 {
@@ -26,6 +27,27 @@ int main(void)
     assert(queue.pending_count == 2U);
     assert(ge_dam_preload_queue_request(&queue, 53U) != 0U);
     assert(queue.pending_count == 2U && queue.overflow_count == 1U);
+    /* Resident, pending and blocked authored checks all need residency
+     * protection. A shadow eye query must not alter canonical membership. */
+    assert(queue.visibility_requested[135U] && queue.visibility_requested[51U]
+        && queue.visibility_requested[52U] && queue.visibility_requested[53U]);
+    {
+        const GeDamPreloadQueue before = queue;
+        GeDamPreloadQueue shadow = queue;
+        assert(ge_dam_preload_queue_request(&shadow, 54U) != 0U);
+        assert(shadow.visibility_requested[54U] && !queue.visibility_requested[54U]);
+        assert(memcmp(&queue, &before, sizeof(queue)) == 0);
+        ge_dam_preload_queue_begin_visibility(&queue);
+        GeDamPreloadQueue expected = before;
+        memset(expected.visibility_requested, 0, sizeof(expected.visibility_requested));
+        assert(memcmp(&queue, &expected, sizeof(queue)) == 0);
+        /* A new camera releases the prior request set even for residents;
+         * only authored checks from this camera renew protection. */
+        assert(ge_dam_preload_queue_request(&queue, 133U) == 0U);
+        assert(queue.visibility_requested[133U] && !queue.visibility_requested[135U]);
+        assert(!queue.visibility_requested[51U] && !queue.visibility_requested[53U]);
+        ge_dam_preload_queue_begin_visibility(NULL);
+    }
     assert(ge_dam_preload_queue_peek(&queue, &room) == GE_DAM_PRELOAD_OK);
     assert(room == 51U);
 

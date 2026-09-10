@@ -79,7 +79,10 @@ LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_mp_state_props_schemas \
            -Wl,-u,ge_mp_state_guns_capture \
            -Wl,-u,ge_mp_state_players_export -Wl,-u,ge_mp_state_players_schema \
-           -Wl,-u,ge_mp_state_bg_capture -Wl,-u,ge_mp_state_bg_schema
+           -Wl,-u,ge_mp_state_bg_capture -Wl,-u,ge_mp_state_bg_schema \
+           -Wl,-u,ge_mp_state_effects_export -Wl,-u,ge_mp_state_effects_schema \
+           -Wl,-u,ge_mp_state_session_capture -Wl,-u,ge_mp_state_session_schema \
+           -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3
@@ -290,6 +293,9 @@ export DEPSDIR := $(CURDIR)/$(BUILD)
 CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_stage_environment_tables.c \
             ge_original_bg_visibility_slice.c \
+            ge_original_multiplayer_fog_slice.c \
+            ge_original_effect_runtime_slice.c \
+            ge_original_prop_render_semantics_slice.c \
             ge_original_bond_input_live_state_slice.c \
             ge_original_bond_input_gun_data_slice.c \
             ge_original_player_thrown_object_slice.c \
@@ -492,6 +498,7 @@ ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
 ge_mp_state_props.o ge_mp_state_guns.o ge_mp_state_players.o ge_mp_state_bg.o \
+ge_mp_state_session.o ge_mp_state_effects.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
 ge_original_multiplayer_session_slice.o ge_original_multiplayer_stage_reset.o \
 ge_original_player_held_items.o \
@@ -500,6 +507,17 @@ ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
     -Wno-missing-braces -Wno-incompatible-pointer-types -Wno-error
+ge_original_effect_runtime.o ge_original_effect_runtime_slice.o \
+ge_original_prop_render_semantics.o ge_original_prop_render_semantics_slice.o \
+ge_original_multiplayer_fog.o ge_original_multiplayer_fog_slice.o: CFLAGS += \
+    -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
+    -DVERSION_US -DBUGFIX_R0 -DPLAYERFLAG=int \
+    -I$(TOPDIR)/../../src/game \
+    -Wno-unused-variable -Wno-unused-parameter -Wno-missing-braces \
+    -Wno-incompatible-pointer-types -Wno-sign-compare -Wno-error
+ge_original_dam_guard_ai_support_slice.o \
+ge_original_dam_guard_chr_scheduler_support_slice.o \
+ge_original_dam_guard_chr_scheduler_full_props_support_slice.o: CFLAGS += -DGE_PORT_NATIVE_FOG
 ge_original_bond_input_live_state_slice.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DBUGFIX_R0 -Wno-incompatible-pointer-types \
@@ -950,6 +968,11 @@ ge_renderer_bg_visibility.o ge_original_bg_visibility.o ge_original_bg_visibilit
     -DVERSION_US -DLEFTOVERDEBUG -Wno-unused-variable -Wno-empty-body \
     -Wno-incompatible-pointer-types -Wno-return-type -Wno-unused-parameter
 ge_renderer_bg_visibility.o: ge_original_bg_visibility_slice.c
+ge_original_bg_visibility.o: \
+        $(TOPDIR)/../../port/include/ge_original_bg_visibility_state.h \
+        $(TOPDIR)/../../port/src/ge_original_bg_visibility_state.inc
+ge_original_bg_visibility_slice.o ge_renderer_bg_visibility.o: \
+        $(TOPDIR)/../../port/include/ge_mp_state_visibility_interpreter.inc
 ge_original_bg_visibility_slice.c: $(TOPDIR)/../../src/game/bg.c \
         $(TOPDIR)/../../scripts/extract_bg_visibility_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_bg_visibility_slice.py \
@@ -1305,6 +1328,32 @@ ge_original_dam_guard_ai_support_slice.c: \
         $(TOPDIR)/../../scripts/extract_dam_guard_ai_support_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_dam_guard_ai_support_slice.py \
 		$(TOPDIR)/../.. $@
+ge_original_prop_render_semantics_slice.c: \
+        $(TOPDIR)/../../scripts/extract_prop_render_semantics_slice.py \
+        $(TOPDIR)/../../scripts/extract_bond_move_explosion_slice.py \
+        $(TOPDIR)/../../scripts/extract_dam_monitor_animation_slice.py \
+        $(TOPDIR)/../../src/game/chr.c $(TOPDIR)/../../src/game/propobj.c \
+        $(TOPDIR)/../../src/game/model.c $(TOPDIR)/../../src/game/objecthandler.c
+	python3 $(TOPDIR)/../../scripts/extract_prop_render_semantics_slice.py $(TOPDIR)/../.. $@
+ge_original_effect_runtime_slice.c: \
+        $(TOPDIR)/../../scripts/extract_effect_runtime_slice.py \
+        $(TOPDIR)/../../scripts/extract_bond_move_explosion_slice.py \
+        $(TOPDIR)/../../scripts/extract_gun_casing_slice.py \
+        $(TOPDIR)/../../src/game/glass2.c $(TOPDIR)/../../src/game/glass.c \
+        $(TOPDIR)/../../src/game/ejectedcartridges.c \
+        $(TOPDIR)/../../src/game/explosion.c $(TOPDIR)/../../src/game/gunfire.c \
+        $(TOPDIR)/../../src/game/gun.c $(TOPDIR)/../../src/game/objective_status2.c \
+        $(TOPDIR)/../../src/game/initactorpropstuff.c \
+        $(TOPDIR)/../../src/game/alloc_window_pieces.c \
+        $(TOPDIR)/../../src/game/chrprop.c $(TOPDIR)/../../src/game/lv.c
+	python3 $(TOPDIR)/../../scripts/extract_effect_runtime_slice.py $(TOPDIR)/../.. $@
+ge_original_multiplayer_fog_slice.c: \
+        $(TOPDIR)/../../scripts/extract_multiplayer_fog_slice.py \
+        $(TOPDIR)/../../scripts/extract_dam_guard_chr_scheduler_support_slice.py \
+        $(TOPDIR)/../../scripts/extract_dam_guard_chr_scheduler_slice.py \
+        $(TOPDIR)/../../scripts/extract_stage_environment_tables.py \
+        $(TOPDIR)/../../src/game/bgfog.c $(TOPDIR)/../../src/game/propobj.c
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_fog_slice.py $(TOPDIR)/../.. $@
 ge_original_stage_environment_tables.c: \
         $(TOPDIR)/../../src/game/bgfog.c \
         $(TOPDIR)/../../scripts/extract_stage_environment_tables.py

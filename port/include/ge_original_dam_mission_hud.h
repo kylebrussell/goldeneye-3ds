@@ -80,9 +80,9 @@ typedef struct GeOriginalGameplayHudRenderSnapshot {
 } GeOriginalGameplayHudRenderSnapshot;
 
 void ge_original_dam_mission_hud_reset(void);
-/* Exact bondviewUpperTextWindowTimerTick presentation cadence. It is called
- * once from the displayed-frame HUD pass, where the original renderer called
- * it immediately before drawing the upper message window. */
+/* Exact bondviewUpperTextWindowTimerTick cadence: once per canonical player
+ * viewport, immediately before capturing the upper window. Multiplayer must
+ * use ge_original_multiplayer_hud so final display/eye passes never retick. */
 void ge_original_dam_mission_hud_tick(void);
 void ge_original_bottom_hud_reset(void);
 void ge_original_bottom_hud_tick(void);

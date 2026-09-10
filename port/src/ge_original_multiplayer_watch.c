@@ -1,6 +1,7 @@
 #include "ge_original_multiplayer_watch.h"
 #include "ge_original_multiplayer_session.h"
 #include "ge_original_multiplayer_players.h"
+#include "ge_original_language_text.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
@@ -23,6 +24,16 @@ static struct {
     int32_t token[2];
 } award_text[4];
 static GeOriginalMultiplayerWatchStatus call_status;
+/* This slice's language calls are exclusively the 17 authored LMPMENU awards.
+ * Use the port's native pointer-table owner, never packed g_LangBanks offsets. */
+u8 *ge_original_mp_watch_language(s32 id)
+{
+    const char *text=NULL;
+    if(id>=(LMPMENU<<10) && id<=(LMPMENU<<10)+16)
+        text=ge_original_language_text((uint16_t)id);
+    if(!text)call_status=GE_ORIGINAL_MP_WATCH_RESOURCE_FAILED;
+    return (u8 *)text;
+}
 
 static GeOriginalMultiplayerWatchStatus validate(int awards)
 {

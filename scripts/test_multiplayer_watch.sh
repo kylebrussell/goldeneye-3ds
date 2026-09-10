@@ -26,6 +26,10 @@ port/src/ge_original_gun_frame_arena.c src/game/blood_animation.c src/game/blood
 port/src/ge_original_bond_input_provider.c port/src/ge_original_input.c
 port/src/ge_libultra.c port/src/ge_services.c port/src/random_port.c src/joy.c
 port/src/ge_original_chr_obj_random.c)
+sources+=(port/src/ge_original_language_text.c)
+for bank in LarchE LarkE LaztE LcaveE LarecE LcradE LcrypE LdamE LdepoE LdestE LjunE LlenE LpeteE LrunE LsevE LsevbE LsevxE LsevxbE LsiloE LstatE LtraE LgunE LmiscE LoptionsE LpropobjE LtitleE LmpweaponsE LmpmenuE; do
+    sources+=("assets/obseg/text/${bank}.c")
+done
 for i in "${!sources[@]}"; do sources[i]="${repo_dir}/${sources[i]}"; done
 if [[ $(uname -s) == Darwin ]]; then strip=(-Wl,-dead_strip); else strip=(-Wl,--gc-sections); fi
 for abi in native short; do

@@ -65,3 +65,8 @@ exit, B-back navigation, and repeated player lifetimes. Different local selectio
 and ABIs produce identical final award/RNG bytes. Session damage/death/limit tests,
 kind0 mutations/history projection and shared-runtime phase observation remain
 separate fixtures; none replace full native match acceptance.
+
+Award language resolution is explicitly bound to `ge_original_language_text`
+and the real `LmpmenuE` pointer table. The packed original `langGet`/`g_LangBanks`
+loader is not invoked by this slice. Tests link the actual language provider and
+all its native table dependencies, including authored Quad Kill text.

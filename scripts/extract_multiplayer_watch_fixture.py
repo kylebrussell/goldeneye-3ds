@@ -33,6 +33,7 @@ def render(root):
     out+='extern s32 g_gameOverFlag,alt_gameover_msg,alt_gameover_msg_timer,chevron_glow,chevron_glow_timer;\nextern u16 g_AwardNames[];\nvoid pauseAndLockControls(void);\nvoid ge_original_mp_watch_publish_award(s32,s32,const char *);\n'
     for helper in ('mpFindMaxInt','mpFindMinInt','mpFindMaxFloat','mpFindMinFloat'):
         out+=function_text(menu,helper).split('{',1)[0].rstrip()+';\n'
+    out+='u8 *ge_original_mp_watch_language(s32);\n#define langGet ge_original_mp_watch_language\n'
     body=function_text(menu,'mpCalculateAwards').replace('mpCalculateAwards(', 'fixture_reference_awards(')
     body=body.replace('struct AwardMetrics metrics[4];','struct AwardMetrics metrics[4] = {{0}};')
     for i,label in enumerate(('first','second')):

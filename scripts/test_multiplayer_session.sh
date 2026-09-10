@@ -22,6 +22,10 @@ PY
 python3 "${repo_dir}/scripts/extract_multiplayer_watch_slice.py" "${repo_dir}" "${build_dir}/watch.c"
 python3 "${repo_dir}/scripts/extract_multiplayer_watch_fixture.py" "${repo_dir}" "${build_dir}/watch-support.c"
 if [[ $(uname -s) == Darwin ]]; then strip=(-Wl,-dead_strip); else strip=(-Wl,--gc-sections); fi
+language=("${repo_dir}/port/src/ge_original_language_text.c")
+for bank in LarchE LarkE LaztE LcaveE LarecE LcradE LcrypE LdamE LdepoE LdestE LjunE LlenE LpeteE LrunE LsevE LsevbE LsevxE LsevxbE LsiloE LstatE LtraE LgunE LmiscE LoptionsE LpropobjE LtitleE LmpweaponsE LmpmenuE; do
+    language+=("${repo_dir}/assets/obseg/text/${bank}.c")
+done
 cc -std=gnu11 -O1 -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections \
     -fsanitize=address,undefined -D_LANGUAGE_C -DGE_PORT_MS_INHERITS -fms-extensions \
     -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA -DVERSION_US -DPLAYERFLAG=int \
@@ -37,5 +41,5 @@ cc -std=gnu11 -O1 -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections
     "${repo_dir}/port/src/ge_original_multiplayer_watch.c" \
     "${repo_dir}/port/src/ge_original_multiplayer_players.c" \
     "${repo_dir}/src/game/music_0D2720.c" "${repo_dir}/port/tests/multiplayer_watch_audio_resources.c" \
-    "${strip[@]}" -lm -o "${build_dir}/test_session"
+    "${language[@]}" "${strip[@]}" -lm -o "${build_dir}/test_session"
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 "${build_dir}/test_session"

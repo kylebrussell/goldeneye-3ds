@@ -57,6 +57,14 @@ int ge_original_door_interaction_bind_onscreen_doors(void);
  * the committed player; RELOAD_REQUESTED preserves lv.c's fallback contract. */
 GeOriginalDoorInteractionResult ge_original_door_interaction_tick(void);
 
+/* Native seams for the unchanged propFindForInteract mixed near-to-far
+ * traversal. selected_prop is its shared object/door candidate, not a new
+ * door-only search. Return the original checkmore decision. No prop flags
+ * are changed here; onscreen visibility remains owned by canonical props. */
+int ge_original_door_interaction_test_native(void *prop, void **selected_prop);
+GeOriginalDoorInteractionResult ge_original_door_interaction_activate_native(
+    void *prop);
+
 const char *ge_original_door_interaction_result_name(
     GeOriginalDoorInteractionResult result);
 

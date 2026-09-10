@@ -399,6 +399,33 @@ static GeOriginalDoorInteractionResult interact_door(
     return GE_ORIGINAL_DOOR_INTERACTION_LOCKED;
 }
 
+int ge_original_door_interaction_test_native(void *prop, void **selected_prop)
+{
+    int checkmore;
+    if (selected_prop == NULL) return TRUE;
+    interact_prop = *selected_prop;
+    checkmore = door_test_for_interact(prop, ge_original_spawn_player_get());
+    *selected_prop = interact_prop;
+    return checkmore;
+}
+
+GeOriginalDoorInteractionResult ge_original_door_interaction_activate_native(
+    void *prop)
+{
+    GeOriginalDoorInteractionResult result =
+        interact_door(prop, ge_original_spawn_player_get());
+    if (interaction_state != NULL) {
+        interaction_state->last_prop = prop;
+        interaction_state->result = result;
+        ++interaction_state->tick_operations;
+        if (result == GE_ORIGINAL_DOOR_INTERACTION_ACTIVATED)
+            ++interaction_state->activations;
+        else if (result == GE_ORIGINAL_DOOR_INTERACTION_LOCKED)
+            ++interaction_state->locked_attempts;
+    }
+    return result;
+}
+
 void ge_original_door_interaction_bind(
     const GeOriginalDoorInteractionProviders *providers,
     GeOriginalDoorInteractionState *state)

@@ -180,6 +180,33 @@ int main(void)
            == GE_ORIGINAL_DOOR_INTERACTION_RELOAD_REQUESTED);
     assert(state.reload_requests == 1U);
 
+    /* The multiplayer mixed traversal shares the existing object candidate:
+     * a farther door cannot overwrite it. Testing a native door is read-only
+     * and does not republish visibility or require the door-only list. */
+    {
+        void *selected = &player_prop;
+        ObjectRecord before_definition = definitions[0];
+        PropRecord before_prop = door_props[0];
+        DoorRecord before_runtime = runtimes[0];
+        player_prop.pos.z = -180.0f;
+        assert(ge_original_door_interaction_test_native(&door_props[0], &selected));
+        assert(selected == &player_prop);
+        assert(!memcmp(&before_definition, &definitions[0], sizeof(before_definition)));
+        assert(!memcmp(&before_prop, &door_props[0], sizeof(before_prop)));
+        assert(!memcmp(&before_runtime, &runtimes[0], sizeof(before_runtime)));
+        selected = NULL;
+        assert(!ge_original_door_interaction_test_native(&door_props[0], &selected));
+        assert(selected == &door_props[0]);
+        runtimes[0].openstate = runtimes[1].openstate = DOORSTATE_STATIONARY;
+        assert(ge_original_door_interaction_activate_native(selected)
+            == GE_ORIGINAL_DOOR_INTERACTION_ACTIVATED);
+        assert(runtimes[0].openstate == DOORSTATE_OPENING
+            && runtimes[1].openstate == DOORSTATE_OPENING);
+        assert(state.last_prop == selected && state.activations == 2U);
+        assert(ge_original_door_interaction_activate_native(NULL)
+            == GE_ORIGINAL_DOOR_INTERACTION_INVALID_STATE);
+    }
+
     assert(ge_original_door_interaction_bind_visible_doors(NULL, 0U));
     assert((door_props[0].flags & PROPFLAG_ONSCREEN) == 0);
     puts("exact door interaction adapter tests passed");

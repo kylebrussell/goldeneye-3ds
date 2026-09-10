@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "ge_original_ramrom_replay.h"
+#include "ge_original_input_state.h"
 
 typedef struct GeOriginalInputSample {
     float move_x;

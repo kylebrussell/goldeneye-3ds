@@ -3,6 +3,10 @@
 
 #include <ultra64.h>
 
+#ifdef GE_PORT_ULTRA64_H
+#include "ge_original_input_state.h"
+#endif
+
 
 /**
  * Number of samples in contdata.
@@ -23,6 +27,11 @@ struct contsample {
 
 typedef s32 (*contplaybackfunc)(struct contsample*, s32);
 typedef void (*contrecordfunc)(struct contsample*, s32, s32);
+
+#ifdef GE_PORT_ULTRA64_H
+/* Read-only identity check used by the owner of a private playback function. */
+int ge_original_joy_playback_matches(contplaybackfunc func);
+#endif
 
 void joyInit(void);
 void joyCheckStatusThreadSafe(void);

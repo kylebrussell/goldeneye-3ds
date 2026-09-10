@@ -172,6 +172,41 @@ void ge_original_input_ramrom_unbind(void)
     ge_original_input_init();
 }
 
+int ge_original_input_state_snapshot(GeOriginalInputState *state)
+{
+    unsigned player, pad;
+    if (state == NULL) return 0;
+    for (player = 0; player < 4; ++player) {
+        state->move_x[player] = g_pending_samples[player].move_x;
+        state->move_y[player] = g_pending_samples[player].move_y;
+        state->look_x[player] = g_pending_samples[player].look_x;
+        state->look_y[player] = g_pending_samples[player].look_y;
+        state->buttons[player] = g_pending_samples[player].buttons;
+        state->secondary_buttons[player] = g_pending_samples[player].buttons_secondary;
+        for (pad = 0; pad < 2; ++pad) {
+            state->raw_buttons[player][pad] = g_pending_pads[player][pad].buttons;
+            state->raw_x[player][pad] = g_pending_pads[player][pad].stick_x;
+            state->raw_y[player][pad] = g_pending_pads[player][pad].stick_y;
+        }
+    }
+    state->raw_pads = g_raw_pads;
+    state->dual_analog = g_dual_analog;
+    state->player_count = g_input_count;
+    state->selected_player = g_input_player;
+    state->stick_limit = g_stick_limit;
+    state->ramrom_controller_count = g_ramrom_controller_count;
+    state->ramrom_replay_present = g_ramrom_replay != NULL;
+    state->ramrom_block_present = g_ramrom_block != NULL;
+    state->playback_kind = GE_ORIGINAL_INPUT_PLAYBACK_UNKNOWN;
+    if (ge_original_joy_playback_matches(NULL))
+        state->playback_kind = GE_ORIGINAL_INPUT_PLAYBACK_NONE;
+    else if (ge_original_joy_playback_matches(ge_original_input_playback))
+        state->playback_kind = GE_ORIGINAL_INPUT_PLAYBACK_PENDING;
+    else if (ge_original_joy_playback_matches(ge_original_input_ramrom_playback))
+        state->playback_kind = GE_ORIGINAL_INPUT_PLAYBACK_RAMROM;
+    return 1;
+}
+
 void ge_original_input_tick(const GeOriginalInputSample *sample)
 {
     if (sample != NULL && g_input_count == 1) {

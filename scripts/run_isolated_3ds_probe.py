@@ -6,6 +6,7 @@ import configparser
 import json
 from pathlib import Path
 import shutil
+import sys
 import signal
 import subprocess
 import time
@@ -55,7 +56,13 @@ def execute(args):
     prepare_profile(args.profile, user / 'config/qt-config.ini', user)
     shutil.copyfile(args.binary, install / 'goldeneye-3ds.3dsx')
     shutil.copyfile(args.pack, install / 'goldeneye.u.gepack')
-    shutil.copyfile(args.probe, install / 'frontend-probe.cfg')
+    gameplay_only = args.probe.read_text().startswith('GE_INPUT_PROBE ')
+    probe_name = 'dam-input-probe.cfg' if gameplay_only else 'frontend-probe.cfg'
+    shutil.copyfile(args.probe, install / probe_name)
+    if args.stage:
+        if not gameplay_only or not args.stage.isalnum():
+            raise ValueError('stage selection requires a gameplay probe and alphanumeric stage key')
+        (install / 'stage.cfg').write_text(args.stage + '\n')
     for setting in args.setting:
         if setting.name not in ('stereo.cfg', 'controls.cfg'):
             raise ValueError('only explicit stereo.cfg and controls.cfg settings supported')
@@ -65,9 +72,9 @@ def execute(args):
                   'probe_sha256': digest(args.probe),
                   'profile_sha256': digest(user / 'config/qt-config.ini'),
                   'settings': {s.name: digest(s) for s in args.setting},
-                  'timeout_seconds': args.timeout, 'status': 'started'}
+                  'timeout_seconds': args.timeout, 'stage': args.stage, 'status': 'started'}
     (args.output / 'run.json').write_text(json.dumps(provenance, indent=2) + '\n')
-    expected_gameplay = any(line.split()[:1] == ['gameplay_frames'] and int(line.split()[1]) > 0
+    expected_gameplay = gameplay_only or any(line.split()[:1] == ['gameplay_frames'] and int(line.split()[1]) > 0
                             for line in args.probe.read_text().splitlines())
     start = time.monotonic()
     process = None
@@ -76,12 +83,20 @@ def execute(args):
     previous_handler = signal.signal(signal.SIGTERM, interrupted)
     try:
         with (args.output / 'process.log').open('wb') as log:
-            process = subprocess.Popen([str(args.emulator.resolve()), '-w', str(install / 'goldeneye-3ds.3dsx')],
+            command = [str(args.emulator.resolve()), '-w', str(install / 'goldeneye-3ds.3dsx')]
+            if args.protect:
+                if sys.platform != 'darwin' or not Path('/usr/bin/sandbox-exec').is_file():
+                    raise ValueError('profile write protection requires macOS sandbox-exec')
+                policy = '(version 1)(allow default)' + ''.join(
+                    '(deny file-write* (subpath ' + json.dumps(str(path.resolve())) + '))'
+                    for path in args.protect)
+                command = ['/usr/bin/sandbox-exec', '-p', policy] + command
+            process = subprocess.Popen(command,
                                        cwd=args.output.resolve(), stdout=log, stderr=subprocess.STDOUT)
             while process.poll() is None and time.monotonic() - start < args.timeout:
                 frontend = install / 'frontend-probe.result'
                 gameplay = install / 'dam-input-probe.result'
-                if frontend.is_file() and frontend.stat().st_size and (
+                if (gameplay_only or frontend.is_file() and frontend.stat().st_size) and (
                         not expected_gameplay or gameplay.is_file() and gameplay.stat().st_size):
                     # A pending final-frame capture is written after its draw.
                     time.sleep(1)
@@ -97,7 +112,7 @@ def execute(args):
                 process.wait(timeout=5)
         signal.signal(signal.SIGTERM, previous_handler)
     provenance['elapsed_seconds'] = time.monotonic() - start
-    expected = ['frontend-probe.result'] + (['dam-input-probe.result'] if expected_gameplay else [])
+    expected = ([] if gameplay_only else ['frontend-probe.result']) + (['dam-input-probe.result'] if expected_gameplay else [])
     passed = True
     for name in expected:
         result = install / name
@@ -118,6 +133,8 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--setting', type=Path, action='append', default=[])
     parser.add_argument('--timeout', type=int, default=300)
+    parser.add_argument('--stage')
+    parser.add_argument('--protect', type=Path, action='append', default=[])
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('timeout must be positive')

@@ -26,7 +26,7 @@ class RunnerTests(unittest.TestCase):
         self.probe.write_text('GE_FRONTEND_PROBE 1\ngameplay_frames 1\n')
         self.args = argparse.Namespace(emulator=self.root/'azahar', profile=self.profile,
                                       binary=self.root/'binary',pack=self.root/'pack',
-                                      probe=self.probe,output=self.root/'run',setting=[], timeout=1)
+                                      probe=self.probe,output=self.root/'run',setting=[], timeout=1, stage=None, protect=[])
 
     def test_profile_preserves_audio_and_rehomes_storage(self):
         user = self.root / 'user'

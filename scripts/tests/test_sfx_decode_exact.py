@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Exact SFX PCM against the original wide, per-block predictor algorithm."""
 from pathlib import Path
+import os
 import re
 import subprocess
 import tempfile
 repo=Path(__file__).resolve().parents[2]
+assets=Path(os.environ.get('GE_AUDIO_TEST_ASSETS', repo/'assets/music'))
 source=(repo/'port/src/ge_original_sfx_bank.c').read_text()
 def bounds(text,marker):
  a=text.index(marker);b=text.index('{',a)+1;depth=1
@@ -104,4 +106,4 @@ with tempfile.TemporaryDirectory(prefix='ge-sfx-exact-') as tmp:
   flags=['-std=c11',optimization,'-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-I'+str(repo/'port/include')]
   subprocess.run(['cc',*flags,*['-D'+n+'=reference_'+n for n in public],'-c',str(p/'reference.c'),'-o',str(p/'reference.o')],check=True)
   subprocess.run(['cc',*flags,str(p/'test.c'),str(p/'reference.o'),'-lm','-o',str(p/'test')],check=True)
-  subprocess.run([str(p/'test'),str(repo/'assets/music/sfx.ctl'),str(repo/'assets/music/sfx.tbl')],check=True)
+  subprocess.run([str(p/'test'),str(assets/'sfx.ctl'),str(assets/'sfx.tbl')],check=True)

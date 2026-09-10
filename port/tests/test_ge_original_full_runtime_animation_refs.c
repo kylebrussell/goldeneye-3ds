@@ -28,6 +28,8 @@ int main(int argc, char **argv)
     unsigned char *entries = read_file(argv[2], &entries_size);
     uintptr_t previous[ANIM_MAX];
     unsigned count = 0;
+    assert(!ge_original_guard_animation_legacy_resolve(1,0));
+    assert(!ge_original_guard_animation_legacy_token((void *)(uintptr_t)1,0));
     for (unsigned lifetime = 0; lifetime < 3; ++lifetime) {
         assert(ge_original_guard_animation_table_bind(segment, segment_size));
         assert(ge_original_guard_animation_entries_bind(entries, entries_size));
@@ -39,6 +41,16 @@ int main(int argc, char **argv)
             assert(reference > UINT32_MAX);
             ModelAnimation *animation = (ModelAnimation *)reference;
             assert(ge_port_guard_animation_owns(animation));
+            for(unsigned variant=0;variant<2;++variant){
+                uintptr_t base=variant?UINT32_C(0xffffff00):UINT32_C(0x81000000);
+                int32_t token=ge_original_guard_animation_legacy_token(animation,base);
+                const void *resolved=NULL;uint32_t record_offset=UINT32_MAX;
+                assert(token&&ge_original_guard_animation_legacy_reference(token,base,&resolved,&record_offset));
+                assert(resolved==animation&&record_offset<segment_size);
+                assert(ge_original_guard_animation_legacy_offset(record_offset,base)==token);
+                assert(ge_original_guard_animation_legacy_resolve(token,base)==animation);
+            }
+
             assert(animation->unk04 > 0 && animation->bitDescriptors && animation->bitStream);
             int32_t first = ge_port_guard_animation_load_frame(animation, 0);
             int32_t last = ge_port_guard_animation_load_frame(animation, animation->unk04 - 1);
@@ -58,6 +70,6 @@ int main(int argc, char **argv)
     }
     ge_original_guard_animation_table_reset();
     free(entries); free(segment);
-    printf("full native animation refs: %u authored character records + %u aircraft; first/last frames and 3 stage binds pass\n", count, AIRCRAFT_ANIMATION_MAX);
+    printf("full native animation refs: %u authored character records + %u aircraft; first/last frames, legacy32 tokens and 3 stage binds pass\n", count, AIRCRAFT_ANIMATION_MAX);
     return 0;
 }

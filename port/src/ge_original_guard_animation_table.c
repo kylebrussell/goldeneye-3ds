@@ -252,6 +252,38 @@ int ge_port_guard_animation_owns(const void *animation)
     return find_native(animation) != NULL;
 }
 
+int32_t ge_original_guard_animation_legacy_offset(uint32_t offset,uintptr_t table_base)
+{
+    uint32_t word=(uint32_t)table_base+offset;
+    int32_t token;memcpy(&token,&word,sizeof(token));return token;
+}
+
+int32_t ge_original_guard_animation_legacy_token(const void *animation,uintptr_t table_base)
+{
+    GeGuardNativeAnimation *native=find_native(animation);
+    return native?ge_original_guard_animation_legacy_offset(native->offset,table_base):0;
+}
+
+int ge_original_guard_animation_legacy_reference(int32_t token,uintptr_t table_base,
+    const void **animation,uint32_t *offset)
+{
+    uint32_t wanted=(uint32_t)token-(uint32_t)table_base;
+    if(!token||!animation||!offset||!ge_animation_segment)return 0;
+    for(size_t index=0;index<ge_animation_cache_count;++index){
+        GeGuardNativeAnimation *native=&ge_animation_cache[index];
+        if(native->offset!=wanted)continue;
+        *animation=native->published;*offset=native->offset;return 1;
+    }
+    return 0;
+}
+
+void *ge_original_guard_animation_legacy_resolve(int32_t token,uintptr_t table_base)
+{
+    const void *animation;uint32_t offset;
+    return ge_original_guard_animation_legacy_reference(token,table_base,&animation,&offset)
+        ?(void *)animation:NULL;
+}
+
 int32_t ge_port_guard_animation_load_frame(void *animation, int32_t frame)
 {
     GeGuardNativeAnimation *native = find_native(animation);

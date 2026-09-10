@@ -2,9 +2,11 @@
 
 This change prepares physical New Nintendo 3DS XL and isolated emulator
 measurements. No emulator or hardware performance run was performed for this
-measurement implementation. The September 9 audio-corrected checkpoint
-`d0c3e8d2869341b9fee832caf7848a9862690705` is the comparison base. Earlier
-silent/defective-audio results are historical evidence only.
+measurement implementation. Start comparisons from the September 9 checkpoint
+`d0c3e8d2869341b9fee832caf7848a9862690705` and include the native ADPCM-address
+and signed-envelope corrections in `141fe1a4` on both sides. The latter fixes
+an ARM32 pointer failure exposed by the campaign task's offline synthesizer.
+Earlier silent/defective-audio results are historical evidence only.
 
 ## Buffered runtime evidence
 
@@ -182,3 +184,15 @@ window bounds, byte-preserved inputs/cadence, same-size asset corruption,
 unknown configs, stale results, pre/post binding and immutable output evidence.
 Both are registered in `scripts/test_port.sh`. ARM build and full-regression
 results are recorded by the performance task coordinator.
+
+The performance worktree's final `scripts/build_3ds.sh -j4` and complete
+`scripts/test_port.sh` both pass on frozen source `a3dd8464`, which includes
+the measurement changes, hardened placement-prefix reuse, and audio dependency
+`141fe1a4`. Tracked source hashes match before and after both runs. Executable
+SHA-256 is `1b3fe1d9d7422597ab302805473373271784b67306627475675b8b3a2b6e3541`;
+pack SHA-256 is `51468ccce09d5635ae357f7f562f557368d5fd0e54b0c1f9f08dbc385adb483f`.
+Private build/source/log receipts and seven planned clean/PCM/live requests
+are in the performance worktree's `build/performance-20260910/final/`.
+The requests do not assert an actual run or audible output. The integration
+coordinator must regenerate them for the integrated executable and verified
+emulator/device environment, including the external emulator profile receipt.

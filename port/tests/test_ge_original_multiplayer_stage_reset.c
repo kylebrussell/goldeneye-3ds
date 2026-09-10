@@ -10,6 +10,7 @@ typedef int PLAYERFLAG;
 #include "game/player.h"
 #include "game/gun.h"
 #include "game/bondinv.h"
+#include "reset_globals.h"
 
 /* Real original collision/view publication below; the single flat STAN
  * boundary only reports room connectivity and floor height. */
@@ -64,6 +65,21 @@ static void run(unsigned count, enum CAMERAMODE inherited)
     assert(ge_original_bond_input_bind_roster(roster,perms,count));
     /* This is the real defect: a previous native death/end mode keeps each
      * newly bodied player's view at spawn despite a changed collision point. */
+    static ALSoundState stale_sound;
+    static CreditsEntry stale_credit;
+    g_PlayerIsInTank=1;g_PlayerTankProp=&props[0];
+    g_TankSfxState[0]=g_TankSfxState[1]=&stale_sound;
+    g_TankTurnSpeed=g_TankOrientationAngle=g_TankTurretVerticalAngle=3;
+    g_TankTurretVerticalAngleRelated=g_TankTurretOrientationAngleRad=4;
+    g_TankTurretOrientationAngleDeg=tank_turret_turn_speed=5;
+    g_TankTurretAngle=g_TankTurretTurn=6;g_ExplodeTankOnDeathFlag=1;
+    g_ForceBondMoveOffset=(coord3d){1,2,3};g_SurroundBondWithExplosionsFlag=1;
+    cameraBufferToggle=cameraFrameCounter1=cameraFrameCounter2=1;
+    camera_80036438=credits_state=1;credits_pointer=&stale_credit;
+    g_isBondKIA=1;is_timer_active=0;g_PlayerInvincible=TRUE;
+    g_CameraAfterCinema=CAMERAMODE_POSEND;stop_time_flag=2;
+    startpadcount=10;watch_transition_time=1.7f;
+    starting_weapon[0]=ITEM_WPPK;starting_weapon[1]=ITEM_WPPKSIL;
     g_CameraMode=inherited;
     g_bondviewForceDisarm=1; mission_timer=12345; watch_time_0=45678;
     unsigned old_unequips=unequips;
@@ -82,6 +98,18 @@ static void run(unsigned count, enum CAMERAMODE inherited)
     ge_original_multiplayer_stage_intro_shared_reset_exact();
     assert(g_CameraMode==CAMERAMODE_NONE);
     assert(g_bondviewForceDisarm==0 && mission_timer==0 && watch_time_0==0);
+    assert(!g_PlayerIsInTank && !g_PlayerTankProp && !g_TankSfxState[0] && !g_TankSfxState[1]);
+    assert(!g_TankTurnSpeed && !g_TankOrientationAngle && !g_TankTurretVerticalAngle);
+    assert(!g_TankTurretVerticalAngleRelated && !g_TankTurretOrientationAngleRad);
+    assert(!g_TankTurretOrientationAngleDeg && !tank_turret_turn_speed);
+    assert(!g_TankTurretAngle && !g_TankTurretTurn && !g_ExplodeTankOnDeathFlag);
+    assert(!g_ForceBondMoveOffset.x && !g_ForceBondMoveOffset.y && !g_ForceBondMoveOffset.z && !g_SurroundBondWithExplosionsFlag);
+    assert(!cameraBufferToggle && !cameraFrameCounter1 && !cameraFrameCounter2);
+    assert(!camera_80036438 && !credits_state && !credits_pointer);
+    assert(!g_isBondKIA && is_timer_active==1 && !g_PlayerInvincible);
+    assert(g_CameraAfterCinema==CAMERAMODE_NONE && !stop_time_flag);
+    assert(startpadcount==0 && watch_transition_time==0.9090909f);
+    assert(starting_weapon[0]==ITEM_UNARMED && starting_weapon[1]==ITEM_UNARMED);
     old_unequips=unequips;
     for(unsigned ordinal=0;ordinal<count;++ordinal) {
         unsigned slot=count-1-ordinal;

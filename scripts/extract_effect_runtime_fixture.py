@@ -35,6 +35,14 @@ for src,names in [(glass,['glassCreateShard']),(spark,['bullet_sparks_init','bul
     for name in names:pieces.append(extract_function(src,name))
 pieces.append(extract_function((repo/'src/game/propobj.c').read_text(),
     'projectileReset').replace('projectileReset(', 'fixture_projectile_reset(',1))
+# Actual original gun producer statements, including their fallback gate.
+# The surrounding STAN/camera/model/resource setup has already selected obj.
+from extract_bg_visibility_slice import matching_brace
+producer=extract_function(gun,'gunInitProjectileFromPlayer')
+start=producer.index('if (usedfallback) {')
+end=matching_brace(producer,producer.index('{',start))
+pieces.append('void fixture_gun_projectile_fallback(ObjectRecord *obj, coord3d *targetpos, int usedfallback)\n{\n'
+    +producer[start:end+1]+'\n}')
 out.joinpath('support.c').write_text('\n'.join(pieces))
 # The actual getter reads the separately namespaced native BG publication.
 out.joinpath('visibility.c').write_text('''#include "ge_original_bg_visibility_internal.h"

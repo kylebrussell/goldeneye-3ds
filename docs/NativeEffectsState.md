@@ -13,8 +13,9 @@ and reference has been independently closed.
 Call the existing `ge_original_covert_modem_projectile_reset()` and
 `ge_original_effect_runtime_reset(count, stage)` during native stage setup,
 then `ge_mp_state_effects_begin(owner, registry)`. The caller supplies zeroed
-owner storage and a valid registry. Stage reset/creation does not begin or
-reset that registry: its generation history must persist across matches.
+owner storage and a valid registry. The exporter does not own protocol-session lifetime or reset the registry.
+Generation history is retained within a match; the caller may start a fresh
+registry for a fresh protocol session, as the main integration does.
 
 E8 IDs describe **physical buffer slots for one native stage lifetime**,
 including inactive slots. Kind is `0xE8`, creation namespace is the component
@@ -109,13 +110,15 @@ negative zero are preserved.
   U32 flags; F32 speed, unk10, unk1C, mtx, unk60, unk64, unk68[0..3],
   unk78[0..3], unk8C; U32 unk90; F32 unk94; U32 lastSfxTimer, soundSlot,
   unkA8, unkAC; F32 unkB0, unkB4; I32 droptype, refreshrate; F32 unkC0,
-  unkC4, unkC8; U8 unkCC[0..7]; F32 unkd4; U32 unkD8, unkDC, age;
+  unkC4, unkC8; U8 unkCC[0..7]; F32 fallback target x/y/z at
+  unkd4/unkD8/unkDC; U32 age;
   I32 unkE8. References are ownerprop and obj when active (otherwise null),
   then sounds[0..1] regardless of the free flag. The exact `projectileReset`
   leaves matrices, several scalars, room tail and sound handles unchanged;
-  the exporter does not invent inactive defaults. The declared U32 unkD8/DC
-  preserve their bits, including the known source alias as launch position
-  y/z; no native pointer or enum representation is copied.
+  the exporter does not invent inactive defaults. The original gun producer writes and collision code reads the entire
+  fallback target through a coord3d alias. Despite the declaration spelling
+  of unkD8/DC as U32, their bits are decoded and validated as F32 y/z. No
+  integer conversion, native pointer, or enum representation is copied.
 - Casing: active means header nonnull; when active append F32 floor_y_pos,
   pos, vel, rot_mtx, rot_velocity_mtx and the model-header reference.
   This shared 20-record pool is distinct from E4's embedded hand state.
@@ -179,3 +182,9 @@ and loaded image/model resources are explicit test boundaries. Its payload
 fingerprint is a test comparison only; the real canonical SHA API is tested
 to refuse the intentionally incomplete global schema without changing its
 output digest. These are not full-match or UDS acceptance results.
+
+Projectile fallback-target regression retains the actual original gun producer
+statements and fallback gate. All three components export as F32, preserve
+signed zero and finite values, and reject NaN or either infinity on each axis
+(including retained free slots). Both host ABIs cover this alias; native
+offset assertions check that the three source members remain contiguous.

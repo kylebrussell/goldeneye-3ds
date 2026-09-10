@@ -19,6 +19,7 @@ static uint64_t resource_ids[6];
 extern Projectile g_Projectiles[20];
 extern struct rgba_u8 g_BulletSparkColors[8];
 void fixture_projectile_reset(Projectile *);
+void fixture_gun_projectile_fallback(ObjectRecord *,coord3d *,int);
 
 static GeMpStateStatus reference(void *context,GeMpEffectReferenceKind kind,const void *p,uint64_t *id)
 {
@@ -183,6 +184,44 @@ static void native_mutations(unsigned count)
     assert(ge_mp_registry_resolve(&registry,id,NULL)==GE_MP_STATE_STALE);
     ge_original_effect_runtime_end();assert(!ge_original_effect_runtime_pre_world());
 }
+static void fallback_target_aliases(void)
+{
+    begin(2);
+    Projectile *p=&g_Projectiles[0];
+    ObjectRecord object={0};object.projectile=p;object.runtime_bitflags=0x80;
+    coord3d target={1.25f,-2.5f,3.75f};
+    p->flags=0;
+    fixture_gun_projectile_fallback(&object,&target,0);
+    assert(p->unkd4==0 && !p->unkD8 && !p->unkDC);
+    fixture_gun_projectile_fallback(&object,&target,1);
+    assert(p->flags&PROJECTILEFLAG_00000100);
+    export_ok();
+    unsigned record=owner.offsets[GE_MP_EFFECT_PROJECTILE];
+    assert(output.fields[record][9].count==43 && output.fields[record][6].count==7);
+    const float *values=output.fields[record][9].values;
+    assert(values[40]==target.x && values[41]==target.y && values[42]==target.z);
+    for(unsigned axis=0;axis<3;++axis) {
+        target=(coord3d){1,2,3};target.f[axis]=-0.0f;
+        fixture_gun_projectile_fallback(&object,&target,1);export_ok();
+        values=output.fields[record][9].values;
+        uint32_t bits;memcpy(&bits,&values[40+axis],sizeof(bits));
+        assert(bits==UINT32_C(0x80000000));
+        const float invalid[]={NAN,INFINITY,-INFINITY};
+        for(unsigned n=0;n<3;++n) {
+            target=(coord3d){1,2,3};target.f[axis]=invalid[n];
+            fixture_gun_projectile_fallback(&object,&target,1);
+            assert(ge_mp_state_effects_export(&owner,&providers,&output)==GE_MP_STATE_INCOMPLETE);
+            assert(!output.record_count && output.coverage.unclassified_fields);
+            /* Free slot retention must apply identical float validation. */
+            p->flags|=PROJECTILEFLAG_FREE;
+            assert(ge_mp_state_effects_export(&owner,&providers,&output)==GE_MP_STATE_INCOMPLETE);
+            p->flags&=~PROJECTILEFLAG_FREE;
+        }
+    }
+    target=(coord3d){1,2,3};fixture_gun_projectile_fallback(&object,&target,1);export_ok();
+    assert(ge_mp_state_effects_end(&owner)==GE_MP_STATE_OK);
+    ge_original_effect_runtime_end();
+}
 static void failures_and_lifetimes(void)
 {
     begin(2);
@@ -239,7 +278,7 @@ int main(void)
 {
     native_runtime_regression();registry_init();
     native_mutations(2);native_mutations(4);native_mutations(1);
-    failures_and_lifetimes();
+    fallback_target_aliases();failures_and_lifetimes();
     puts("E8 effects: native 2/4 construction/update, typed mutations, negative smoke and free-part retention, ABI fields, stage lifetime and incomplete schema rejection passed");
     return 0;
 }

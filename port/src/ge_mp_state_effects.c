@@ -17,6 +17,9 @@ extern s32 D_800483C0;
 _Static_assert(EXPLOSION_BUFFER_LEN==6 && SMOKE_BUFFER_LEN==20,"effect pool ABI");
 _Static_assert(EXPLOSION_PARTS_LEN==40 && SMOKE_PARTS_LEN==10,"effect parts ABI");
 _Static_assert(sizeof(float)==4 && sizeof(Vtx)==16,"effect scalar/vertex ABI");
+_Static_assert(offsetof(Projectile,unkD8)==offsetof(Projectile,unkd4)+sizeof(float)
+ && offsetof(Projectile,unkDC)==offsetof(Projectile,unkd4)+2*sizeof(float),
+ "original projectile fallback coord3d alias must remain contiguous");
 #if UINTPTR_MAX == UINT32_MAX
 _Static_assert(sizeof(struct Explosion)==0x3e0 && sizeof(struct Smoke)==0x198,"N64 explosion/smoke ABI");
 _Static_assert(sizeof(struct BulletImpact)==0x50 && sizeof(struct Scorch)==0x58,"N64 impact/scorch ABI");
@@ -226,7 +229,14 @@ static void copy(Writer *w,const GeMpStateEffectsOwner *o,unsigned c,unsigned s,
   for(unsigned i=0;i<4;++i)F(p->unk78[i]);F(p->unk8C);U(p->unk90);F(p->unk94);
   U(p->lastSfxTimer);U(p->soundSlot);U(p->unkA8);U(p->unkAC);F(p->unkB0);F(p->unkB4);
   I(p->droptype);I(p->refreshrate);F(p->unkC0);F(p->unkC4);F(p->unkC8);
-  for(unsigned i=0;i<8;++i)put_u8(w,p->unkCC[i]);F(p->unkd4);U(p->unkD8);U(p->unkDC);
+  for(unsigned i=0;i<8;++i)put_u8(w,p->unkCC[i]);
+  /* gunInitProjectileFromPlayer writes this tail through coord3d, and
+   * collision consumes the same three floats. Decode the declared U32 Y/Z
+   * members by bits, without aliasing reads or integer conversion. */
+  float target_y,target_z;
+  memcpy(&target_y,&p->unkD8,sizeof(target_y));
+  memcpy(&target_z,&p->unkDC,sizeof(target_z));
+  F(p->unkd4);F(target_y);F(target_z);
   U(p->age);I(p->unkE8);
   R(PROP,*active?p->ownerprop:NULL);R(OBJECT,*active?p->obj:NULL);
   R(AUDIO,p->sounds[0]);R(AUDIO,p->sounds[1]);break;}

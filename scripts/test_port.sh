@@ -11,8 +11,12 @@ else
     trap 'rm -rf "${test_dir}"' EXIT
 fi
 
+# Keep the two-entry pack contract independent of other tests' fixture files.
+fixture_assets=$(mktemp -d "${test_dir}/fixture-assets.XXXXXX")
 python3 "${repo_dir}/scripts/pack_3ds_assets.py" \
-    --assets "${repo_dir}/port/tests/fixtures" \
+    --assets "${fixture_assets}" \
+    --extra "alpha.txt=${repo_dir}/port/tests/fixtures/alpha.txt" \
+    --extra "sub/beta.txt=${repo_dir}/port/tests/fixtures/sub/beta.txt" \
     --source-sha1 0000000000000000000000000000000000000000 \
     --output "${test_dir}/fixtures.gepack"
 

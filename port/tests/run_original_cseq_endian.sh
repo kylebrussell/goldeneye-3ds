@@ -20,4 +20,4 @@ flags=(
     -lm -o "${test_dir}/test_original_cseq_endian"
 
 "${test_dir}/test_original_cseq_endian" \
-    "${repo_dir}/assets/music/Mdam.bin"
+    "${GE_AUDIO_TEST_ASSETS:-${repo_dir}/assets/music}/Mdam.bin"

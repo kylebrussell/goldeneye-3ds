@@ -15,5 +15,5 @@ compiler="${CC:-cc}"
     -o "${test_dir}/test_original_music_bank"
 
 "${test_dir}/test_original_music_bank" \
-    "${repo_dir}/assets/music/instruments.ctl" \
-    "${repo_dir}/assets/music/instruments.tbl"
+    "${GE_AUDIO_TEST_ASSETS:-${repo_dir}/assets/music}/instruments.ctl" \
+    "${GE_AUDIO_TEST_ASSETS:-${repo_dir}/assets/music}/instruments.tbl"

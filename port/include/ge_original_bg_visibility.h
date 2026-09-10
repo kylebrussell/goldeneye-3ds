@@ -80,6 +80,11 @@ typedef struct GeOriginalBgVisibilityResult {
     uint8_t global_visibility_used;
 } GeOriginalBgVisibilityResult;
 
+typedef struct GeOriginalBgRenderRoom { int32_t room,depth; } GeOriginalBgRenderRoom;
+/* Copies current canonical publication order and signed native depth. */
+int ge_original_bg_visibility_render_rooms(GeOriginalBgRenderRoom *rooms,
+    size_t capacity,size_t *count);
+
 typedef enum GeOriginalBgVisibilityStatus {
     GE_ORIGINAL_BG_VISIBILITY_OK = 0,
     GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT,

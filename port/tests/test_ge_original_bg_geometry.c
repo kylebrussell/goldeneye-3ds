@@ -274,11 +274,106 @@ static void actual_assets(const char *path)
     ge_asset_pack_close(&pack);
 }
 
+static void validation_boundaries(void)
+{
+    uint8_t points[144] = {0}, gdl[48] = {0};
+    GeDamRoomBlobDescriptor room = {.room_id=1, .point_table=points,
+        .point_table_size=96, .primary_gdl=gdl, .primary_gdl_size=48};
+    GeOriginalBgRoomBounds bounds[2] = {0};
+    GeOriginalBgGeometryReport report;
+    GeDamRoomWorldVertex vertices[6], before[6];
+    GeDamRoomDrawBatch batches[2];
+    GeDamRoomSceneStorage storage = {vertices,6,batches,2};
+    GeDamRoomScene scene;
+    const int16_t xy[3][2] = {{0,0},{40,0},{0,40}};
+    for (size_t i=0; i<9; ++i) {
+        be16(points+i*16,(uint16_t)xy[i%3][0]);
+        be16(points+i*16+2,(uint16_t)xy[i%3][1]);
+        memset(points+i*16+12,i<3 ? 240 : 120,4);
+    }
+    bounds[1].maximum[0]=bounds[1].maximum[1]=200;
+    bounds[1].minimum[2]=-1; bounds[1].maximum[2]=1;
+    command(gdl,0xc0000000,201);
+    command(gdl+8,0x04200030,0x0e000000);
+    command(gdl+16,0xbf000000,0x00000a14);
+    command(gdl+24,0x04200030,0x0e000030);
+    command(gdl+32,0xbf000000,0x00000a14);
+    command(gdl+40,0xb8000000,0);
+    GeOriginalBgGeometry *owner=ge_original_bg_geometry_open_rooms(&room,1,bounds,2,1,&report);
+    assert(owner && report.status==GE_ORIGINAL_BG_GEOMETRY_OK);
+    ge_original_bg_geometry_bind(owner);
+    float from[3]={10,10,2}, to[3]={10,10,-2};
+    GeOriginalBgGeometryHit hit, saved_hit;
+    assert(ge_original_bg_geometry_hit(owner,from,to,1,&hit));
+    saved_hit=hit;
+    const float invalid[] = {NAN, INFINITY, -INFINITY, 1000001, -1000001};
+    for (size_t i=0; i<sizeof(invalid)/sizeof(invalid[0]); ++i) {
+        from[0]=invalid[i];
+        assert(!ge_original_bg_geometry_hit(owner,from,to,1,&hit));
+        assert(memcmp(&hit,&saved_hit,sizeof(hit))==0);
+        assert(ge_original_bg_geometry_status(owner)==GE_ORIGINAL_BG_GEOMETRY_OK);
+        from[0]=10;
+        assert(ge_original_bg_geometry_hit(owner,from,to,1,&hit));
+    }
+    assert(ge_dam_rooms_build(&room,1,NULL,&storage,&scene)==GE_DAM_ROOM_OK);
+    size_t changed=999;
+    assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);
+    assert(vertices[0].source.red==240 && vertices[3].source.red==120);
+    memcpy(before,vertices,sizeof(before));
+    batches[1].first_vertex=0;
+    assert(!ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed));
+    assert(!changed && memcmp(before,vertices,sizeof(before))==0);
+    batches[1].first_vertex=3;
+    assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);
+    /* Descending disjoint ranges also violate the original builder order. */
+    GeDamRoomDrawBatch swapped=batches[0]; batches[0]=batches[1]; batches[1]=swapped;
+    assert(!ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed));
+    assert(!changed && memcmp(before,vertices,sizeof(before))==0);
+    swapped=batches[0]; batches[0]=batches[1]; batches[1]=swapped;
+    assert(ge_original_bg_geometry_light_break(owner,saved_hit.triangle,saved_hit.triangle_type,1));
+    assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed));
+    assert(changed && ge_original_bg_geometry_status(owner)==GE_ORIGINAL_BG_GEOMETRY_OK);
+    ge_original_bg_geometry_close(owner);
+
+    /* Source point identity is insufficient when a new owner has moved the
+     * authored room. Reject the entire stale scene before its first write. */
+    assert(ge_dam_rooms_build(&room,1,NULL,&storage,&scene)==GE_DAM_ROOM_OK);
+    memcpy(before,vertices,sizeof(before));
+    room.origin[0]=100; bounds[1].minimum[0]=100;
+    owner=ge_original_bg_geometry_open_rooms(&room,1,bounds,2,1,&report);
+    assert(owner); ge_original_bg_geometry_bind(owner);
+    assert(!ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed));
+    assert(!changed && memcmp(before,vertices,sizeof(before))==0);
+    assert(ge_dam_rooms_build(&room,1,NULL,&storage,&scene)==GE_DAM_ROOM_OK);
+    assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);
+
+    /* A partial VTX reload preserves cache0..2 for rendering but would make
+     * the original last-VTX collision algorithm interpret different points.
+     * Reject that unsupported stream and preserve the live prior owner. */
+    room.origin[0]=0; bounds[1].minimum[0]=0;
+    room.point_table_size=144; room.primary_gdl_size=40;
+    for (size_t i=3; i<9; ++i)
+        be16(points+i*16,(uint16_t)(100+(i%3==1 ? 40 : 0)));
+    command(gdl,0xc0000000,949);
+    command(gdl+16,0x04230030,0x0e000060);
+    command(gdl+24,0xbf000000,0x00000a14);
+    command(gdl+32,0xb8000000,0);
+    assert(ge_original_bg_geometry_open_rooms(&room,1,bounds,2,1,&report)==NULL);
+    assert(report.status==GE_ORIGINAL_BG_GEOMETRY_INVALID_ASSET);
+    assert(ge_bg_geometry_current==owner);
+    from[0]=to[0]=110;
+    assert(ge_original_bg_geometry_hit(owner,from,to,1,&hit));
+    assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);
+    ge_original_bg_geometry_close(owner);
+    puts("BG validation: query isolation, ordered independent scene ranges, room origin and native vertex identity passed");
+}
+
 int main(int argc, char **argv)
 {
     fixture();
     nearest_and_filter();
     texture_emission();
+    validation_boundaries();
     if (argc > 1) actual_assets(argv[1]);
     return 0;
 }

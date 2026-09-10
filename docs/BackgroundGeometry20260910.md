@@ -58,6 +58,13 @@ descriptors tested below use the supported original authored streams. Resource
 bounds are 139 rooms, 32 MiB owned buffers, 32,767 commands per list, the original
 100 fixture slots and original 512-entry circular darkened-vertex table.
 
+For each nondegenerate triangle, the persistent GBI cache's point identity must
+equal the original collision algorithm's latest-VTX base plus cache slot minus
+VTX offset. A partial cache reload that violates this is rejected atomically;
+otherwise rendering and collision could use different triangles. Repeated-index
+padding retains the original zero-area exception. Invalid ray arguments reject
+only that query and leave the bound geometry usable.
+
 ## Integration contract
 
 1. After stage asset resolution and before native object/player constructors,
@@ -72,7 +79,11 @@ bounds are 139 rooms, 32 MiB owned buffers, 32,767 commands per list, the origin
    `ge_original_bg_geometry_apply_scene` with the room batch prefix, excluding
    overlays. It validates immutable point provenance, copies persistent native
    colours through the existing exact GBI processing path, and reports changed
-   vertices. Upload that changed room prefix using the renderer's existing
+   vertices. Batch ranges must be increasing and nonoverlapping, as emitted by
+   the room scene builder, and each world position must equal its source point
+   plus this owner's room origin. Validation precedes all vertex writes, so
+   aliased ranges and scenes retained from a different origin are rejected
+   without partial publication. Upload that changed room prefix using the renderer's existing
    vertex conversion. Apply at the local scene boundary; canonical collision
    and light state never depend on eye draws or renderer loads.
 4. Unbind the held-light callback and geometry, then close the owner after

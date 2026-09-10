@@ -96,6 +96,7 @@ bash "${repo_dir}/scripts/test_multiplayer_match_bootstrap.sh" \
     "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 python3 "${repo_dir}/scripts/tests/test_gun_opposite_hand_native.py"
 python3 "${repo_dir}/scripts/tests/test_guard_damage_room_origin_exact.py"
+python3 "${repo_dir}/scripts/tests/test_bg_room_reader_owner.py"
 bash "${repo_dir}/scripts/test_original_multiplayer_frontend.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_multiplayer_stage_pipeline.py"
 bash "${repo_dir}/scripts/test_original_reverb_filter.sh"

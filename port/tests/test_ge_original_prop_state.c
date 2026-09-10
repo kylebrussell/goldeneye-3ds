@@ -1004,8 +1004,30 @@ int main(int argc, char **argv)
         assert(fabsf(queried_bottom - generated_collision->bottom) < 0.0001f);
         assert(fabsf(queried_top - generated_collision->top) < 0.0001f);
     } else {
+        ObjectRecord before = *object;
+        ModelFileHeader *header = object->model->obj;
+        ModelNode empty_root = {0};
+        const size_t registered = harness.props.room_registration_calls;
+        /* A native placeholder has no root. Placement rejects it before
+         * canonical bbox traversal or any prop/room publication. */
         assert(ge_original_default_object_place_standard(object)
                == GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_FAILED);
+        assert(memcmp(&before, object, sizeof(before)) == 0);
+        assert(harness.props.room_registration_calls == registered);
+        object->model->obj = NULL;
+        assert(ge_original_default_object_place_standard(object)
+               == GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_FAILED);
+        object->model->obj = header;
+        assert(memcmp(&before, object, sizeof(before)) == 0);
+        assert(harness.props.room_registration_calls == registered);
+        header->RootNode = &empty_root;
+        object->flags |= PROPFLAG_ONSCREEN;
+        assert(ge_original_default_object_place_standard(object)
+               == GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_FAILED);
+        object->flags = before.flags;
+        header->RootNode = NULL;
+        assert(memcmp(&before, object, sizeof(before)) == 0);
+        assert(harness.props.room_registration_calls == registered);
     }
 
     assert(!ge_original_prop_state_room_contains(134,
@@ -1014,7 +1036,7 @@ int main(int argc, char **argv)
                                          world.first_object.prop, 137);
     assert(harness.props.allocation_calls == (harness.use_model62 ? 6U : 5U));
     assert(harness.props.room_registration_calls
-           == (harness.use_model62 ? 8U : 7U));
+           == (harness.use_model62 ? 8U : 5U));
 
     puts("Authored Dam records entered exact original prop state");
     return 0;

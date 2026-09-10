@@ -32,6 +32,9 @@ static int ge_pending_hit_index = -1;
 static void *ge_stage_guard_context;
 static GeOriginalGuardBulletHitCount ge_stage_guard_count;
 static GeOriginalGuardBulletHitActor ge_stage_guard_actor;
+static void *ge_player_context;
+static GeOriginalGuardBulletHitCount ge_player_count;
+static GeOriginalGuardBulletHitPlayer ge_player_record;
 static int32_t ge_observed_guard_index = -1;
 ModelHitEntry *g_ModelHitFreeList;
 /* Focused host binaries which retain reset-only paths do not install the live
@@ -44,19 +47,53 @@ extern void chrTestHit(PropRecord *prop, ShotData *shotdata);
 extern bool sub_GAME_7F054C58(coord3d *coord, f32 radius);
 extern GunModelFileRecord gitem_structs[];
 
-static size_t ge_guard_count(void)
+static size_t ge_authored_guard_count(void)
 {
     return ge_stage_guard_context != NULL && ge_stage_guard_count != NULL
         ? ge_stage_guard_count(ge_stage_guard_context)
         : ge_original_dam_guards_count();
 }
 
+static size_t ge_bound_player_count(void)
+{
+    size_t count = ge_player_context != NULL && ge_player_count != NULL
+        && ge_player_record != NULL ? ge_player_count(ge_player_context) : 0U;
+    return count >= 2U && count <= 4U ? count : 0U;
+}
+
+static size_t ge_guard_count(void)
+{
+    return ge_authored_guard_count() + ge_bound_player_count();
+}
+
+static struct player *ge_player_for_prop(const PropRecord *prop)
+{
+    size_t slot;
+    if (prop == NULL || prop->type != PROP_TYPE_VIEWER) return NULL;
+    for (slot = 0U; slot < ge_bound_player_count(); ++slot) {
+        struct player *player = ge_player_record(ge_player_context, slot);
+        if (player != NULL && player->prop == prop) return player;
+    }
+    return NULL;
+}
+
 static int ge_guard_actor(size_t index, PropRecord **prop, ChrRecord **chr)
 {
     void *runtime_prop = NULL;
     void *runtime_chr = NULL;
+    const size_t authored_count = ge_authored_guard_count();
     if (prop == NULL || chr == NULL) return 0;
-    if (ge_stage_guard_context != NULL && ge_stage_guard_actor != NULL) {
+    if (index >= authored_count) {
+        const size_t slot = index - authored_count;
+        struct player *player;
+        if (slot >= ge_bound_player_count()) return 0;
+        player = ge_player_record(ge_player_context, slot);
+        if (player == NULL || player->prop == NULL
+                || player->prop->type != PROP_TYPE_VIEWER) return 0;
+        *prop = player->prop;
+        *chr = player->prop->chr;
+        if (*chr == NULL || player->bodyModel != (*chr)->model) return 0;
+    } else if (ge_stage_guard_context != NULL && ge_stage_guard_actor != NULL) {
         if (!ge_stage_guard_actor(ge_stage_guard_context, index,
                 &runtime_prop, &runtime_chr)) return 0;
         *prop = runtime_prop;
@@ -66,7 +103,7 @@ static int ge_guard_actor(size_t index, PropRecord **prop, ChrRecord **chr)
         *chr = ge_original_dam_guard_chr(index);
     }
     return *prop != NULL && *chr != NULL && (*chr)->model != NULL
-        && (*chr)->prop == *prop;
+        && (*chr)->prop == *prop && (*prop)->chr == *chr;
 }
 
 /* Exact bondview.c getter body. */
@@ -112,6 +149,7 @@ static int ge_prepare_legacy_guard_hit_lists(void)
         PropRecord *prop;
         ChrRecord *chr;
         if (!ge_guard_actor(index, &prop, &chr)) continue;
+        if (prop->type == PROP_TYPE_VIEWER) continue;
         if (chr->field_20 == NULL) {
             chr->field_20 = sub_GAME_7F06B120(NULL, chr->model);
             if (chr->field_20 == NULL) return 0;
@@ -249,6 +287,15 @@ void ge_original_guard_bullet_hit_bind_stage_guards(
      * frame's visible model. */
 }
 
+void ge_original_guard_bullet_hit_bind_players(void *context,
+    GeOriginalGuardBulletHitCount count, GeOriginalGuardBulletHitPlayer player)
+{
+    ge_player_context = context;
+    ge_player_count = count;
+    ge_player_record = player;
+    ge_pending_hit_index = -1;
+}
+
 GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_test(
     const float view_origin[3], const float view_direction[3],
     const float world_direction[3], int32_t weapon, float max_distance)
@@ -323,6 +370,10 @@ ge_original_guard_bullet_hit_populate_shot(void *shot_record)
         s32 near_miss_before;
         uint32_t hits_before;
         if (!ge_guard_actor(guard_index, &prop, &chr)) continue;
+        /* Original chrprop.c admits another player's VIEWER body, never the
+         * player firing this shot. Keep original chrTestHit geometry/gates. */
+        if (prop->type == PROP_TYPE_VIEWER && (g_CurrentPlayer == NULL
+                || prop == g_CurrentPlayer->prop || chr->field_20 == NULL)) continue;
         ge_hit_stats.guard_candidates++;
         ge_observe_guard_onscreen_gates(guard_index, prop, chr);
         if ((prop->flags & PROPFLAG_ONSCREEN) != 0U) {
@@ -349,6 +400,9 @@ GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_apply_shot_hit(
     ShotData *shot = (ShotData *)shot_record;
     BulletHit *hit;
     ChrRecord *chr = NULL;
+    struct player *victim;
+    f32 health_before = 0.0f, armour_before = 0.0f;
+    s32 dead_before = 0;
     f32 damage_before;
     u32 flags_before;
     s32 action_before;
@@ -370,6 +424,14 @@ GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_apply_shot_hit(
     }
     if (chr == NULL || chr->model == NULL || chr->prop != hit->prop)
         return GE_ORIGINAL_GUARD_BULLET_DAMAGE_FRONTIER;
+    victim = ge_player_for_prop(hit->prop);
+    if (hit->prop->type == PROP_TYPE_VIEWER) {
+        if (victim == NULL || victim == g_CurrentPlayer)
+            return GE_ORIGINAL_GUARD_BULLET_DAMAGE_FRONTIER;
+        health_before = victim->bondhealth;
+        armour_before = victim->bondarmour;
+        dead_before = victim->bonddead;
+    }
     ge_hit_stats.registered_hits++;
     ge_hit_stats.last_hitpart = hit->hitpart;
     ge_hit_stats.last_distance = hit->dist;
@@ -378,7 +440,9 @@ GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_apply_shot_hit(
     action_before = chr->actiontype;
     ge_hit_stats.damage_attempts++;
     chrHandleBulletHit(shot, hit);
-    if (chr->damage != damage_before || chr->chrflags != flags_before
+    if ((victim != NULL && (victim->bondhealth != health_before
+                || victim->bondarmour != armour_before || victim->bonddead != dead_before))
+            || chr->damage != damage_before || chr->chrflags != flags_before
             || chr->actiontype != action_before) {
         ge_hit_stats.damage_applied++;
         return GE_ORIGINAL_GUARD_BULLET_DAMAGE_APPLIED;
@@ -390,6 +454,9 @@ GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_apply_pending(void)
 {
     BulletHit *hit;
     ChrRecord *chr = NULL;
+    struct player *victim;
+    f32 health_before = 0.0f, armour_before = 0.0f;
+    s32 dead_before = 0;
     f32 damage_before;
     u32 flags_before;
     s32 action_before;
@@ -415,13 +482,23 @@ GeOriginalGuardBulletHitStatus ge_original_guard_bullet_hit_apply_pending(void)
     }
     if (chr == NULL || chr->model == NULL || chr->prop != hit->prop)
         return GE_ORIGINAL_GUARD_BULLET_DAMAGE_FRONTIER;
+    victim = ge_player_for_prop(hit->prop);
+    if (hit->prop->type == PROP_TYPE_VIEWER) {
+        if (victim == NULL || victim == g_CurrentPlayer)
+            return GE_ORIGINAL_GUARD_BULLET_DAMAGE_FRONTIER;
+        health_before = victim->bondhealth;
+        armour_before = victim->bondarmour;
+        dead_before = victim->bonddead;
+    }
     damage_before = chr->damage;
     flags_before = chr->chrflags;
     action_before = chr->actiontype;
     ge_hit_stats.damage_attempts++;
     chrHandleBulletHit(&ge_pending_shot, hit);
     ge_pending_hit_index = -1;
-    if (chr->damage != damage_before || chr->chrflags != flags_before
+    if ((victim != NULL && (victim->bondhealth != health_before
+                || victim->bondarmour != armour_before || victim->bonddead != dead_before))
+            || chr->damage != damage_before || chr->chrflags != flags_before
             || chr->actiontype != action_before) {
         ge_hit_stats.damage_applied++;
         return GE_ORIGINAL_GUARD_BULLET_DAMAGE_APPLIED;

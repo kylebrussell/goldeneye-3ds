@@ -28,7 +28,42 @@ extern s32 g_PlayerIsInTank;
 extern u32 watch_screen_index;
 extern s32 mission_brief_index;
 extern s32 lvlGetControlsLockedFlag(void);
+extern s32 g_stopPlayFlag, g_gameOverFlag;
 extern GunModelFileRecord gitem_structs[];
+
+/* Verbatim mpmenu.c query, namespaced to avoid a second native owner. */
+static bool ge_original_bond_live_actions_enabled_exact(void)
+{
+    if (getPlayerCount() == 1)
+    {
+        return TRUE;
+    }
+
+    if (g_stopPlayFlag)
+    {
+        return FALSE;
+    }
+
+    if (g_CurrentPlayer->mpmenuon)
+    {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static void ge_original_bond_live_refresh_multiplayer_gates(
+    GeOriginalBondInputProvider *provider)
+{
+    if (provider->player_count < 2) return;
+    /* The full input slice reads provider macros; native session/menu state
+     * can change between selected players. Refresh at the consumption boundary
+     * without skipping MoveBond or any world/death/timer work. */
+    provider->stop_play_flag = g_stopPlayFlag;
+    provider->game_over_flag = g_gameOverFlag;
+    provider->controls_locked = lvlGetControlsLockedFlag();
+    provider->player_actions_enabled = ge_original_bond_live_actions_enabled_exact();
+}
 
 static void ge_original_bond_live_set_timers(
     GeOriginalBondInputProvider *provider,
@@ -84,6 +119,7 @@ int ge_original_bond_live_tick(GeOriginalBondLiveState *state,
     provider = ge_original_bond_input_provider();
     ge_original_bond_live_set_timers(provider, clock_timer, global_timer,
                                      global_timer_delta);
+    ge_original_bond_live_refresh_multiplayer_gates(provider);
     ge_original_input_read_bond_frame(player->prev_buttons_pressed, &frame);
     bondviewProcessInput(frame.stick_x, frame.stick_y,
                          frame.buttons, frame.oldbuttons);
@@ -123,6 +159,7 @@ int ge_original_bond_move_live_tick(GeOriginalBondLiveState *state,
     provider = ge_original_bond_input_provider();
     ge_original_bond_live_set_timers(provider, clock_timer, global_timer,
                                      global_timer_delta);
+    ge_original_bond_live_refresh_multiplayer_gates(provider);
     ge_original_input_read_bond_frame(player->prev_buttons_pressed, &frame);
     MoveBond(frame.stick_x, frame.stick_y, frame.buttons, frame.oldbuttons);
     ge_port_bond_movement_publish(player);

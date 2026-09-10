@@ -64,7 +64,10 @@ int ge_original_bond_live_tick(GeOriginalBondLiveState *state,
 /* Runs unchanged canonical MoveBond exactly once for the current controller
  * frame, then publishes its resulting player/STAN/camera state.  This is the
  * replacement boundary for ge_original_bond_live_tick plus the bounded gait
- * consumer; callers must not invoke either of those in the same frame. */
+ * consumer; callers must not invoke either of those in the same frame.
+ * Multiplayer stop/game-over/menu/control-lock gates are refreshed from native
+ * state for the selected player immediately before input consumption. Locked
+ * gameplay still runs MoveBond and advances its semantic tick counter. */
 int ge_original_bond_move_live_tick(GeOriginalBondLiveState *state,
                                     int32_t clock_timer,
                                     int32_t global_timer,

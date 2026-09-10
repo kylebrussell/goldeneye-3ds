@@ -38,11 +38,12 @@ The following native boundaries are explicit:
   native owner of the original `lightFixtureBreak` operation. Its triangle
   pointer is local process data, never a network identifier. Missing or failed
   light mutation records `GE_ORIGINAL_PLAYER_HELD_ITEMS_LIGHT_FRONTIER`.
-- The source's STAN-only impact path sets `besttexture=-1`, then reads bytes
-  before `g_Textures`. Those unrelated N64 memory bytes have no valid native
-  texture-table equivalent. The retained body reports
-  `GE_ORIGINAL_PLAYER_HELD_ITEMS_STAN_TEXTURE_FRONTIER` and returns before that
-  invalid read. No default texture category is invented.
+- The source's STAN-only impact path sets `besttexture=-1`. Both texture
+  lookups use `ge_original_texture_hit_type_exact`, whose verified original
+  US `image.c` prefix data supplies hit type 0 for that index without a native
+  out-of-bounds read. Invalid indices outside the authored table/prefix still
+  report `GE_ORIGINAL_PLAYER_HELD_ITEMS_STAN_TEXTURE_FRONTIER`; the historical
+  status name is retained. Link the shared texture accessor with this slice.
 - Any non-OK result requires the runtime to abort the current match. Earlier
   shot mutations may already have occurred; this API does not roll them back.
   A status is not evidence that every room's geometry or light mutation is
@@ -53,8 +54,9 @@ It removes a matching-only read/increment/decrement of an uninitialized float,
 initializes three flag-correlated temporary values for native GCC analysis,
 and rewrites reverse loops to avoid forming a pointer before the array while
 preserving order. The original big-endian texture byte's low nibble is read
-through its named `hitTexture` bitfield on native builds. Source hashes and a
-mechanical source audit make these adaptations reviewable.
+through the shared checked accessor and named `hitTexture` bitfield on native
+builds. Source hashes and a mechanical source audit make these adaptations
+reviewable.
 
 `bash scripts/test_player_held_items.sh` uses ASan/UBSan and the existing
 primitive-model combat fixture. For every distinct attacker/target pair in

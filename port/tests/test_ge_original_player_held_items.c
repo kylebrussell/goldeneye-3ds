@@ -32,7 +32,8 @@ s32 g_RemoteMineOwnerTriggerFlag;
 struct image_sound *g_HitTypeSounds[16];
 static StandTile tile;
 static unsigned photos, tanks, background_tests, light_calls, impact_explosions;
-static int solo_sight, stan_blocked, bg_hit, melee_blocked;
+static int solo_sight, stan_blocked, bg_hit, melee_blocked, bg_texture;
+static int last_impact_texture;
 
 /* This fixture world is one empty room and one unobstructed STAN. The actual
  * player models/BBOX intersections, damage, armor and score are original. */
@@ -46,7 +47,7 @@ f32 bgGetLevelVisibilityScale(void) { return 1; }
 bool bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 room, HitThing *hit)
 {
     (void)from; (void)to; assert(room == 1); ++background_tests;
-    if (bg_hit) { memset(hit, 0, sizeof(*hit)); hit->hitpos.z = -1000; hit->texturenum = 0; }
+    if (bg_hit) { memset(hit, 0, sizeof(*hit)); hit->hitpos.z = -1000; hit->texturenum = bg_texture; }
     return bg_hit;
 }
 bool bgTestRayIntersectsBbox(coord3d *p, coord3d *d, s32 *min, s32 *max)
@@ -60,7 +61,7 @@ void chrlvStanLineDirIntersection(coord3d *p, coord3d *d, coord3d *out)
 void sub_GAME_7F04E9BC(PropRecord *p, ShotData *shot) { (void)p; (void)shot; abort(); }
 void objHit(ShotData *shot, BulletHit *hit) { (void)shot; (void)hit; abort(); }
 void recall_joy2_hits_edit_flag(ITEM_IDS item, coord3d *pos, s32 texture)
-{ (void)item; (void)pos; (void)texture; }
+{ (void)item; (void)pos; last_impact_texture = texture; }
 bool explosionCreate(PropRecord *owner, coord3d *pos, StandTile *stan, s32 type,
     bool makescorch, s32 player, u8 *rooms, PropRecord *source)
 { (void)owner; (void)pos; (void)stan; (void)makescorch; (void)player; (void)rooms; (void)source; assert(type == 1); ++impact_explosions; return TRUE; }
@@ -112,7 +113,8 @@ static void setup(size_t count, size_t shooter, size_t target)
     gitem_structs[ITEM_AUTOSHOT].item_weapon_stats = &autoshot_stats;
     g_RemoteMineOwnerTriggerFlag = 0;
     photos = tanks = light_calls = background_tests = impact_explosions = 0;
-    stan_blocked = bg_hit = melee_blocked = 0;
+    stan_blocked = bg_hit = melee_blocked = bg_texture = 0;
+    last_impact_texture = INT32_MIN;
     ge_original_player_held_items_bind_lights(NULL, NULL);
     g_randomSeed = 0x123456789abcdef0ULL;
 }
@@ -217,7 +219,9 @@ int main(void)
     g_LastOnScreenProp = g_OnScreenPropList;
     players[0].hands[0].weapon_firing_status = 1;
     stan_blocked = 1;
-    assert(ge_original_player_held_items_tick() == GE_ORIGINAL_PLAYER_HELD_ITEMS_STAN_TEXTURE_FRONTIER);
+    assert(ge_original_player_held_items_tick() == GE_ORIGINAL_PLAYER_HELD_ITEMS_OK);
+    assert(impact_explosions == 1 && last_impact_texture == -1);
+    impact_explosions = 0;
     stan_blocked = 0; bg_hit = 1;
     static struct image_sound sound;
     g_HitTypeSounds[0] = &sound; g_HitTypeSounds[5] = &sound;
@@ -230,6 +234,12 @@ int main(void)
     g_Textures[0].hitSound = 7; g_Textures[0].hitTexture = 5;
     assert(ge_original_player_held_items_tick() == GE_ORIGINAL_PLAYER_HELD_ITEMS_OK);
     assert(light_calls == 1 && impact_explosions == 1);
+    for (int invalid = 0; invalid < 2; ++invalid) {
+        bg_texture = invalid ? 30000 : -2;
+        last_impact_texture = INT32_MIN;
+        assert(ge_original_player_held_items_tick() == GE_ORIGINAL_PLAYER_HELD_ITEMS_STAN_TEXTURE_FRONTIER);
+        assert(last_impact_texture == INT32_MIN && light_calls == 1 && impact_explosions == 1);
+    }
     ge_original_bond_input_unbind_roster();
     ge_original_bond_input_bind_player(&players[0], &g_playerPlayerData[0]);
     ge_original_bond_input_provider()->player_count = 1;

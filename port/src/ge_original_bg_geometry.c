@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "ge_original_bg_texture_metadata.inc"
 
 GeOriginalBgGeometry *ge_bg_geometry_current;
 
@@ -102,12 +101,8 @@ static int scan_event(const GeGbiPipelineEvent *event, void *user)
     if (info->triangle_count > 4U) return scan->ok = 0;
     if (event->state->active_texture_binding == GE_GBI_TEXTURE_BINDING_RARE_ID) {
         const uint16_t texture = event->state->rare_texture.texture_id;
-        uint8_t format;
-        if (texture >= sizeof(ge_bg_texture_formats)) return scan->ok = 0;
-        format = ge_bg_texture_formats[texture];
+        if (texture >= GE_BG_TEXTURE_COUNT) return scan->ok = 0;
         info->texture = (int16_t)texture;
-        info->tile_format = ge_bg_texture_gbi_formats[format];
-        info->tile_size = ge_bg_texture_gbi_depths[format];
     } else if (event->state->texture_image_valid) {
         /* A raw physical RDP image pointer lacks original allocation-prefix
          * provenance. Authored room streams use Rare IDs; reject other data. */
@@ -167,8 +162,8 @@ static int validate_list(GeOriginalBgGeometry *geometry, uint32_t id, unsigned l
         if (opcode == 0xc0U) {
             const uint32_t word = ge_bg_gfx_word(command, 1U);
             const uint32_t type = ge_bg_gfx_word(command, 0U) & 7U;
-            if (type > 4U || (word & 0xfffU) >= sizeof(ge_bg_texture_formats)
-                    || (type == 1U && ((word >> 12) & 0xfffU) >= sizeof(ge_bg_texture_formats)))
+            if (type > 4U || (word & 0xfffU) >= GE_BG_TEXTURE_COUNT
+                    || (type == 1U && ((word >> 12) & 0xfffU) >= GE_BG_TEXTURE_COUNT))
                 return 0;
         }
         if (opcode == 0x04U) {
@@ -200,7 +195,18 @@ static int validate_list(GeOriginalBgGeometry *geometry, uint32_t id, unsigned l
     room->commands[list] = allocate(geometry, count, sizeof(*room->commands[list]));
     if (room->commands[list] == NULL) return 0;
     GeBgScan scan = {.geometry = geometry, .room = id, .list = list, .ok = 1};
-    return execute_list(&room->blobs, list, scan_event, &scan) && scan.ok;
+    if (!execute_list(&room->blobs, list, scan_event, &scan) || !scan.ok) return 0;
+    ge_bg_texture_emission_begin();
+    int8_t format = -1, depth = -1;
+    for (size_t i = 0U; i < count; ++i) {
+        const Gfx *command = ge_bg_gfx_at(gdl, (ptrdiff_t)i);
+        if (((const uint8_t *)command)[0] == 0xc0U
+                && !ge_bg_texture_emission_command(ge_bg_gfx_word(command,0U),
+                    ge_bg_gfx_word(command,1U),&format,&depth)) return 0;
+        room->commands[list][i].tile_format = format;
+        room->commands[list][i].tile_size = depth;
+    }
+    return 1;
 }
 
 static int register_fixtures(GeOriginalBgGeometry *geometry, uint32_t id, size_t *total)
@@ -226,7 +232,7 @@ static int register_fixtures(GeOriginalBgGeometry *geometry, uint32_t id, size_t
                 if (!have_vertices) return 0;
                 for (unsigned type = opcode == 0xbfU ? 0U : 1U;
                         type <= (opcode == 0xbfU ? 0U : 4U); ++type) {
-                    int32_t indices[3];
+                    s32 indices[3];
                     ge_bg_light_indices_exact(command, type, &indices[0], &indices[1], &indices[2]);
                     for (size_t v = 0U; v < 3U; ++v)
                         if (indices[v] < 0 || vertex_base + (uint32_t)indices[v] >= room->vertex_count)
@@ -426,7 +432,7 @@ int ge_original_bg_geometry_light_break(void *context, void *triangle,
             || !ge_bg_is_light_exact(room->commands[0][command].texture)
             || (type == 0U ? ((uint8_t *)triangle)[0] != 0xbfU
                 : ((uint8_t *)triangle)[0] != 0xb1U)) return 0;
-    int32_t indices[3];
+    s32 indices[3];
     ge_bg_light_indices_exact(triangle, type, &indices[0], &indices[1], &indices[2]);
     if (indices[0] == indices[1] || indices[1] == indices[2] || indices[0] == indices[2]) return 0;
     ge_bg_light_break_exact(triangle, type, room_id);

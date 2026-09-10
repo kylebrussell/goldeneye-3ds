@@ -2170,6 +2170,8 @@ if [[ -f "${repo_dir}/build/3ds-levels/facility/collision/collision.gestan" ]]; 
     "${test_dir}/test_ge_facility_assets" \
         "${repo_dir}/build/3ds-levels/facility/collision/collision.gestan"
 fi
+bash "${repo_dir}/scripts/test_bg_geometry.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 python3 "${repo_dir}/scripts/tests/test_bondview_input_dependencies.py"
 python3 "${repo_dir}/scripts/tests/test_bond_input_live_state_exact.py"
 python3 "${repo_dir}/scripts/tests/test_bond_move_runtime_slice_exact.py"

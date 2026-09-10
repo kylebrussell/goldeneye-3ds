@@ -23,6 +23,7 @@ s32 g_ClockTimer;
 ALBank *g_musicSfxBufferPtr;
 AmmoStats ammo_related[30];
 
+static int simulated_player_count = 1;
 static PropRecord *active_tail;
 static PropRecord *player_prop;
 static bool line_clear;
@@ -43,7 +44,8 @@ bool objIsCollectable(PropDefHeaderRecord *obj)
 }
 bool objCanPickupFromSafe(ObjectRecord *obj) { ++safe_calls; return obj != NULL; }
 f32 currentPlayerGetArmor(void) { ++armour_calls; return g_CurrentPlayer->bondarmour; }
-s32 getPlayerCount(void) { ++player_calls; return 1; }
+MPSCENARIOS get_scenario(void) { return SCENARIO_NORMAL; }
+s32 getPlayerCount(void) { ++player_calls; return simulated_player_count; }
 f32 bondviewGetPlayerPitchRadians(void);
 s32 stanTestLineUnobstructed(StandTile **stan, f32 x, f32 z,
                             f32 dest_x, f32 dest_z, int cdtypes,
@@ -93,6 +95,46 @@ static void reset_observation(void)
     last_message[0] = '\0';
     collectable_calls = safe_calls = armour_calls = player_calls = 0U;
     pitch_calls = stan_calls = 0U;
+}
+
+static void multiplayer_pickup_ownership(int count)
+{
+    struct player players[4] = {0};
+    struct player_data permanents[4] = {0};
+    PropRecord viewers[4] = {0}, pickup = {0};
+    StandTile stan = {0};
+    BodyArmourRecord armour = {0};
+    int player, other;
+    simulated_player_count = count;
+    g_PlayerInvincible = false;
+    line_clear = true;
+    pickup.type = PROP_TYPE_OBJ;
+    pickup.obj = (ObjectRecord *)&armour;
+    pickup.stan = &stan;
+    armour.type = PROPDEF_ARMOUR;
+    armour.amount = 0.5f;
+    armour.prop = &pickup;
+    active_tail = &pickup;
+    for (player = 0; player < count; ++player) {
+        g_CurrentPlayer = &players[player];
+        g_playerPerm = &permanents[player];
+        player_prop = &viewers[player];
+        players[player].prop = player_prop;
+        players[player].magnetattracttime = -1;
+        viewers[player].stan = &stan;
+        /* Each authored pickup fixture starts at the player's collision point. */
+        pickup.pos = armour.runtime_pos = viewers[player].pos;
+        reset_observation();
+        ge_original_stage_props_tick_player_exact();
+        assert(players[player].bondarmour == 0.5f);
+        assert(permanents[player].body_armor_pickups == 0.5f);
+        assert(free_calls == 1 && inventory_calls == 0);
+        assert(last_operation == TICKOP_FREE && last_sound == ARMOUR_COLLECT_SFX);
+        for (other = 0; other < count; ++other) {
+            assert(players[other].bondarmour == (other <= player ? 0.5f : 0.0f));
+            assert(permanents[other].body_armor_pickups == (other <= player ? 0.5f : 0.0f));
+        }
+    }
 }
 
 int main(void)
@@ -154,5 +196,7 @@ int main(void)
     g_PlayerInvincible = true;
     ge_original_stage_props_tick_player_exact();
     assert(player.bondarmour == 0.0f && free_calls == 0U);
+    multiplayer_pickup_ownership(2);
+    multiplayer_pickup_ownership(4);
     return 0;
 }

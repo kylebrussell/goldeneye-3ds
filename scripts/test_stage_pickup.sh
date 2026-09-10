@@ -26,4 +26,4 @@ cc -std=gnu11 -O1 -g -fno-omit-frame-pointer \
 ASAN_OPTIONS=detect_leaks=0 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
     "${build_dir}/test_ge_original_stage_pickup"
-echo "canonical proximity armour pickup passed under ASan/UBSan"
+echo "canonical solo and 2/4-player proximity armour pickup ownership passed under ASan/UBSan"

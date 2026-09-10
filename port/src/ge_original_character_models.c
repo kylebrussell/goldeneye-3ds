@@ -99,6 +99,19 @@ struct GeOriginalCharacterModelProvider {
     uint16_t last_unsupported_opcode;
 };
 
+size_t ge_original_character_model_physical_capacity(const GeOriginalCharacterModelProvider *provider)
+{ return provider ? provider->instance_capacity : 0; }
+
+int ge_original_character_model_physical_instance(const GeOriginalCharacterModelProvider *provider,
+    size_t slot, const void **model, size_t *bytes, int *active)
+{
+    if (!provider || slot >= provider->instance_capacity || !model || !bytes || !active) return 0;
+    *model = &provider->instances[slot].model;
+    *bytes = sizeof(provider->instances[slot].model);
+    *active = slot < provider->instance_count;
+    return 1;
+}
+
 static uint16_t be16(const uint8_t *p)
 { return (uint16_t)(((uint16_t)p[0] << 8) | p[1]); }
 static uint32_t be32(const uint8_t *p)

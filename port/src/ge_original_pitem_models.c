@@ -75,6 +75,19 @@ struct GeOriginalPitemModelProvider {
 
 static GeOriginalPitemModelProvider *ge_pitem_provider_registry;
 
+size_t ge_original_pitem_model_physical_capacity(const GeOriginalPitemModelProvider *provider)
+{ return provider ? provider->instance_capacity : 0; }
+
+int ge_original_pitem_model_physical_instance(const GeOriginalPitemModelProvider *provider,
+    size_t slot, const void **model, size_t *bytes, int *active)
+{
+    if (!provider || slot >= provider->instance_capacity || !model || !bytes || !active) return 0;
+    *model = &provider->instances[slot].model;
+    *bytes = sizeof(provider->instances[slot].model);
+    *active = provider->instances[slot].active;
+    return 1;
+}
+
 static int range_valid(size_t size, size_t offset, size_t count,
                        size_t stride);
 static int segmented_offset(uint32_t value, size_t size, size_t required,

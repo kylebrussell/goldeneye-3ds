@@ -91,6 +91,13 @@ GeOriginalPitemModelProvider *ge_original_pitem_model_provider_create(
 void ge_original_pitem_model_provider_destroy(
     GeOriginalPitemModelProvider *provider);
 
+/* Read-only physical storage, including inactive/reusable slots. The address
+ * and extent remain valid until provider destruction. This does not acquire
+ * an instance; active is current allocation state, not a stable identity. */
+size_t ge_original_pitem_model_physical_capacity(const GeOriginalPitemModelProvider *provider);
+int ge_original_pitem_model_physical_instance(const GeOriginalPitemModelProvider *provider,
+    size_t slot, const void **model, size_t *bytes, int *active);
+
 /* Direct callback seams for GeOriginalDefaultObjectProviders and the generic
  * stage prop materializer. resolve_instance returns a fresh native Model for
  * every successful call, matching modelmgrInstantiateModel ownership. */

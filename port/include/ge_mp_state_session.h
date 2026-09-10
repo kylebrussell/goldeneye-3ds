@@ -3,8 +3,10 @@
 #include "ge_mp_state.h"
 #include "ge_original_multiplayer_death.h"
 #include "ge_original_bond_live.h"
+#include "ge_original_stage_active_props.h"
+#include "ge_original_multiplayer_hud.h"
 
-#define GE_MP_SESSION_SCHEMA_VERSION 1U
+#define GE_MP_SESSION_SCHEMA_VERSION 2U
 #define GE_MP_SESSION_MAX_GAPS 64U
 #define GE_MP_SESSION_SYSTEMS (GE_MP_SYSTEM_SESSION|GE_MP_SYSTEM_RULES|GE_MP_SYSTEM_RESPAWN)
 /* Typed paths and stable field IDs. No pointer or native ABI width is wire state. */
@@ -51,8 +53,38 @@
  X(295,U64,4,death_post,"death.post_tick") \
  X(296,U8,1,death_pre_valid,"death.pre_valid") \
  X(297,U8,1,death_post_valid,"death.post_valid") \
- X(298,I32,4,live_initialized,"lives.initialized")
-#define GE_MP_SESSION_FIELD_COUNT 43U
+ X(298,I32,4,live_initialized,"lives.initialized") \
+ X(299,U64,1,active_pre_ticks,"active_props.pre_ticks") \
+ X(300,U64,1,active_ticks,"active_props.ticks") \
+ X(301,U64,1,active_paused_ticks,"active_props.paused_ticks") \
+ X(302,U64,1,active_count,"active_props.count") \
+ X(303,U64,1,active_chr_count,"active_props.chr_count") \
+ X(304,U8,1,active_bound,"active_props.bound") \
+ X(305,U8,1,active_pending,"active_props.pre_tick_pending") \
+ X(306,U8,1,active_player_count,"active_props.player_count") \
+ X(307,U8,1,active_player_mask,"active_props.player_tick_mask") \
+ X(308,U32,1,active_mismatch,"active_props.last_binding_mismatch") \
+ X(309,BOOL,1,active_ordered_present,"active_props.ordered.present") \
+ X(310,ACTOR_REF,4,active_players,"active_props.player_props") \
+ X(311,ACTOR_REF,1,active_setup,"active_props.setup") \
+ X(312,U64,1,active_setup_offset,"active_props.setup.owner_offset") \
+ X(313,ACTOR_REF,1,active_chrs,"active_props.chrs") \
+ X(314,U64,1,active_chrs_offset,"active_props.chrs.owner_offset") \
+ X(315,ACTOR_REF,1,native_chrs,"g_ChrSlots") \
+ X(316,U64,1,native_chrs_offset,"g_ChrSlots.owner_offset") \
+ X(317,I32,1,native_chr_count,"g_NumChrSlots") \
+ X(318,ACTOR_REF,1,native_propdefs,"g_CurrentSetup.propDefs") \
+ X(319,U64,1,native_propdefs_offset,"g_CurrentSetup.propDefs.owner_offset") \
+ X(320,ACTOR_REF,1,native_ailists,"g_CurrentSetup.ailists") \
+ X(321,U64,1,native_ailists_offset,"g_CurrentSetup.ailists.owner_offset") \
+ X(322,U64,1,hud_tick,"hud.tick") \
+ X(323,U32,1,hud_player_count,"hud.player_count") \
+ X(324,U8,1,hud_initialized,"hud.initialized") \
+ X(325,U8,1,hud_prepared,"hud.prepared") \
+ X(326,U8,1,hud_captured,"hud.captured") \
+ X(327,U8,1,hud_failed,"hud.failed") \
+ X(328,U8,1,hud_intro_camera,"hud.intro_camera")
+#define GE_MP_SESSION_FIELD_COUNT 73U
 typedef enum GeMpSessionBoundary {
     GE_MP_SESSION_INITIAL,
     GE_MP_SESSION_WORLD_COMMITTED,
@@ -67,13 +99,20 @@ typedef struct GeMpSessionSchedule {
     GeMpSessionBoundary boundary;
     const GeOriginalMultiplayerDeathState *death;
     const GeOriginalBondLiveState *lives[4];
+    const GeOriginalStageActiveProps *active_props;
+    const GeOriginalMultiplayerHud *hud;
 } GeMpSessionSchedule;
 typedef enum GeMpSessionReferenceKind {
     GE_MP_SESSION_REF_PLAYER,
     GE_MP_SESSION_REF_INTRO,
     GE_MP_SESSION_REF_PAD_ARRAY,
     GE_MP_SESSION_REF_PAD,
-    GE_MP_SESSION_REF_DEMO
+    GE_MP_SESSION_REF_DEMO,
+    GE_MP_SESSION_REF_PROP,
+    GE_MP_SESSION_REF_SETUP_OWNER,
+    GE_MP_SESSION_REF_CHR_POOL,
+    GE_MP_SESSION_REF_PROPDEFS,
+    GE_MP_SESSION_REF_AILISTS
 } GeMpSessionReferenceKind;
 typedef struct GeMpSessionReference { uint64_t actor_id, offset; } GeMpSessionReference;
 typedef struct GeMpSessionProviders {
@@ -117,6 +156,14 @@ typedef struct GeMpSessionValues {
     uint64_t current_intro,current_intro_offset,current_pads,current_pads_offset;
     uint64_t demo,demo_offset,next_tick,death_players[4],death_pre[4],death_post[4];
     uint8_t demo_kind,boundary,death_count,death_pre_valid,death_post_valid;
+    uint64_t active_pre_ticks,active_ticks,active_paused_ticks,active_count,active_chr_count;
+    uint64_t active_players[4],active_setup,active_setup_offset,active_chrs,active_chrs_offset;
+    uint64_t native_chrs,native_chrs_offset,native_propdefs,native_propdefs_offset,native_ailists,native_ailists_offset;
+    uint32_t active_mismatch,hud_player_count;
+    int32_t native_chr_count;
+    uint8_t active_bound,active_pending,active_player_count,active_player_mask,active_ordered_present;
+    uint64_t hud_tick;
+    uint8_t hud_initialized,hud_prepared,hud_captured,hud_failed,hud_intro_camera;
 } GeMpSessionValues;
 typedef struct GeMpSessionSnapshot {
     GeMpStateRecord record;

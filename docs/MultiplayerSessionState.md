@@ -7,7 +7,7 @@ starts a fresh registry after full teardown; allocation/reuse generations remain
 monotonic within that match. No process address, native padding or local display
 selection is encoded.
 
-This is a real typed export with 43 fields, **not a complete game checkpoint**.
+Schema version 2 is a real typed export with 73 fields, **not a complete game checkpoint**.
 It currently returns `GE_MP_STATE_INCOMPLETE` even when every exported field has
 a value, because the additional native/wrapper owners listed below remain open.
 It never changes `GeMpStateSchema.complete` or manufactures missing identities.
@@ -16,7 +16,8 @@ It never changes `GeMpStateSchema.complete` or manufactures missing identities.
 
 After player creation, configuration, validated spawn publication and session
 reset, supply a `GeMpSessionSchedule` with the actual death owner and each active
-player's `GeOriginalBondLiveState`. At the initial boundary, `next_tick=0`,
+player's `GeOriginalBondLiveState`, plus the actual active-prop and HUD owners.
+At the initial boundary, `next_tick=0`,
 `elapsed60=0` and the death masks are reset. After a successful shared runtime
 pass, `next_tick` is the caller's incremented `multiplayer.tick`; all active
 death pre/post guards must equal `next_tick-1` and both masks must contain the
@@ -57,6 +58,8 @@ validated the full native header extent; an unknown pointer is never dereference
 | 272–282 | Owner-retained validated intro and word bound, pads and count, selected demo slot, and the current setup's intro/pads refs. A mismatched or missing publication remains a gap. |
 | 283–288 | Actual playback/recording flags; demo binding discriminant (0 absent, 1 the rules owner's header, 2 external), actual selected header slot, and external header owner ref/offset. |
 | 289–298 | Caller next committed tick/elapsed/boundary, actual death owner count, E6 roster refs, pre/post tick arrays and masks, and each active live wrapper's `initialized` admission flag. |
+| 299–321 | Actual active-prop counters, count, Chr count, bound/pending/player count/mask, last mismatch, ordered-allocation presence, E3 player refs, setup owner and Chr pool refs, and current native Chr/propdef/AI publication. |
+| 322–328 | Actual HUD tick, player count, initialized/prepared/captured/failed and intro-camera mask. No display snapshot or device-local selection. |
 
 The new getters in `ge_original_multiplayer_session` and
 `ge_original_multiplayer_rules` borrow the real owners. They maintain no duplicate
@@ -83,16 +86,13 @@ shuffle, RNG and input/replay transport state. E1/E2 own inventory, permissions,
 teams, kills/deaths, flag counters and YOLT ranking. E6 owns native player death,
 fade, spawn cursor and per-player menu state. These are not duplicated here.
 
-Six explicit gap paths remain even in a valid ordinary match:
+Four explicit gap paths remain even when the active-prop and HUD owners are
+supplied and valid:
 
 - `mpwatch.who_paused_and_watch_transition_owner`: the retained match slice has
   no actual `who_paused` owner; it controls who can resume an original pause.
-- `runtime.active_props.owner_counters_and_provider_context`: binding order,
-  pending pre-tick and per-player mask admission state are separate from E3/E5.
 - `runtime.guards.matrix_muzzleflash_tick_guards`: wrapper guards that admit
   canonical model/muzzle updates require the real guard owner.
-- `runtime.hud.tick_initialized_prepared_captured_failed`: HUD frame admission
-  affects whether another complete shared tick can proceed.
 - `runtime.player_floor_gun_model_loader_providers`: current selected provider
   bindings, their model/content lifetimes and canonical floor/spawn dependencies.
 - `mp_music.mission_state_and_transition_rng_owner`: original music transitions
@@ -117,6 +117,67 @@ sequence and diagnostic status/counters are not canonical fields in this record.
 Chevron glow and alternate game-over message state only select original menu
 presentation. The mission music state is separately identified above.
 
+## Active-prop and HUD owner closure
+
+`GeMpSessionSchedule.active_props` must be the actual published owner verified
+by `ge_original_stage_active_props_native_view`, not a copied struct with matching
+fields. Successful compose publishes the private owner and its actual allocated
+`ordered` pointer together. Closing that current owner clears both; closing a
+replaced owner leaves the replacement intact. The getter adds no native prop
+allocation/free operations or replacement scheduling. An altered ordered pointer,
+unbound/replaced owner, pending pre-tick, wrong player roster, mismatched native
+Chr pool/count or unresolved typed reference retains the active-prop gap.
+
+The wrapper's `ordered` entry payloads and `player_prop` compatibility alias are
+consumed during compose and never read by later tick/admission code. After compose,
+`ordered` is only checked for nonnull and freed by close. Capture therefore checks
+its allocation ownership and serializes its actual presence, without reading or
+inventing live identities for those old entry pointers. Legitimate pickup frees
+can leave such old entries behind; the actual changing prop order, free list,
+rooms and generation history belong to E3/E5. Numeric counters and the stored
+count are copied verbatim, even where they are diagnostic. Setup-wrapper and
+Chr-pool refs require their real typed resource owners; nested setup payloads are
+not covered merely by identifying their owner. The getter's allocation identity
+is a host ownership check and never enters the wire record.
+
+HUD admission is read from the actual public owner. At a successful world boundary
+its tick must be `next_tick-1`, its player count must match, both prepared/captured
+masks must cover the complete roster and it must not be failed. Initial state has
+no admitted HUD frame. Missing or incomplete HUD state retains the named HUD
+scheduling gap. Its durable display snapshots are excluded because they are
+only read by presentation; the next begin-frame clears them before production.
+Native HUD producers and their queue/content dependencies are separate owners.
+
+### Original watch transition integration still required
+
+Production currently retains `g_pausedFlag`, stop/game-over flags, exact
+`mpwatchUnpauseGame`, `mpwatchSetStopPlayFlag`, `pauseAndLockControls`, and the
+state-only results entry. It does **not** retain `who_paused` or
+`mpwatchMenuTick`. This checkpoint intentionally adds no weak-symbol discovery,
+unused zero shadow or substitute pause transition.
+
+The exact source closure to integrate later is in `src/game/mpmenu.c`:
+
+- `mpwatchMenuTick`, `mpwatchMenuCanGoRight`, `mpwatchMenuCanGoLeft`,
+  `mpwatchIsPlayerPressingRight`, `mpwatchIsPlayerPressingLeft` and
+  `mpwatchPlayBeep`.
+- Actual `who_paused`, the already-owned pause/stop/game-over globals, and
+  chevron/alternate-message state if the complete menu tick is retained.
+- Canonical current/count/roster/shuffle getters, `speedgraphframes`,
+  `joyGetStickXInRange`, `joyGetButtonsPressedThisFrame`, `getMissiontimer`,
+  player menu/health/life fields (E6) and permanent statistic fields (E2).
+- Native control-lock setter, beep SFX/bank owner, `bossSetLoadedStage`, and the
+  real awards/results transition. Confirmed quit must be paired with the
+  private session adapter's abort/end-cause publication; retaining a native
+  call that changes only game-over flags would leave that adapter inconsistent.
+
+The original first shuffled player decrements the game-over countdown and
+updates menu animation timers. Each player's menu tick can update longest-life
+statistics, pause/resume, close/open menus, or request exit. `who_paused` is set
+when a player actually pauses; `mpwatchUnpauseGame` does not clear it. Its source
+lifetime and later reads must be respected. Resetting it to the device's local
+slot or zero to force peer equality would change or erase native state.
+
 ## Validation
 
 Run `bash scripts/test_mp_state_session.sh`. It extracts original Caves
@@ -137,3 +198,14 @@ The public codec rejects an aggregate digest with the sentinel output unchanged.
 The fixture fingerprint is explicitly a typed test payload, never a state hash
 claim. The exporter and both getter owners also compile with strict ARM
 `-fshort-enums` flags.
+
+The added owner fixture performs 26/28 additional native field mutations for
+2/4 players. It exercises actual compose/close/replacement lifetimes, native
+zero-clock admission, and the real HUD begin-frame rejection path. It does not
+replace gameplay dispatch: either dispatcher being reached in this focused
+fixture aborts the test. A separate existing active-prop scheduler test covers
+the dispatched phase order, and the existing HUD test covers the complete
+canonical producers. The new fixture also checks consumed-entry/display-payload
+exclusion, stale/missing resource refs, allocation-pointer replacement, partial
+HUD capture, independent-process/ABI equality, and repeated match convergence.
+All captures remain incomplete and the public digest remains untouched.

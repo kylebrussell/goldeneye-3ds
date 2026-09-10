@@ -27,6 +27,17 @@ extern struct player *g_CurrentPlayer;
 extern struct player *g_playerPointers[4];
 /* Canonical RETICK can move the list head; ownership outlives that order. */
 static GeOriginalStageActiveProps *g_active_owner;
+static const GeOriginalStageActivePropInput *g_active_ordered_allocation;
+
+int ge_original_stage_active_props_native_view(
+    const GeOriginalStageActiveProps *expected, GeOriginalStageActivePropsNativeView *view)
+{
+    if (!view || !expected || expected != g_active_owner) return 0;
+    *view = (GeOriginalStageActivePropsNativeView){g_active_owner,
+        g_active_ordered_allocation,g_ChrSlots,g_NumChrSlots,
+        g_CurrentSetup.propDefs,g_CurrentSetup.ailists};
+    return 1;
+}
 
 static int input_before(const GeOriginalStageActivePropInput *left,
                         const GeOriginalStageActivePropInput *right)
@@ -162,6 +173,7 @@ GeOriginalStageActivePropStatus ge_original_stage_active_props_compose_players(
     g_CurrentSetup=*setup->setup;
     state->bound=1U;
     g_active_owner=state;
+    g_active_ordered_allocation=ordered;
     return GE_ORIGINAL_STAGE_ACTIVE_PROP_OK;
 }
 
@@ -254,6 +266,7 @@ void ge_original_stage_active_props_close(GeOriginalStageActiveProps *state)
     if(state==NULL)return;
     if(state->bound&&g_active_owner==state){
         g_active_owner=NULL;
+        g_active_ordered_allocation=NULL;
         g_ActivePropsHead=NULL;g_ActivePropsTail=NULL;
         if(g_ChrSlots==state->chrs){g_ChrSlots=NULL;g_NumChrSlots=0;}
         if(state->setup!=NULL&&state->setup->setup!=NULL

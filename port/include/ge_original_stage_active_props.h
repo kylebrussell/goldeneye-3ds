@@ -54,6 +54,20 @@ typedef struct GeOriginalStageActiveProps {
     uint8_t bound;
 } GeOriginalStageActiveProps;
 
+typedef struct GeOriginalStageActivePropsNativeView {
+    const GeOriginalStageActiveProps *owner;
+    const GeOriginalStageActivePropInput *owned_ordered;
+    struct ChrRecord *current_chrs;
+    int32_t current_chr_count;
+    const void *current_propdefs;
+    const void *current_ailists;
+} GeOriginalStageActivePropsNativeView;
+/* Read-only publication identity and native bindings. The retained ordered
+ * pointer is an allocation ownership guard, not a second active prop list.
+ * Replaced/closed owners cannot claim the current native publication. */
+int ge_original_stage_active_props_native_view(
+    const GeOriginalStageActiveProps *expected, GeOriginalStageActivePropsNativeView *);
+
 /* Rebuilds the exact chrpropActivate ordering: player first, setup props in
  * ascending authored command order, then runtime-created props in their
  * supplied creation order. Globals are published only after full validation. */

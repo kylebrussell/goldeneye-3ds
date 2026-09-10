@@ -1,9 +1,12 @@
 #include "ge_mp_state_session.h"
 #include "ge_original_multiplayer_session.h"
 #include "ge_original_multiplayer_rules.h"
+#include "ge_original_stage_setup.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
+#include "game/player.h"
+#include "game/chrai.h"
 #include "game/ramromreplay.h"
 #include <string.h>
 
@@ -62,6 +65,10 @@ static int resolve(const GeMpRegistry *registry,const GeMpSessionProviders *prov
         if(status==GE_MP_STATE_OK && kind==GE_MP_SESSION_REF_PLAYER
                 && (ref.offset || (ref.actor_id>>32)!=ge_mp_registry_key(0xE6,(uint8_t)index,0)))
             status=GE_MP_STATE_INCOMPLETE;
+        if(status==GE_MP_STATE_OK && kind==GE_MP_SESSION_REF_PROP
+                && (ref.offset || (ref.actor_id>>56)!=0xE3
+                    || ((ref.actor_id>>48)&255)!=255 || ((ref.actor_id>>32)&65535)>=MAX_PROPS))
+            status=GE_MP_STATE_INCOMPLETE;
     }
     if(status!=GE_MP_STATE_OK) {
         gap(out,field,index,GE_MP_SESSION_GAP_REFERENCE,status);
@@ -72,6 +79,73 @@ static int resolve(const GeMpRegistry *registry,const GeMpSessionProviders *prov
     *id=ref.actor_id;
     if(offset)*offset=ref.offset;
     return 1;
+}
+static void active_props(const GeMpRegistry *registry,const GeMpSessionProviders *providers,
+    const GeMpSessionSchedule *schedule,const GeOriginalMultiplayerSessionNativeView *session,
+    GeMpSessionSnapshot *out)
+{
+    const GeOriginalStageActiveProps *state=schedule->active_props;
+    GeOriginalStageActivePropsNativeView native;
+    GeMpSessionValues *v=&out->values;
+    if(!state || !ge_original_stage_active_props_native_view(state,&native)) {
+        gap(out,299,0,GE_MP_SESSION_GAP_ACTIVE_PROPS_OWNER,GE_MP_STATE_INCOMPLETE);
+        for(unsigned i=299;i<=321;++i)out->fields[i-256].count=0;
+        return;
+    }
+    v->active_pre_ticks=state->pre_ticks;v->active_ticks=state->ticks;
+    v->active_paused_ticks=state->paused_ticks;v->active_count=state->count;
+    v->active_chr_count=state->chr_count;v->active_bound=state->bound;
+    v->active_pending=state->pre_tick_pending;v->active_player_count=state->player_count;
+    v->active_player_mask=state->player_tick_mask;v->active_mismatch=state->last_binding_mismatch;
+    v->active_ordered_present=state->ordered!=NULL;
+    v->native_chr_count=native.current_chr_count;
+    unsigned mask=(1U<<session->count)-1U;
+    if(!state->bound || !state->ordered || state->ordered!=native.owned_ordered
+            || state->player_count!=session->count || state->pre_tick_pending
+            || (state->player_tick_mask&~mask) || state->chrs!=native.current_chrs
+            || state->chr_count!=(uint64_t)(uint32_t)native.current_chr_count
+            || native.current_chr_count<0 || !state->setup || !state->chrs)
+        gap(out,299,0,GE_MP_SESSION_GAP_ACTIVE_PROPS_OWNER,GE_MP_STATE_INCOMPLETE);
+    for(unsigned i=0;i<4;++i) {
+        resolve(registry,providers,out,310,i,GE_MP_SESSION_REF_PROP,state->player_props[i],0,&v->active_players[i],NULL);
+        if(state->player_props[i]!=(session->players[i]?session->players[i]->prop:NULL))
+            gap(out,310,i,GE_MP_SESSION_GAP_ACTIVE_PROPS_OWNER,GE_MP_STATE_INCOMPLETE);
+    }
+    resolve(registry,providers,out,311,0,GE_MP_SESSION_REF_SETUP_OWNER,state->setup,sizeof(GeOriginalStageSetupRuntime),
+        &v->active_setup,&v->active_setup_offset);
+    size_t chr_extent=0;
+    if(state->chr_count<=SIZE_MAX/sizeof(ChrRecord))chr_extent=state->chr_count*sizeof(ChrRecord);
+    else gap(out,303,0,GE_MP_SESSION_GAP_ACTIVE_PROPS_OWNER,GE_MP_STATE_INCOMPLETE);
+    resolve(registry,providers,out,313,0,GE_MP_SESSION_REF_CHR_POOL,state->chrs,chr_extent,
+        &v->active_chrs,&v->active_chrs_offset);
+    chr_extent=0;
+    if(native.current_chr_count>=0 && (size_t)native.current_chr_count<=SIZE_MAX/sizeof(ChrRecord))
+        chr_extent=(size_t)native.current_chr_count*sizeof(ChrRecord);
+    else gap(out,317,0,GE_MP_SESSION_GAP_ACTIVE_PROPS_OWNER,GE_MP_STATE_INCOMPLETE);
+    resolve(registry,providers,out,315,0,GE_MP_SESSION_REF_CHR_POOL,native.current_chrs,chr_extent,
+        &v->native_chrs,&v->native_chrs_offset);
+    resolve(registry,providers,out,318,0,GE_MP_SESSION_REF_PROPDEFS,native.current_propdefs,0,
+        &v->native_propdefs,&v->native_propdefs_offset);
+    resolve(registry,providers,out,320,0,GE_MP_SESSION_REF_AILISTS,native.current_ailists,0,
+        &v->native_ailists,&v->native_ailists_offset);
+}
+static void hud_schedule(const GeMpSessionSchedule *schedule,unsigned count,GeMpSessionSnapshot *out)
+{
+    const GeOriginalMultiplayerHud *hud=schedule->hud;GeMpSessionValues *v=&out->values;
+    if(!hud) {
+        gap(out,322,0,GE_MP_SESSION_GAP_HUD_SCHEDULE_OWNER,GE_MP_STATE_INCOMPLETE);
+        for(unsigned i=322;i<=328;++i)out->fields[i-256].count=0;
+        return;
+    }
+    v->hud_tick=hud->tick;v->hud_player_count=hud->player_count;
+    v->hud_initialized=hud->initialized;v->hud_prepared=hud->prepared;
+    v->hud_captured=hud->captured;v->hud_failed=hud->failed;v->hud_intro_camera=hud->intro_camera;
+    unsigned mask=(1U<<count)-1U;
+    if(hud->failed || (!schedule->next_tick && hud->initialized)
+            || (schedule->next_tick && (!hud->initialized || hud->tick!=schedule->next_tick-1
+                || hud->player_count!=count || hud->prepared!=mask || hud->captured!=mask
+                || (hud->intro_camera&~mask))))
+        gap(out,322,0,GE_MP_SESSION_GAP_HUD_SCHEDULE_OWNER,GE_MP_STATE_INCOMPLETE);
 }
 GeMpStateStatus ge_mp_state_session_capture(const GeMpRegistry *registry,
     const GeMpSessionProviders *providers,const GeMpSessionSchedule *schedule,
@@ -185,12 +259,12 @@ GeMpStateStatus ge_mp_state_session_capture(const GeMpRegistry *registry,
             if(!schedule->lives[i])out->fields[298-256].count=0;
         }
     }
+    active_props(registry,providers,schedule,&session,out);
+    hud_schedule(schedule,session.count,out);
     /* These are native/wrapper owners, not nullable success defaults. They
      * need separate typed coverage before an aggregate can attest complete. */
     gap(out,0,0,GE_MP_SESSION_GAP_WATCH_OWNER,GE_MP_STATE_INCOMPLETE);
-    gap(out,0,0,GE_MP_SESSION_GAP_ACTIVE_PROPS_OWNER,GE_MP_STATE_INCOMPLETE);
     gap(out,0,0,GE_MP_SESSION_GAP_GUARD_SCHEDULE_OWNER,GE_MP_STATE_INCOMPLETE);
-    gap(out,0,0,GE_MP_SESSION_GAP_HUD_SCHEDULE_OWNER,GE_MP_STATE_INCOMPLETE);
     gap(out,0,0,GE_MP_SESSION_GAP_RESOURCE_PROVIDERS,GE_MP_STATE_INCOMPLETE);
     gap(out,0,0,GE_MP_SESSION_GAP_MUSIC_TRANSITION_OWNER,GE_MP_STATE_INCOMPLETE);
     return out->total_gaps?GE_MP_STATE_INCOMPLETE:GE_MP_STATE_OK;

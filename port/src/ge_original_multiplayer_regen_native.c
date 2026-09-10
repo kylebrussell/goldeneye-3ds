@@ -11,7 +11,7 @@
 
 extern ALBank *g_musicSfxBufferPtr;
 extern PropRecord g_Props[MAX_PROPS];
-extern PropRecord *g_ActivePropsTail;
+extern PropRecord *g_ActivePropsHead, *g_ActivePropsTail;
 
 static void enable_prop(void *context, void *prop)
 {
@@ -55,6 +55,7 @@ GeOriginalMultiplayerRegenStatus ge_original_multiplayer_regen_tick_all(
     GeOriginalMultiplayerRegenBatch result = {0,0,0,-1};
     GeOriginalMultiplayerRegenProviders providers;
     PropRecord *prop = g_ActivePropsTail;
+    PropRecord *next = NULL;
     uint32_t count = 0, i;
     if (!batch || tick60 < 0 || tick60 > INT16_MAX)
         return GE_ORIGINAL_MP_REGEN_INVALID_ARGUMENT;
@@ -70,14 +71,19 @@ GeOriginalMultiplayerRegenStatus ge_original_multiplayer_regen_tick_all(
             return GE_ORIGINAL_MP_REGEN_INVALID_POOL;
         }
         slot = (uint32_t)((address-first) / sizeof(*prop));
-        if (visited[slot]) {
+        if (visited[slot] || prop->next != next) {
             result.failed_pool_index = (int32_t)slot;
             *batch = result;
             return GE_ORIGINAL_MP_REGEN_INVALID_POOL;
         }
         visited[slot] = 1;
         ordered[count++] = prop;
+        next = prop;
         prop = prop->prev;
+    }
+    if (next != g_ActivePropsHead) {
+        *batch = result;
+        return GE_ORIGINAL_MP_REGEN_INVALID_POOL;
     }
     ge_original_multiplayer_regen_native_providers(&providers);
     for (i=0; i<count; ++i) {

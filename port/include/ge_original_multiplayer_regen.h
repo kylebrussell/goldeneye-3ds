@@ -30,6 +30,8 @@ typedef struct GeOriginalMultiplayerRegenBatch {
  * pool, including disabled pickups. Call after active_props_pre_tick_exact
  * and before the player shuffle/passes, once per world simulation tick.
  * Free slots are excluded even if they retain stale object/timer fields.
+ * The full active list must have matching head/tail and reciprocal links;
+ * malformed lists are rejected before any pickup or callback is advanced.
  * Unsupported timer owners are counted and left to their own lifecycle;
  * errors report any earlier completed ticks, so the caller must not retry. */
 GeOriginalMultiplayerRegenStatus ge_original_multiplayer_regen_tick_all(

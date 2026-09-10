@@ -141,11 +141,47 @@ static void pool_lifecycle(void)
     g_Props[0].prev=(void *)(uintptr_t)1;
     assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
     assert(!batch.ticked);g_Props[0].prev=NULL;
+    /* A single bad link into a free slot must not dereference its stale
+     * object or advance the earlier valid pickups. Bounds alone are not
+     * active-list membership: the free slot is inside the native pool. */
+    const unsigned before_rooms=room_updates,before_sounds=sounds;
+    g_Props[599].timetoregen=60;g_Props[599].flags&=~PROPFLAG_ENABLED;
+    g_Props[0].prev=&g_Props[1];
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked && g_Props[599].timetoregen==60
+        && !(g_Props[599].flags&PROPFLAG_ENABLED)
+        && room_updates==before_rooms && sounds==before_sounds
+        && g_Props[0].timetoregen==1199 && g_Props[1].timetoregen==1200);
+    g_Props[0].prev=NULL;g_Props[599].timetoregen=59;g_Props[599].flags|=PROPFLAG_ENABLED;
+    g_Props[599].next=&g_Props[0];
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked);g_Props[599].next=NULL;
+    g_Props[7].next=NULL;
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked);g_Props[7].next=&g_Props[599];
+    g_ActivePropsHead=&g_Props[7];
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked);g_ActivePropsHead=&g_Props[0];
+    g_ActivePropsTail=NULL;
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked);g_ActivePropsTail=&g_Props[599];
     objects[0].flags|=PROPFLAG_INSIDEANOTHEROBJ;
     assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_UNSUPPORTED_OBJECT);
     assert(batch.ticked==2 && batch.unsupported==1 && g_Props[0].timetoregen==1199);
     assert(ge_original_multiplayer_regen_tick_all(0,&batch)==GE_ORIGINAL_MP_REGEN_IDLE);
     assert(batch.visited==3 && !batch.ticked);
+}
+
+static void pool_boundaries(void)
+{
+    GeOriginalMultiplayerRegenBatch batch;
+    memset(g_Props,0,sizeof(g_Props));
+    g_ActivePropsHead=g_ActivePropsTail=NULL;
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_IDLE);
+    assert(batch.visited==0 && !batch.ticked);
+    for(int i=0;i<MAX_PROPS;++i)chrpropActivate(&g_Props[i]);
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_IDLE);
+    assert(batch.visited==MAX_PROPS && !batch.ticked && !batch.unsupported);
 }
 
 int main(void)
@@ -165,7 +201,7 @@ int main(void)
         assert(prop.flags&PROPFLAG_ENABLED);
         assert(room_updates==before_rooms+1 && sounds==before_sound+1);
     }
-    pool_lifecycle();
+    pool_lifecycle();pool_boundaries();
     puts("canonical 2/4-player pickup regeneration: FREE operation,1200 ticks,all-player proximity,400-unit boundary,armour refill and repeated collection passed");
     return 0;
 }

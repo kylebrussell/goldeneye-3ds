@@ -28,6 +28,17 @@ typedef struct GeOriginalMultiplayerSessionState {
     int32_t controls_locked;
 } GeOriginalMultiplayerSessionState;
 
+struct player;
+typedef struct GeOriginalMultiplayerSessionNativeView {
+    GeOriginalMultiplayerSessionState state;
+    const struct player *players[4];
+    uint32_t count;
+} GeOriginalMultiplayerSessionNativeView;
+/* Read-only bound roster and state, validated against the current native
+ * roster. Entries beyond count are excluded: the owner never reads them. */
+GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_native_view(
+    GeOriginalMultiplayerSessionNativeView *view);
+
 /* After player creation/configuration and level timer initialization, before
  * first simulation tick. Exact stage-load unlock/unpause and limit setters.
  * Does not reinitialize players, stats, inventory, RNG or level timers. */

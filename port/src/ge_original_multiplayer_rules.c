@@ -41,6 +41,31 @@ void ge_original_multiplayer_bind_intro_slot(int playback, int recording,
     recording_ramrom_flag = recording != 0;
 }
 
+int ge_original_multiplayer_rules_native_view(GeOriginalMultiplayerRulesNativeView *view)
+{
+    GeOriginalMultiplayerRulesNativeView next = {0};
+    if (!view) return 0;
+    next.scenario = get_scenario();
+    next.weapon_set = getMPWeaponSet();
+    next.startpad_count = startpadcount;
+    for (unsigned i = 0; i < 16; ++i) next.startpads[i] = g_Startpad[i];
+    for (unsigned i = 0; i < 2; ++i) next.starting_weapon[i] = starting_weapon[i];
+    next.validated_intro = ge_mp_validated_intro;
+    next.validated_intro_words = ge_mp_validated_intro_words;
+    next.validated_pads = ge_mp_validated_pads;
+    next.validated_pad_count = ge_mp_validated_pad_count;
+    if (ge_mp_validated_intro) next.validated_demo_playback = ge_mp_validated_demo_playback;
+    next.current_intro = (const int32_t *)(const void *)g_CurrentSetup.intro;
+    next.current_pads = g_CurrentSetup.pads;
+    next.active_demo = ptr_active_demofile;
+    next.playback = is_ramrom_flag;
+    next.recording = recording_ramrom_flag;
+    next.demo_is_owned = ptr_active_demofile == &ge_mp_intro_header;
+    if (next.demo_is_owned) next.owned_demo_slot = ge_mp_intro_header.slotnum;
+    *view = next;
+    return 1;
+}
+
 int ge_original_multiplayer_arena(size_t index, GeOriginalMultiplayerArena *out)
 {
     const struct mp_stage_setup *arena;

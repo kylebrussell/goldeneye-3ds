@@ -36,24 +36,31 @@ def native_body(body, name):
         if (new_var == new_var);'''
         assert body.count(matching) == 1
         body = body.replace(matching, '        /* Removed IDO matching-only uninitialized temporary reads. */')
-        # On little-endian native bitfields, the original first byte's LOW
-        # nibble is the named hitTexture member, not the native first byte.
-        body = body.replace('((u8 *) (&g_Textures[bghit.texturenum]))[0] & 0xf',
-                            'g_Textures[bghit.texturenum].hitTexture')
+        # Verified original adjacent-ROM data handles texture -1; all other
+        # indices are bounds-checked before either impact-type lookup.
+        raw = '((u8 *) (&g_Textures[bghit.texturenum]))[0] & 0xf'
+        assert body.count(raw) == 1
+        body = body.replace(raw, 'ge_original_texture_hit_type_exact(bghit.texturenum)')
+        marker = '            if (bghit.texturenum < 0)'
+        assert body.count(marker) == 1
+        body = body.replace(marker, """            if (ge_original_texture_hit_type_exact(bghit.texturenum) < 0)
+            {
+                ge_original_player_held_items_stan_texture_frontier();
+                return;
+            }
+""" + marker)
         raw = '(((0xf & ((u8 *) g_Textures)[besttexture * 8]) != 5) && ((((u8 *) g_Textures)[besttexture * 8] & 0xf) != 6))'
         assert body.count(raw) == 1
-        body = body.replace(raw, '((g_Textures[besttexture].hitTexture != 5) && (g_Textures[besttexture].hitTexture != 6))')
-        # STAN-only source path indexes the element before g_Textures. There
-        # is no portable/native semantic value for those unrelated bytes.
+        body = body.replace(raw, '((ge_original_texture_hit_type_exact(besttexture) != 5) && (ge_original_texture_hit_type_exact(besttexture) != 6))')
         marker = '                recall_joy2_hits_edit_flag(shotdata.weapon, finalpos, besttexture);'
         assert body.count(marker) == 1
-        body = body.replace(marker, '''                if (besttexture < 0)
+        body = body.replace(marker, """                if (ge_original_texture_hit_type_exact(besttexture) < 0)
                 {
                     ge_original_player_held_items_stan_texture_frontier();
                     return;
                 }
 
-''' + marker)
+""" + marker)
         # Same reverse order, without forming a pointer before the array.
         body = body.replace('for (pp = g_LastOnScreenProp; (--pp) >= g_OnScreenPropList;)\n    {',
             'for (pp = g_LastOnScreenProp; pp > g_OnScreenPropList;)\n    {\n        --pp;')
@@ -86,6 +93,7 @@ def generate(repo):
     preamble += [
         '#include "ge_original_bond_input_internal.h"',
         '#include "ge_original_player_held_items.h"',
+        '#include "ge_original_texture_hit_type.h"',
         '#define M_U32_MAX_VALUE_F 4294967296.0f',
         '#define M_U16_MAX_VALUE_F 65536.0f',
         'extern PropRecord *g_OnScreenPropList[];', 'extern PropRecord **g_LastOnScreenProp;',

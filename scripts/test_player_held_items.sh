@@ -20,6 +20,7 @@ if [[ $(uname -s) == Darwin ]]; then strip=(-Wl,-dead_strip); else strip=(-Wl,--
 cc "${flags[@]}" -UPLAYERFLAG -c "${repo_dir}/port/src/ge_original_guard_bullet_hit.c" -o "${test_dir}/hit.o"
 cc "${flags[@]}" "${test_dir}/held.c" "${test_dir}/combat.c" "${test_dir}/support.c" "${test_dir}/hit.o" \
 "${repo_dir}/port/src/ge_original_player_held_items.c" \
+"${repo_dir}/port/src/ge_original_texture_hit_type.c" \
 "${repo_dir}/port/src/ge_original_bond_input_provider.c" \
 "${repo_dir}/port/src/ge_original_stage_objective_photo_exact.c" \
 "${repo_dir}/port/src/random_port.c" "${repo_dir}/src/game/matrixmath.c" \

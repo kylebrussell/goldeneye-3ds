@@ -16,7 +16,10 @@ parts; repeated parts therefore redo the same 160 byte steps.
 
 `cache_placement_hash` reuses only the immediately previous input's placement
 prefix, within the current preparation call. It checks the actual room ID and
-compares all 76 float bytes. Signed zeros remain distinct. Different bank IDs,
+compares all 76 float bytes. Signed zeros remain distinct. An input that invokes
+an opaque mutable-vertex reader cannot supply the next reusable prefix: that
+callback could have changed its borrowed placement. Eligibility is captured
+before invoking the callback. Different bank IDs,
 bank contents, mutable vertices and final input order still undergo the existing
 independent hashing. No pointer or prefix is retained across calls, and no
 allocation, public structure or hash format changes.
@@ -42,6 +45,8 @@ It covers:
   sets, shared and null joint banks, distinct bank lengths, animated matrices,
   mutable vertex bytes and ordered aggregate signatures. Quantized matrix bytes
   match independent double-precision fixed-point conversion.
+- An opaque vertex reader that mutates both adjacent placements and its own
+  callback marker: the next input recomputes the correct prefix.
 - Exactly zero hash byte steps for a reusable prefix, and the original 160
   otherwise. This counter exists only in the test's generated source.
 
@@ -70,7 +75,8 @@ python3 scripts/benchmark_model_publication.py \
 ```
 
 The printed command runs an immutable executable after the integration
-coordinator schedules a quiet window. Its separate source objects execute the
+coordinator schedules a quiet window. The output directory must be new so
+preparation cannot replace an earlier executable/provenance pair. Its separate source objects execute the
 baseline and candidate preparation routines on 192 inputs, eight banks and
 20 bones per bank. It includes same-room, 24-parts-per-room and unique-room
 control cases; seven alternating-order pairs; 2,000 preparations per sample;
@@ -95,3 +101,10 @@ Even a passing emulator route cannot establish physical 60 Hz. Physical CPU/GPU
 work, complete presentation intervals, audio stability and two-eye rendering
 must still pass sustained representative New 3DS XL routes; no device is known
 to be available in this task.
+
+Before route comparisons, also apply the campaign task's native `load.c`
+ADPCM-address and `env.c` signed-slope repairs to both binaries. The ARM32
+offline producer fixture exposed address masking of a valid native pointer;
+low heap addresses can hide that problem. This signature-only source change
+does not fix or depend on the audio producer, and an obsolete audio baseline
+must not be used to claim a game-frame improvement.

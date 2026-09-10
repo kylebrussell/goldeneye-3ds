@@ -91,6 +91,18 @@ static int read_vertex(const void *context, size_t index, GeGbiVertex *vertex)
     return 1;
 }
 
+static int mutate_placement(const void *context, size_t index, GeGbiVertex *vertex)
+{
+    GeOriginalModelSceneInput *inputs = (GeOriginalModelSceneInput *)context;
+    (void)index;
+    memset(vertex, 0, sizeof(*vertex));
+    inputs[0].position[0] = inputs[1].position[0] = 1.0f;
+    /* Invalidate the callback marker itself too: eligibility must have been
+     * decided before the opaque reader runs. */
+    inputs[0].segment4_vertex_count = 0;
+    return 1;
+}
+
 static uint64_t reference_vertex(uint64_t hash, const GeGbiVertex *vertex)
 {
     const uint16_t words[] = {(uint16_t)vertex->x, (uint16_t)vertex->y,
@@ -235,6 +247,23 @@ int main(void)
         }
         assert(signature == aggregate);
     }
+    /* The previous input's callback changes its own and the next placement
+     * to the same new bytes. The next prefix must be freshly computed. */
+    memset(inputs, 0, sizeof(inputs));
+    inputs[0].segment4_vertex_count = 1;
+    inputs[0].segment4_vertices = inputs;
+    inputs[0].segment4_read_vertex = mutate_placement;
+    const uint64_t first_prefix = reference_placement(&inputs[0]);
+    uint64_t signature, ticks;
+    assert(cache_prepare_publication_matrices(&cache, inputs, 2, 27,
+        &signature, &ticks) == GE_ORIGINAL_MODEL_SCENE_OK);
+    GeGbiVertex zero = {0};
+    const uint64_t null_bank = reference_word(UINT64_C(1469598103934665603), 0);
+    const uint64_t expected_first = reference_vertex(reference_word(first_prefix, null_bank), &zero);
+    const uint64_t expected_second = reference_word(reference_placement(&inputs[1]), null_bank);
+    assert(signatures[0] == expected_first && signatures[1] == expected_second);
+    assert(signature == reference_word(reference_word(reference_word(
+        UINT64_C(1469598103934665603), 27), expected_first), expected_second));
     free(cache.quantized_matrices);
     printf("Placement signatures: %zu reused, %zu rebuilt prefixes; %zu complete input signatures match scalar bytes\n",
         reused, rebuilt, publications);

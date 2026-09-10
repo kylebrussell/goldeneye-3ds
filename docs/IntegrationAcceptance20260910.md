@@ -113,8 +113,11 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   [HLE LoadComponent](https://github.com/azahar-emu/azahar/blob/2126.0/src/audio_core/hle/hle.cpp#L470)
   ignores DSP program bytes; any explicit private marker experiment is
   emulator-only. No marker belongs in a physical candidate or proves physical
-  NDSP acceptance. The runner is adding an explicit, recorded HLE path while
-  retaining separate validation for user-provided real component files.
+  NDSP acceptance. The runner now provides an explicit, recorded HLE path and
+  separate validation for user-provided nonempty component files. The package
+  accepts an optional nonempty component, preserves its identity, and rejects
+  the emulator marker; component identity alone does not establish hardware
+  compatibility. See [the DSP prerequisite](PrivateCandidateDspPrerequisite.md).
 
 - The subsequent explicit Azahar HLE audio smoke completed 600 gameplay frames
   on the same frozen `952af929` executable. Every recorded pipeline row had
@@ -129,3 +132,30 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   makes the new sanitizer regression fail. The original model/guard fixtures
   cover 74 models, 665 guards across 21 stages, 300 hats and two/four-player
   hand/drop/reuse cases. These fixtures still do not establish a live match.
+
+- Multiplayer asset regeneration ran twice against the verified canonical US
+  ROM and a locked converter/source inventory. Both runs produced the same
+  93,229,728-byte, 14,680-entry pack, SHA-256
+  `5fc14fae6e53a975c0b09162ee2a52e2355828b47ba58a4cbf807ce73df0221c`.
+  The 1,690 regenerated character/arena entries passed independent extraction
+  checks; 12,990 inherited payloads remained byte-identical. The two receipts,
+  source lock, logs and previous pack are retained privately under
+  `build/integration/assets-regeneration`. This establishes fresh conversion
+  for the regenerated families, while inherited texture/runtime conversion
+  provenance remains unknown. See [asset regeneration](MultiplayerAssetRegeneration.md).
+- A pure typed state codec and stable lifetime registry are integrated, with
+  an independent Python wire/hash oracle, SHA-256 known vectors, adversarial
+  bounds/reference checks and strict ARM compilation. The codec deliberately
+  provides no native collection, restore or live tick hook. Its completeness
+  flag is an adapter attestation, not automatic discovery of native globals;
+  native state coverage and live synchronization remain required. See
+  [the codec contract](MultiplayerStateCodec20260910.md).
+- The failed Dam route exposed diagnostic controller defects: yaw was mapped
+  to the HONEY layout's strafe stick, and pitch had the wrong world-camera
+  sign. Corrected helpers passed a regression through the actual input/joy,
+  HONEY decoder, vertical acceleration and original camera producers for both
+  inversion settings. A fresh forced build at `f73ee750` passed, with executable
+  SHA-256 `399abb822348960a5f2e3301e274b442397e30ba107f02f5fd0e96314d92f6ec`.
+  This is build and controller regression evidence; the identical-route rerun
+  has not yet supplied a completed mission result. See
+  [Dam route triage](DamControllerRouteTriage.md).

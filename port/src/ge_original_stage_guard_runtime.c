@@ -15,6 +15,8 @@ typedef int PLAYERFLAG;
 #include "ge_original_default_object_internal.h"
 #include "ge_original_stage_guard_actor.h"
 #include "ge_original_global_ai.h"
+#include "ge_original_gameplay_services.h"
+#include "game/propobj.h"
 #include "random.h"
 
 #include <math.h>
@@ -51,6 +53,7 @@ typedef struct GeOriginalStageGuardWeaponSlot {
     RenderPosView *render_positions;
     GeOriginalStageGuardSlot *owner;
     size_t next_owner_index;
+    uint32_t generation;
 } GeOriginalStageGuardWeaponSlot;
 
 typedef struct GeOriginalStageGuardHatSlot {
@@ -73,8 +76,6 @@ typedef struct GeOriginalStagePlayerBodySlot {
     int32_t player_head_id;
     uint8_t player_pair_ready;
     uint8_t player_matrices_ready;
-    GeOriginalStageGuardWeaponSlot player_weapon;
-    uint8_t player_weapon_ready;
     struct player *player_owner;
     PropRecord *player_prop;
     ChrRecord chr;
@@ -121,6 +122,9 @@ struct GeOriginalStageGuardRuntime {
     float matrix_failure_camera[32];
     float matrix_failure_model[32];
     GeOriginalStagePlayerBodySlot players[4];
+    GeOriginalStageGuardWeaponSlot player_items[GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY];
+    size_t player_item_next;
+    uint32_t player_item_generation;
     struct player *view_player;
     uint8_t view_first_person;
 };
@@ -376,32 +380,81 @@ static Model *runtime_live_player_body(
     return model;
 }
 
-static GeOriginalStageGuardWeaponSlot *runtime_live_player_weapon(
-    GeOriginalStageGuardRuntime *runtime,GeOriginalStagePlayerBodySlot *body_slot)
+static int runtime_player_item_live(const GeOriginalStageGuardWeaponSlot *slot)
 {
-    GeOriginalStageGuardWeaponSlot *slot;ChrRecord *chr;int hand;
-    if(runtime_live_player_body(runtime,body_slot,NULL)==NULL
-            ||!body_slot->player_weapon_ready)return NULL;
-    slot=&body_slot->player_weapon;chr=body_slot->player_prop->chr;
-    hand=slot->state.hand;
-    if(hand<GUNRIGHT||hand>GUNLEFT||slot->prop==NULL||slot->model==NULL
-            ||slot->weapon.prop!=slot->prop||slot->weapon.model!=slot->model
-            ||slot->prop->type!=PROP_TYPE_WEAPON
-            ||slot->prop->obj!=(ObjectRecord *)(void *)&slot->weapon
-            ||slot->prop->parent!=body_slot->player_prop
-            ||chr->weapons_held[hand]!=slot->prop)return NULL;
-    return slot;
+    return slot!=NULL&&slot->prop!=NULL&&slot->model!=NULL
+        &&slot->weapon.prop==slot->prop&&slot->weapon.model==slot->model
+        &&slot->prop->type==PROP_TYPE_WEAPON
+        &&slot->prop->obj==(const ObjectRecord *)(const void *)&slot->weapon
+        &&slot->model->obj!=NULL;
 }
 
-static void runtime_release_player_weapon(
-    GeOriginalStageGuardRuntime *runtime,GeOriginalStagePlayerBodySlot *body_slot)
+static GeOriginalStageGuardWeaponSlot *runtime_live_player_weapon(
+    GeOriginalStageGuardRuntime *runtime,GeOriginalStagePlayerBodySlot *body_slot,
+    int hand)
 {
-    if(runtime==NULL)return;
-    if(runtime->weapon_models!=NULL&&body_slot->player_weapon.model!=NULL)
-        (void)ge_original_pitem_model_release_instance(
-            runtime->weapon_models,body_slot->player_weapon.model);
-    memset(&body_slot->player_weapon,0,sizeof(body_slot->player_weapon));
-    body_slot->player_weapon_ready=0U;
+    PropRecord *prop;
+    if(hand<GUNRIGHT||hand>GUNLEFT
+            ||runtime_live_player_body(runtime,body_slot,NULL)==NULL)return NULL;
+    prop=body_slot->player_prop->chr->weapons_held[hand];
+    if(prop==NULL)return NULL;
+    for(size_t index=0U;index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++index){
+        GeOriginalStageGuardWeaponSlot *slot=&runtime->player_items[index];
+        if(slot->prop==prop&&runtime_player_item_live(slot)
+                &&prop->parent==body_slot->player_prop)return slot;
+    }
+    return NULL;
+}
+
+static void runtime_release_player_item(
+    GeOriginalStageGuardRuntime *runtime,GeOriginalStageGuardWeaponSlot *slot)
+{
+    if(runtime->weapon_models!=NULL&&slot->model!=NULL)
+        (void)ge_original_pitem_model_release_instance(runtime->weapon_models,slot->model);
+    memset(slot,0,sizeof(*slot));
+}
+
+static void runtime_reap_player_items(GeOriginalStageGuardRuntime *runtime)
+{
+    for(size_t index=0U;index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++index){
+        GeOriginalStageGuardWeaponSlot *slot=&runtime->player_items[index];
+        /* objFree leaves the canonical stable weapon record's prop NULL.
+         * A dropped weapon still has a prop and must retain its native model. */
+        if(slot->model!=NULL&&slot->weapon.prop==NULL)
+            runtime_release_player_item(runtime,slot);
+    }
+}
+
+ChrRecord *ge_original_stage_guard_runtime_chr_pool(
+    GeOriginalStageGuardRuntime *runtime,size_t *capacity)
+{
+    if(capacity!=NULL)*capacity=runtime!=NULL?runtime->capacity:0U;
+    return runtime!=NULL?runtime->chrs:NULL;
+}
+
+size_t ge_original_stage_guard_runtime_player_item_count(
+    const GeOriginalStageGuardRuntime *runtime)
+{
+    size_t count=0U;
+    if(runtime!=NULL)for(size_t i=0U;i<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++i)
+        count+=runtime_player_item_live(&runtime->player_items[i]);
+    return count;
+}
+
+int ge_original_stage_guard_runtime_player_item_snapshot(
+    const GeOriginalStageGuardRuntime *runtime,size_t slot_index,
+    GeOriginalStagePlayerItemSnapshot *snapshot)
+{
+    const GeOriginalStageGuardWeaponSlot *slot;
+    if(runtime==NULL||snapshot==NULL||slot_index>=GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY)
+        return 0;
+    slot=&runtime->player_items[slot_index];
+    if(!runtime_player_item_live(slot))return 0;
+    memset(snapshot,0,sizeof(*snapshot));snapshot->item=slot->state;
+    snapshot->generation=slot->generation;
+    snapshot->attached=slot->prop->parent!=NULL;
+    snapshot->pending_removal=(slot->weapon.runtime_bitflags&(1U<<2))!=0U;
+    return 1;
 }
 
 /* ChrRecords are stable for the stage lifetime, but their PropRecords are
@@ -491,6 +544,8 @@ GeOriginalStageGuardRuntime *ge_original_stage_guard_runtime_create(
             if(services!=NULL)runtime->services=*services;
             runtime->last_status=local;
             ge_active_stage_guard_runtime=runtime;
+            ge_original_gameplay_services_bind_player_items(runtime,
+                ge_original_stage_guard_runtime_create_player_item);
         }
     }
     if(status!=NULL)*status=local;
@@ -515,6 +570,20 @@ void ge_original_stage_guard_runtime_destroy(
             cursor=cursor->next;
         }
     }
+    for(index=0U;index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++index){
+        GeOriginalStageGuardWeaponSlot *item=&runtime->player_items[index];
+        if(runtime_player_item_live(item)){
+            if(item->prop->parent==NULL){
+                PropRecord *cursor=g_ActivePropsHead;size_t visited=0U;
+                while(cursor!=NULL&&visited++<MAX_PROPS){
+                    if(cursor==item->prop){chrpropDelist(cursor);break;}
+                    cursor=cursor->next;
+                }
+            }
+            objFreePermanently((ObjectRecord *)(void *)&item->weapon,
+                item->prop!=&item->fallback_prop);
+        }
+    }
     for(index=0U;index<4U;++index){
         GeOriginalStagePlayerBodySlot *body_slot=&runtime->players[index];
         if(body_slot->player_owner!=NULL&&body_slot->player_prop!=NULL){
@@ -527,11 +596,12 @@ void ge_original_stage_guard_runtime_destroy(
                     ==body_slot->player_pair.model_instance)
                 body_slot->player_owner->bodyModel=NULL;
         }
-        runtime_release_player_weapon(runtime,body_slot);
         ge_original_stage_guard_actor_pool_end(&body_slot->chr);
     }
-    if(ge_active_stage_guard_runtime==runtime)
-        ge_active_stage_guard_runtime=NULL;
+    ge_original_gameplay_services_unbind_player_items(runtime);
+    if(ge_active_stage_guard_runtime==runtime)ge_active_stage_guard_runtime=NULL;
+    for(index=0U;index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++index)
+        runtime_release_player_item(runtime,&runtime->player_items[index]);
     if(runtime->weapon_models!=NULL)for(index=0U;index<runtime->weapon_count;++index)
         if(runtime->weapons[index].model!=NULL)
             (void)ge_original_pitem_model_release_instance(
@@ -561,9 +631,7 @@ int ge_original_stage_guard_runtime_load_player_body(
     if(metadata.has_integrated_head)head_id=-1;
     body_slot=runtime_player_slot(runtime,player,1);
     if(body_slot==NULL)return 0;
-    if(body_slot->player_weapon_ready
-            &&runtime_live_player_weapon(runtime,body_slot)==NULL)
-        runtime_release_player_weapon(runtime,body_slot);
+    runtime_reap_player_items(runtime);
     body_slot->player_matrices_ready=0U;
     if(player->prop->chr!=NULL){
         self=player->prop->chr;
@@ -620,30 +688,57 @@ int ge_original_stage_guard_runtime_attach_player_held_item(
     int32_t item_id,uint32_t flags)
 {
     GeOriginalStageGuardRuntime *runtime=context;
-    GeOriginalStageGuardWeaponSlot *slot;ChrRecord *chr;
     GeOriginalStagePlayerBodySlot *body_slot=runtime_player_slot(runtime,player,0);
+    const int hand=(flags&PROPFLAG_WEAPON_LEFTHANDED)!=0U?GUNLEFT:GUNRIGHT;
+    PropRecord *prop=NULL;GeOriginalStageGuardWeaponSlot *live;
+    if(body_slot==NULL||runtime_live_player_body(runtime,body_slot,NULL)==NULL)return 0;
+    live=runtime_live_player_weapon(runtime,body_slot,hand);
+    if(live!=NULL)return live->state.model_id==prop_id&&live->state.weapon_id==item_id;
+    return ge_original_stage_guard_runtime_create_player_item(runtime,
+        player->prop->chr,prop_id,item_id,flags,&prop)&&prop!=NULL;
+}
+
+int ge_original_stage_guard_runtime_create_player_item(
+    void *context,ChrRecord *chr,int32_t prop_id,int32_t item_id,
+    uint32_t flags,PropRecord **created)
+{
+    GeOriginalStageGuardRuntime *runtime=context;
+    GeOriginalStagePlayerBodySlot *body_slot=NULL;
+    GeOriginalStageGuardWeaponSlot *slot=NULL;
     ObjectRecord *object;void *header=NULL,*model=NULL;float pitem_scale=0.0f;
     int hand=(flags&PROPFLAG_WEAPON_LEFTHANDED)!=0U?GUNLEFT:GUNRIGHT;
     size_t axis;
-    if(runtime==NULL||player==NULL||runtime->weapon_models==NULL
-            ||body_slot==NULL
-            ||runtime_live_player_body(runtime,body_slot,NULL)==NULL)return 0;
-    slot=&body_slot->player_weapon;chr=body_slot->player_prop->chr;
-    if(body_slot->player_weapon_ready){
-        GeOriginalStageGuardWeaponSlot *live=
-            runtime_live_player_weapon(runtime,body_slot);
-        return live!=NULL&&live->state.model_id==prop_id
-            &&live->state.weapon_id==item_id
-            &&live->state.hand==(uint8_t)hand;
+    if(created==NULL)return 0;
+    *created=NULL;
+    if(runtime==NULL||chr==NULL)return 0;
+    for(size_t index=0U;index<4U;++index)
+        if(chr==&runtime->players[index].chr){body_slot=&runtime->players[index];break;}
+    if(body_slot==NULL)return 0;
+    if(runtime->weapon_models==NULL||runtime_live_player_body(runtime,body_slot,NULL)==NULL)
+        return 1;
+    if((flags&PROPFLAG_CONCEAL_GUN)==0U
+            &&(chr->weapons_held[hand]!=NULL||chr->model->obj==NULL
+                ||chr->model->obj->numSwitches<=(hand==GUNLEFT?5:3)
+                ||chr->model->obj->Switches[hand==GUNLEFT?5:3]==NULL))return 1;
+    runtime_reap_player_items(runtime);
+    /* Canonical weaponCreate fresh-slot ring; live dropped objects retain
+     * their records. Capacity failure never steals an equipped weapon. */
+    for(size_t n=0U;n<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++n){
+        size_t index=(runtime->player_item_next+n)%GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;
+        if(runtime->player_items[index].weapon.prop==NULL){
+            slot=&runtime->player_items[index];
+            runtime->player_item_next=(index+1U)%GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;
+            break;
+        }
     }
-    if(chr==NULL||chr->model==NULL||chr->model->obj==NULL
-            ||chr->model->obj->numSwitches<=(hand==GUNLEFT?5:3)
-            ||chr->model->obj->Switches[hand==GUNLEFT?5:3]==NULL)
-        return 0;
+    if(slot==NULL){runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_CAPACITY_EXHAUSTED;return 1;}
     if(!ge_original_pitem_model_resolve_instance(runtime->weapon_models,
             prop_id,&header,&model,&pitem_scale)
-            ||header==NULL||model==NULL)return 0;
+            ||header==NULL||model==NULL){
+        runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_WEAPON_UNAVAILABLE;return 1;
+    }
     memset(slot,0,sizeof(*slot));slot->header=header;slot->model=model;
+    slot->generation=++runtime->player_item_generation;
     slot->render_positions=((Model *)model)->render_pos;
     slot->prop=runtime_allocate_prop(runtime,&slot->fallback_prop);
     if(slot->prop==NULL)goto fail;
@@ -671,16 +766,13 @@ int ge_original_stage_guard_runtime_attach_player_held_item(
     slot->state.weapon_id=item_id;slot->state.hand=(uint8_t)hand;
     slot->state.model_instance=model;slot->state.prop_record=slot->prop;
     slot->state.weapon_record=&slot->weapon;
-    body_slot->player_weapon_ready=1U;
+    *created=slot->prop;
     runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK;return 1;
 fail:
-    if(slot->prop!=NULL&&slot->prop!=&slot->fallback_prop)
-        chrpropFree(slot->prop);
-    (void)ge_original_pitem_model_release_instance(
-        runtime->weapon_models,model);
+    if(slot->prop!=NULL&&slot->prop!=&slot->fallback_prop)chrpropFree(slot->prop);
+    if(model!=NULL)(void)ge_original_pitem_model_release_instance(runtime->weapon_models,model);
     memset(slot,0,sizeof(*slot));
-    runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_WEAPON_UNAVAILABLE;
-    return 0;
+    runtime->last_status=GE_ORIGINAL_STAGE_GUARD_RUNTIME_WEAPON_UNAVAILABLE;return 1;
 }
 
 /* Native allocation owner for the unchanged chrSpawnAtPad/chrSpawnAtChr
@@ -1855,6 +1947,9 @@ ge_original_stage_guard_runtime_update_matrices(
             hat->state.matrices_ready=1U;
         }
     }
+    runtime_reap_player_items(runtime);
+    for(size_t item_index=0U;item_index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++item_index)
+        runtime->player_items[item_index].state.matrices_ready=0U;
     for(size_t player_index=0U;player_index<4U;++player_index){
         GeOriginalStagePlayerBodySlot *body_slot=&runtime->players[player_index];
         body_slot->player_matrices_ready=0U;
@@ -1864,16 +1959,18 @@ ge_original_stage_guard_runtime_update_matrices(
             uint8_t room_id;
             model=runtime_live_player_body(runtime,body_slot,&room_id);
             if (model != NULL && !runtime_room_resident(runtime, room_id)) {
-                GeOriginalStageGuardWeaponSlot *weapon = runtime_live_player_weapon(runtime,body_slot);
                 if (runtime_retain_matrices(model, body_slot->player_render_positions,
                         body_slot->player_pair.matrix_count) < 0)
                     return runtime_matrix_failed(runtime, __LINE__, runtime->count);
-                if (weapon != NULL
+                for(int hand=GUNRIGHT;hand<=GUNLEFT;++hand){
+                    GeOriginalStageGuardWeaponSlot *weapon=runtime_live_player_weapon(runtime,body_slot,hand);
+                    if (weapon != NULL
                         && (weapon->model->obj == NULL
                             || weapon->model->obj->numMatrices <= 0
                             || runtime_retain_matrices(weapon->model, weapon->render_positions,
                                 (size_t)weapon->model->obj->numMatrices) < 0))
-                    return runtime_matrix_failed(runtime, __LINE__, runtime->count);
+                        return runtime_matrix_failed(runtime, __LINE__, runtime->count);
+                }
             }
             if(model!=NULL&&runtime_room_resident(runtime,room_id)){
                 if(model->obj==NULL||model->render_pos==NULL
@@ -1899,10 +1996,9 @@ ge_original_stage_guard_runtime_update_matrices(
                 body_slot->player_matrices_ready=1U;
             }
         }
-        body_slot->player_weapon.state.matrices_ready=0U;
-        if(body_slot->player_matrices_ready){
+        for(int hand=GUNRIGHT;hand<=GUNLEFT;++hand)if(body_slot->player_matrices_ready){
             GeOriginalStageGuardWeaponSlot *weapon=
-                runtime_live_player_weapon(runtime,body_slot);
+                runtime_live_player_weapon(runtime,body_slot,hand);
             if(weapon!=NULL){
                 Model *body=body_slot->player_pair.model_instance;
                 ModelRenderData renderdata;Mtxf *attachment;Mtxf left_rotation;
@@ -2165,15 +2261,24 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
                     runtime->models,model);
             input_count+=parts;
             if(parts>maximum_character_parts)maximum_character_parts=parts;
-            {
+            for(int hand=GUNRIGHT;hand<=GUNLEFT;++hand){
                 GeOriginalStageGuardWeaponSlot *weapon=
-                    runtime_live_player_weapon(runtime,body_slot);
+                    runtime_live_player_weapon(runtime,body_slot,hand);
                 if(weapon!=NULL&&weapon->state.matrices_ready)
                     input_count+=
                         ge_original_pitem_model_instance_scene_part_count(
                             runtime->weapon_models,weapon->model);
             }
         }
+    }
+    for(size_t item_index=0U;item_index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++item_index){
+        GeOriginalStageGuardWeaponSlot *item=&runtime->player_items[item_index];
+        if(runtime_player_item_live(item)&&item->prop->parent==NULL
+                &&(item->prop->flags&PROPFLAG_ENABLED)!=0U
+                &&item->prop->rooms[0]!=UINT8_MAX
+                &&runtime_room_resident(runtime,item->prop->rooms[0]))
+            input_count+=ge_original_pitem_model_instance_scene_part_count(
+                runtime->weapon_models,item->model);
     }
     if(input_count>workspace->scene_input_capacity){
         GeOriginalModelSceneInput *candidate;
@@ -2313,9 +2418,9 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
                 for(row=0U;row<4U;++row)for(column=0U;column<4U;++column)
                     input->matrix[row][column]=view_to_world[row][column];
             }
-            {
+            for(int hand=GUNRIGHT;hand<=GUNLEFT;++hand){
                 GeOriginalStageGuardWeaponSlot *weapon=
-                    runtime_live_player_weapon(runtime,body_slot);
+                    runtime_live_player_weapon(runtime,body_slot,hand);
                 size_t weapon_parts,weapon_part;
                 if(weapon!=NULL&&weapon->state.matrices_ready){
                     weapon_parts=
@@ -2348,6 +2453,28 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
                     }
                 }
             }
+        }
+    }
+    /* objDrop owns placement, activation and rooms. Detached player items use
+     * the same object matrix/runtime_pos transform as ordinary stage props. */
+    for(size_t item_index=0U;item_index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++item_index){
+        GeOriginalStageGuardWeaponSlot *item=&runtime->player_items[item_index];
+        if(!runtime_player_item_live(item)||item->prop->parent!=NULL
+                ||(item->prop->flags&PROPFLAG_ENABLED)==0U
+                ||item->prop->rooms[0]==UINT8_MAX
+                ||!runtime_room_resident(runtime,item->prop->rooms[0]))continue;
+        size_t parts=ge_original_pitem_model_instance_scene_part_count(
+            runtime->weapon_models,item->model);
+        for(size_t part_index=0U;part_index<parts;++part_index){
+            GeOriginalPitemModelScenePart part;GeOriginalModelSceneInput *input;
+            if(input_index>=input_count||!ge_original_pitem_model_instance_scene_part(
+                    runtime->weapon_models,item->model,part_index,&part))goto fail;
+            input=&inputs[input_index++];input->blob=part.blob;
+            input->blob_size=part.blob_size;input->primary_offset=part.primary_offset;
+            input->secondary_offset=part.secondary_offset;input->segment4_offset=part.segment4_offset;
+            input->room_id=item->prop->rooms[0];input->world_zbuffer_enabled=1U;
+            memcpy(input->matrix,item->weapon.mtx.m,sizeof(input->matrix));
+            memcpy(input->position,item->weapon.runtime_pos.f,sizeof(input->position));
         }
     }
     if(input_index!=input_count)goto fail;

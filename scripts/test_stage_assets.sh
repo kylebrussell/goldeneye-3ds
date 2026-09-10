@@ -364,6 +364,8 @@ done
 
 python3 "${repo_dir}/scripts/generate_move_model_tables.py" \
     "${repo_dir}" "${test_dir}/ge_original_move_model_tables.c"
+python3 "${repo_dir}/scripts/extract_player_item_lifecycle_fixture.py" \
+    "${repo_dir}" "${test_dir}/ge_player_item_lifecycle_fixture.c"
 python3 "${repo_dir}/scripts/extract_stage_guard_actor_slice.py" \
     "${repo_dir}" "${test_dir}/ge_original_stage_guard_actor_slice.c"
 python3 "${repo_dir}/scripts/extract_global_ai_lists.py" \
@@ -530,6 +532,9 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
     -idirafter "${repo_dir}/include/PR" -idirafter "${repo_dir}/src" \
     -iquote "${repo_dir}" \
     "${repo_dir}/port/tests/test_ge_original_stage_guard_runtime.c" \
+    "${repo_dir}/port/tests/ge_player_item_lifecycle_services.c" \
+    "${repo_dir}/port/src/random_port.c" \
+    "${test_dir}/ge_player_item_lifecycle_fixture.c" \
     "${test_dir}/ge_original_stage_guard_dynamic_spawn_slice.c" \
     "${repo_dir}/port/src/ge_original_stage_guard_runtime.c" \
     "${repo_dir}/port/src/ge_original_stage_guard_actor.c" \

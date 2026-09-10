@@ -11,6 +11,10 @@
 #include <stdint.h>
 
 struct player;
+struct ChrRecord;
+struct PropRecord;
+
+#define GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY 30U
 
 typedef struct GeOriginalStageGuardRuntime GeOriginalStageGuardRuntime;
 
@@ -229,6 +233,28 @@ int ge_original_stage_guard_runtime_load_player_body(
 int ge_original_stage_guard_runtime_attach_player_held_item(
     void *context, struct player *player, int32_t prop_id,
     int32_t item_id, uint32_t flags);
+/* Resource boundary used by canonical gun raise and drop_inventory. All
+ * records keep stable addresses while attached or dropped. Object cleanup,
+ * never losing hand ownership, makes their resource slots reusable. */
+int ge_original_stage_guard_runtime_create_player_item(
+    void *context, struct ChrRecord *chr, int32_t model_id,
+    int32_t item_id, uint32_t flags, struct PropRecord **prop);
+typedef struct GeOriginalStagePlayerItemSnapshot {
+    GeOriginalStageGuardWeaponSnapshot item;
+    uint32_t generation;
+    uint8_t attached;
+    uint8_t pending_removal;
+} GeOriginalStagePlayerItemSnapshot;
+/* Canonical guard allocator pool, including its reserved dynamic slots.
+ * VIEWER player ChrRecords live separately and never consume guard slots. */
+struct ChrRecord *ge_original_stage_guard_runtime_chr_pool(
+    GeOriginalStageGuardRuntime *runtime,size_t *capacity);
+
+size_t ge_original_stage_guard_runtime_player_item_count(
+    const GeOriginalStageGuardRuntime *runtime);
+int ge_original_stage_guard_runtime_player_item_snapshot(
+    const GeOriginalStageGuardRuntime *runtime, size_t slot_index,
+    GeOriginalStagePlayerItemSnapshot *snapshot);
 
 /* Installs this runtime as the generic materializer's exact GUARD service. */
 int ge_original_stage_guard_runtime_materializer(

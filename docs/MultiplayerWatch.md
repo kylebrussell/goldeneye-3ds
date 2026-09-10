@@ -46,9 +46,10 @@ from values >=2 toward 1. Source calls pass FALSE (immediate results); the exact
 TRUE branch's 300 NTSC ticks are tested separately. Every player's native menu
 must reach `MENU_FINISHED` before `bossSetLoadedStage(LEVELID_TITLE)`. The existing
 boss snapshot exposes that request. Exiting the outer loop at END_RESULTS would
-skip native acknowledgement and is an integration error. This module does not
-implement menu drawing: native text/award/menu state and localized content must
-be presented by the UI owner. It does not claim an end-to-end playable UI.
+skip native acknowledgement and is an integration error. Read-only native menu presentation is provided by the separate
+[watch renderer](MultiplayerWatchRender.md); the runtime tick remains the sole
+menu/input/awards owner. UI upload and main-loop continuation are integration
+boundaries and require separate full-match validation.
 
 Kind0 schema v3 reads actual who/glow/alternate/mode/count/favorites. No reset
 normalizes their previous-match history. Other native ownership gaps keep the

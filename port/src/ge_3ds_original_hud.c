@@ -1,4 +1,5 @@
 #include "ge_3ds_original_hud.h"
+#include "ge_original_multiplayer_watch_render.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -144,7 +145,7 @@ static int ge_build_atlas(Ge3dsOriginalHudAtlas *atlas,
         if (y + height + 1U > GE_3DS_ORIGINAL_HUD_ATLAS_HEIGHT)
             return 0;
         glyph->baseline =
-            (uint8_t)font_chartable[word + 1U];
+            (int8_t)(int32_t)font_chartable[word + 1U];
         glyph->height = (uint8_t)height;
         glyph->width = (uint8_t)width;
         glyph->kerning_index =
@@ -1549,4 +1550,87 @@ const char *ge_3ds_original_frontend_sprite_resource(uint8_t image)
     if ((size_t)image >= sizeof(resources) / sizeof(resources[0]))
         return NULL;
     return resources[image];
+}
+
+/* ASCII horizontal Bank Gothic realization of textRender/GlyphOutlined.
+ * The source emits eight outline neighbours per glyph before its centre.
+ * Font measurement and menu layout already ran in the source capture. */
+static int ge_mp_watch_glyph(const Ge3dsOriginalHudAtlas *atlas,
+    const GeOriginalMultiplayerWatchRenderSnapshot *snapshot,
+    const GeOriginalMultiplayerWatchTextDraw *d,const Ge3dsOriginalHudGlyph *glyph,
+    int x,int y,uint32_t rgba,float offset_x,float offset_y,
+    Ge3dsOriginalHudDrawList *out,size_t *vertices)
+{
+    float left=(float)x,top=(float)(y+glyph->baseline);
+    float right=left+glyph->width,bottom=top+glyph->height;
+    /* Native glyph quads omit horizontal partials; clip vertical texture
+     * coordinates exactly, then apply the surrounding player VI scissor. */
+    if(right>d->x+d->width || bottom<d->y || top>d->y+d->height)return 1;
+    float clipped_left=fmaxf(left,(float)snapshot->viewport.left);
+    float clipped_top=fmaxf(fmaxf(top,(float)d->y),(float)snapshot->viewport.top);
+    float clipped_right=fminf(right,(float)(snapshot->viewport.left+snapshot->viewport.width));
+    float clipped_bottom=fminf(fminf(bottom,(float)(d->y+d->height)),
+        (float)(snapshot->viewport.top+snapshot->viewport.height));
+    if(clipped_left>=clipped_right || clipped_top>=clipped_bottom)return 1;
+    float u0=(glyph->atlas_x+clipped_left-left)/(float)GE_3DS_ORIGINAL_HUD_ATLAS_WIDTH;
+    float v0=1.0f-(glyph->atlas_y+clipped_top-top)/(float)GE_3DS_ORIGINAL_HUD_ATLAS_HEIGHT;
+    float u1=(glyph->atlas_x+clipped_right-left)/(float)GE_3DS_ORIGINAL_HUD_ATLAS_WIDTH;
+    float v1=1.0f-(glyph->atlas_y+clipped_bottom-top)/(float)GE_3DS_ORIGINAL_HUD_ATLAS_HEIGHT;
+    (void)atlas;
+    if(!ge_emit_quad(out,vertices,clipped_left+offset_x,clipped_top+offset_y,
+        clipped_right+offset_x,clipped_bottom+offset_y,u0,v0,u1,v1,
+        (float)(rgba>>24)/255.0f,(float)((rgba>>16)&255)/255.0f,
+        (float)((rgba>>8)&255)/255.0f,(float)(rgba&255)/255.0f))return 0;
+    ++out->glyph_count;return 1;
+}
+int ge_3ds_original_multiplayer_watch_build_draw_list(const Ge3dsOriginalHudAtlas *atlas,
+    const GeOriginalMultiplayerWatchRenderSnapshot *snapshot,float offset_x,float offset_y,
+    Ge3dsOriginalHudDrawList *out)
+{
+    size_t vertices=0;
+    if(!out)return 0;
+    ge_hud_draw_list_reset(out);
+    if(!atlas || !atlas->ready || !snapshot || snapshot->count>GE_ORIGINAL_MP_WATCH_DRAW_CAPACITY
+        || !isfinite(offset_x) || !isfinite(offset_y))return 0;
+    const GeOriginalMultiplayerWatchViewport *v=&snapshot->viewport;
+    if(v->screen_width<=0||v->screen_width>4096||v->screen_height<=0||v->screen_height>4096
+        ||v->left<0||v->top<0||v->width<=0||v->height<=0||v->left>v->screen_width
+        ||v->top>v->screen_height||v->width>v->screen_width-v->left||v->height>v->screen_height-v->top
+        ||v->text_spacing<-16||v->text_spacing>16||v->overlap_correction<-1||v->overlap_correction>128)return 0;
+    for(unsigned i=0;i<snapshot->count;++i) {
+        const GeOriginalMultiplayerWatchTextDraw *d=&snapshot->draws[i];
+        int x=d->x,y=d->y;unsigned previous='H';
+        if(!memchr(d->text,0,sizeof(d->text))||d->x<-16384||d->x>16384||d->y<-16384||d->y>16384
+            ||d->width<0||d->width>4096||d->height<0||d->height>4096||d->lineheight<0||d->lineheight>256
+            ||d->y_offset<-256||d->y_offset>256||d->outlined>1)goto invalid;
+        for(const unsigned char *p=(const unsigned char *)d->text;*p;++p) {
+            if(*p==' '){x+=5;previous='H';continue;}
+            if(*p=='\n'){
+                previous='H';
+                y+=(!d->outlined&&snapshot->viewport.overlap_correction>=0&&x==d->x)
+                    ?snapshot->viewport.overlap_correction:d->lineheight;
+                x=d->x;continue;
+            }
+            if(*p<0x21 || *p>0x7e)goto invalid;
+            const Ge3dsOriginalHudGlyph *g=&atlas->glyphs[*p-0x21],*prior=&atlas->glyphs[previous-0x21];
+            if(g->kerning_index>=13 || prior->kerning_index>=13||!g->width||g->width>15||!g->height||g->height>15
+                ||g->atlas_x+g->width>GE_3DS_ORIGINAL_HUD_ATLAS_WIDTH
+                ||g->atlas_y+g->height>GE_3DS_ORIGINAL_HUD_ATLAS_HEIGHT)goto invalid;
+            x-=atlas->kerning[prior->kerning_index*13+g->kerning_index]+snapshot->viewport.text_spacing-1;
+            int draw_y=y+d->y_offset;
+            if(x>0&&x<=snapshot->viewport.screen_width&&draw_y+g->baseline<=snapshot->viewport.screen_height
+                &&x<=d->x+d->width&&draw_y+g->baseline<=d->y+d->height
+                &&x>=d->x&&draw_y+g->baseline+g->height>=d->y) {
+                if(d->outlined)for(int dx=-1;dx<2;++dx)for(int dy=-1;dy<2;++dy)
+                    if((dx||dy)&&!ge_mp_watch_glyph(atlas,snapshot,d,g,x+dx,draw_y+dy,d->outline_rgba,
+                        offset_x,offset_y,out,&vertices))goto invalid;
+                if(!ge_mp_watch_glyph(atlas,snapshot,d,g,x,draw_y,d->rgba,
+                    offset_x,offset_y,out,&vertices))goto invalid;
+            }
+            x+=g->width;previous=*p;
+        }
+    }
+    out->glyph_vertex_count=vertices;out->visible=vertices!=0;return 1;
+invalid:
+    ge_hud_draw_list_reset(out);return 0;
 }

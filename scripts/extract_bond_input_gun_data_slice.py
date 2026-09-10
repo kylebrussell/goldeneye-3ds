@@ -79,6 +79,37 @@ def find_initialized_global(source: str, declaration: str) -> str:
     raise ValueError(f"unterminated initializer: {declaration}")
 
 
+def watch_metadata(root: Path, model: str | None) -> str:
+    """Read all original named scalar watch fields; preserve model/stats above."""
+    def split(text):
+        fields=[];depth=0;start=0
+        for i,c in enumerate(text):
+            if c=='(':depth+=1
+            elif c==')':depth-=1
+            elif c==',' and depth==0:fields.append(text[start:i].strip());start=i+1
+        fields.append(text[start:].strip());return fields
+    table=(root/'assets/obseg/gun/gunModelFileRecord.inc.c').read_text()
+    if model is None:
+        body=table[table.index('{',table.index('{')+1)+1:];values=split(body[:body.index('}')])[4:]
+    else:
+        if model=='suit_lf_hand':body=table[table.index('SUIT_LFRECORD(')+len('SUIT_LFRECORD('):]
+        else:
+            source=(root/f'assets/obseg/gun/{model}/gunFileRecord.inc.c').read_text()
+            body=source[source.index('GUNFILERECORD(')+len('GUNFILERECORD('):]
+        depth=1
+        for i,c in enumerate(body):
+            if c=='(':depth+=1
+            elif c==')':
+                depth-=1
+                if depth==0:body=body[:i];break
+        values=split(body)[3:]
+    names=('upper_watch_text','lower_watch_text','watch_pos_x','watch_pos_y','watch_pos_z',
+           'x_rotation','y_rotation','weapon_of_choice_text','watch_equipment_text',
+           'equip_watch_x','equip_watch_y','equip_watch_z')
+    if len(values)!=len(names):raise ValueError(f'watch metadata shape changed: {model}')
+    return ', '.join(f'.{name} = {value}' for name,value in zip(names,values))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("repo", type=Path)
@@ -244,6 +275,7 @@ def main() -> None:
         "/* Generated from canonical gun WeaponStats; do not edit. */",
         "typedef int PLAYERFLAG;",
         '#include "game/gun.h"',
+        '#include <assets/obseg/text/LgunE.h>',
         '#include "game/bondview.h"',
         '#include "game/image.h"',
         "#define IMAGE_232 232",
@@ -341,7 +373,7 @@ def main() -> None:
             f"    [{item}] = {{ .item_header = {header_expr}, "
             f".item_file_name = {file_expr}, "
             f".has_no_model = {str(no_model).upper()}, "
-            f".item_weapon_stats = {stats_expr} }},"
+            f".item_weapon_stats = {stats_expr}, {watch_metadata(args.repo, model)} }},"
         )
     lines.extend(("};", ""))
     args.output.parent.mkdir(parents=True, exist_ok=True)

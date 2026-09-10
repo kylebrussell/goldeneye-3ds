@@ -127,6 +127,11 @@ int main(void)
     assert(!ge_3ds_original_hud_build_atlas(NULL));
     assert(ge_3ds_original_hud_build_atlas(&atlas));
     assert(ge_3ds_original_hud_build_bank_gothic_atlas(&bank_gothic));
+    /* Original textMeasure indexes chars['['] directly: this physical glyph
+     * has baseline -1 and height 14, so its native default lineheight is 13. */
+    assert(sizeof(Ge3dsOriginalHudGlyph) == 6);
+    assert(bank_gothic.glyphs['['].baseline == -1);
+    assert(bank_gothic.glyphs['['].height == 14);
     {
         GeOriginalFrontendWalletBounds action_bounds[2];
         assert(ge_3ds_original_frontend_file_action_bounds(

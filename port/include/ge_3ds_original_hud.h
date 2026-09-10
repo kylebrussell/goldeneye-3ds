@@ -16,7 +16,7 @@
 #define GE_3DS_ORIGINAL_GAMEPLAY_HUD_FONT_VERTEX_CAPACITY 512U
 
 typedef struct Ge3dsOriginalHudGlyph {
-    uint8_t baseline;
+    int8_t baseline; /* Native fontchar.baseline is signed (Bank Gothic includes -1). */
     uint8_t height;
     uint8_t width;
     uint8_t kerning_index;
@@ -255,5 +255,13 @@ int ge_3ds_original_frontend_file_action_bounds(
     const char *copy_text,const char *erase_text,
     GeOriginalFrontendWalletBounds bounds[2]);
 const char *ge_3ds_original_frontend_sprite_resource(uint8_t image);
+
+struct GeOriginalMultiplayerWatchRenderSnapshot;
+/* Draw-only realization of captured native MP watch commands. Translation
+ * places the authored VI viewport on the local screen without re-running
+ * native menu logic. Both atlas and command strings are read-only. */
+int ge_3ds_original_multiplayer_watch_build_draw_list(
+    const Ge3dsOriginalHudAtlas *,const struct GeOriginalMultiplayerWatchRenderSnapshot *,
+    float offset_x,float offset_y,Ge3dsOriginalHudDrawList *);
 
 #endif

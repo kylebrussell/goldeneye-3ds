@@ -2028,6 +2028,8 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic -Wconversion -Wsign-conversion -Wsha
 
 "${repo_dir}/port/tests/run_original_audio_smoke.sh"
 "${repo_dir}/port/tests/run_original_audio_producer.sh"
+bash "${repo_dir}/scripts/test_original_audio_loader.sh"
+python3 "${repo_dir}/scripts/tests/test_original_audio_volume.py"
 python3 "${repo_dir}/scripts/tests/test_audio_ramp_bounds.py"
 python3 "${repo_dir}/scripts/tests/test_audio_envelope_stable.py"
 python3 "${repo_dir}/scripts/tests/test_audio_big_endian_store.py"

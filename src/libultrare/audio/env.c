@@ -470,7 +470,13 @@ static f32 _getVol(f32 ivol, s32 samples, s16 ratem, u16 ratel)
 {
     f32 rate;
 
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+    /* Negative envelope slopes are normal. Signed left shift is undefined
+     * in C, while every s16 * 65536 product fits in s32 exactly. */
+    rate = ((f32)((s32)ratem * 65536) + (f32)ratel) / 65536.0;
+#else
     rate = ((f32)(ratem << 16) + (f32)ratel) / 65536.0;
+#endif
     ivol += (rate * (f32)samples) * 0.125;
     return ivol;
 }
@@ -510,6 +516,5 @@ static s16 _getRate(f32 vol, f32 tgt, s32 count, u16* ratel)
     *ratel = (s16)(0xffff * (tempf2 - (f32) s));
     return (s16)tempf2;
 }
-
 
 

@@ -5,6 +5,12 @@ a **connection test**, not a playable multiplayer mode. It never starts a match,
 changes the gameplay player count, or treats network readiness as proof of
 simulation compatibility.
 
+A separate deterministic match protocol and UDS handoff adapter now exist,
+with two/four-peer transport fixtures. They require an initialized canonical
+multiplayer simulation and complete compatibility/state hashes from the caller;
+the diagnostic lobby does not invoke them. See [MultiplayerProtocol.md](MultiplayerProtocol.md)
+for the exact simulation contract, API and remaining acceptance.
+
 ## Use on New Nintendo 3DS
 
 1. Install the same build and asset pack on two to four systems and enable
@@ -38,6 +44,15 @@ UDS service scans. Match-time networking would need a separate scheduling design
   `ge_3ds_wireless_lobby_run(build_id, asset_id)` requires an initialized
   framebuffer/console and must be called **before `C3D_Init`**. It owns and
   releases its UDS session. Do not call it inside an active C3D frame.
+- `port/src/ge_multiplayer_protocol.c`: fixed-membership two-to-four-player
+  lockstep, full caller-supplied digest/seed/roster agreement, acknowledged start,
+  numbered dual-pad input bundles, delivery and state-hash barriers, bounded
+  retry/abort and stable actor-ID helpers. It contains no replacement gameplay.
+- `platform/3ds/source/ge_3ds_multiplayer_transport.c`: explicit exclusive UDS
+  queue handoff from a connected lobby, complete roster checks, bounded draining,
+  queue-full retry and peer/host loss handling. The old presence poll refuses
+  to consume packets while a match owns the queue. No gameplay/frontend entry
+  point currently calls this adapter.
 
 The UDS communication ID is private homebrew value `0x47453037`; protocol
 version 1 is also the discovery subtype. The static passphrase provides
@@ -90,15 +105,15 @@ does not close those gameplay boundaries.
    sets. Close ammo, respawn and scenario/scoring dependencies currently
    represented only by conditional adapters. Verify character and pickup
    ownership rather than reusing single-player globals.
-3. Choose and implement a synchronization model. Lockstep needs deterministic
-   fixed-step simulation and identical PRNG state on every device; authoritative
-   host replication needs explicit actor IDs, ownership and state replication.
-   Neither is supplied by a lobby or a stream of raw controller samples.
-4. Add player-slot admission, rules/seed agreement, reliable acknowledged start,
-   input tick numbering/buffering, bounded packet-loss recovery, state hashes,
-   disconnect policy, and explicit desynchronization handling. Do not begin
-   simulation on the current all-ready helper: each peer sees its own transient
-   membership/readiness view and there is no distributed start barrier.
+3. Integrate deterministic fixed-step simulation and identical canonical PRNG
+   state with the new lockstep protocol; provide full build/content/rules and
+   canonical simulation hashes. The protocol's synthetic transport fixtures do
+   not establish GoldenEye simulation determinism.
+4. Connect frontend player-slot admission and initialized canonical rules/setup
+   to the acknowledged start barrier and UDS adapter. Do not begin simulation
+   on the current all-ready helper: each peer sees its own transient readiness
+   view. The conservative one-tick protocol costs multiple round trips per tick;
+   measure radio latency before treating it as a performant gameplay solution.
 5. Validate gameplay parity and measure stereo 60 fps on real hardware with
    four active players, weapons, effects and radio traffic. Integrate the lobby
    into the normal frontend and touchscreen only once match setup can be

@@ -6,6 +6,8 @@
 
 #define GE_3DS_WIRELESS_SCAN_LIMIT 8U
 
+struct Ge3dsMultiplayerTransport;
+
 typedef struct Ge3dsWireless {
     GeWirelessLobby lobby;
     udsBindContext binding;
@@ -21,6 +23,8 @@ typedef struct Ge3dsWireless {
     uint8_t connected;
     uint8_t host;
     uint8_t send_pending;
+    /* Exclusive queue ownership after an explicit match handoff. */
+    struct Ge3dsMultiplayerTransport *match_owner;
 } Ge3dsWireless;
 
 /* One instance owns UDS. No service activity occurs until init. */
@@ -29,7 +33,8 @@ Result ge_3ds_wireless_init(Ge3dsWireless *wireless,
 Result ge_3ds_wireless_scan(Ge3dsWireless *wireless);
 Result ge_3ds_wireless_host(Ge3dsWireless *wireless, uint32_t session);
 Result ge_3ds_wireless_join(Ge3dsWireless *wireless, size_t network_index);
-/* Bounded to eight datagrams and one send; call from a lobby once per frame. */
+/* Bounded to eight datagrams and one send; call from a lobby once per frame.
+ * Rejects without draining while a multiplayer transport owns this queue. */
 Result ge_3ds_wireless_poll(Ge3dsWireless *wireless, uint64_t now_ms);
 void ge_3ds_wireless_ready(Ge3dsWireless *wireless, int ready);
 void ge_3ds_wireless_leave(Ge3dsWireless *wireless);

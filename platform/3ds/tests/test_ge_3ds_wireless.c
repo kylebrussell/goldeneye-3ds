@@ -116,6 +116,13 @@ int main(void)
     presence.ready = 1;
     assert(ge_wireless_encode(incoming, sizeof(incoming), &presence));
     packets_pending = 100;
+    /* A match owns the same UDS binding: lobby must not consume its packets. */
+    wireless.match_owner = (void *)&wireless;
+    assert(R_FAILED(ge_3ds_wireless_poll(&wireless, 99)));
+    assert(!pulls && !sends && packets_pending == 100);
+    ge_3ds_wireless_ready(&wireless, 1);
+    assert(!wireless.lobby.local.ready);
+    wireless.match_owner = NULL;
     assert(R_SUCCEEDED(ge_3ds_wireless_poll(&wireless, 100)));
     assert(pulls == 8 && packets_pending == 92 && sends == 1);
     assert(wireless.lobby.peers[1].active);

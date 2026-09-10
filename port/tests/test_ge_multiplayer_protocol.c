@@ -300,6 +300,62 @@ static void test_terminal(void)
     assert(n->peer[1].failure == GE_MP_FAILURE_CLOCK);
     free(n);
 }
+static Event find_event(Network *n, unsigned type)
+{
+    unsigned i;
+    for (i = 0; i < n->count; ++i) if (n->events[i].bytes[5] == type) return n->events[i];
+    assert(!"expected packet was not queued");
+    return n->events[0];
+}
+static void test_tick_gates_and_conflicts(void)
+{
+    Network *n = network(2, 123, 0);
+    GeMpInput input = sample(0, 1);
+    Event e;
+    unsigned i;
+    for (i = 0; i < 50; ++i) drive(n, 0);
+    /* No remote input can be invented to let a host execute. */
+    assert(ge_mp_protocol_submit_input(&n->peer[1], 0, &input));
+    ge_mp_protocol_poll(&n->peer[1], n->now);
+    e = find_event(n, 7);
+    /* Future input is ignored, then the correct packet is admitted once. */
+    e.bytes[15] = 1; seal(e.bytes, e.length);
+    assert(ge_mp_protocol_receive(&n->peer[0], 12, e.bytes, e.length, n->now) == GE_MP_IGNORED);
+    e.bytes[15] = 0; seal(e.bytes, e.length);
+    assert(ge_mp_protocol_receive(&n->peer[0], 12, e.bytes, e.length, n->now) == GE_MP_RECEIVED);
+    assert(ge_mp_protocol_receive(&n->peer[0], 12, e.bytes, e.length, n->now) == GE_MP_IGNORED);
+    assert(!n->peer[0].execution_ready);
+    e.bytes[20] ^= 1; seal(e.bytes, e.length);
+    (void)ge_mp_protocol_receive(&n->peer[0], 12, e.bytes, e.length, n->now);
+    assert(n->peer[0].failure == GE_MP_FAILURE_CONFLICT);
+    free(n);
+
+    n = network(2, 321, 0);
+    n->blocked_type = 9; n->blocked_slot = 0;
+    for (i = 0; i < 100; ++i) drive(n, 1);
+    assert(!n->completed[0] && !n->completed[1]);
+    n->now += GE_MP_RETRY_MS;
+    ge_mp_protocol_poll(&n->peer[0], n->now);
+    e = find_event(n, 8);
+    e.bytes[24] ^= 1; seal(e.bytes, e.length);
+    (void)ge_mp_protocol_receive(&n->peer[1], 11, e.bytes, e.length, n->now);
+    assert(n->peer[1].failure == GE_MP_FAILURE_CONFLICT);
+    free(n);
+
+    n = network(2, 456, 0);
+    n->blocked_type = 11; n->blocked_slot = 0;
+    for (i = 0; i < 100; ++i) drive(n, 2);
+    assert(n->completed[0] == 1 && n->completed[1] == 1);
+    assert(n->peer[0].frame.tick == 0 && n->peer[1].frame.tick == 0);
+    n->blocked_type = 0; n->now += GE_MP_RETRY_MS;
+    ge_mp_protocol_poll(&n->peer[1], n->now);
+    e = find_event(n, 11);
+    assert(ge_mp_protocol_receive(&n->peer[0], 12, e.bytes, e.length, n->now) == GE_MP_RECEIVED);
+    e.bytes[47] ^= 1; seal(e.bytes, e.length);
+    (void)ge_mp_protocol_receive(&n->peer[0], 12, e.bytes, e.length, n->now);
+    assert(n->peer[0].failure == GE_MP_FAILURE_CONFLICT);
+    free(n);
+}
 static void test_api(void)
 {
     Network *n = network(2, 88, 0);
@@ -334,7 +390,7 @@ static void test_api(void)
 int main(void)
 {
     unsigned seed;
-    test_wire(); test_api(); test_barriers(); test_terminal();
+    test_wire(); test_api(); test_barriers(); test_terminal(); test_tick_gates_and_conflicts();
     for (seed = 1; seed <= 24; ++seed) {
         test_loss(2, seed * 1709U); test_loss(4, seed * 7919U);
     }

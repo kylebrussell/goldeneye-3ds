@@ -12,3 +12,14 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
     "${test_dir}/test_ge_multiplayer_protocol"
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+    -fsanitize=address,undefined -fno-omit-frame-pointer -g \
+    -I"${repo_dir}/platform/3ds/tests/wireless_mock" \
+    -I"${repo_dir}/platform/3ds/include" -I"${repo_dir}/port/include" \
+    "${repo_dir}/platform/3ds/tests/test_ge_3ds_multiplayer_transport.c" \
+    "${repo_dir}/platform/3ds/source/ge_3ds_multiplayer_transport.c" \
+    "${repo_dir}/port/src/ge_multiplayer_protocol.c" \
+    -o "${test_dir}/test_ge_3ds_multiplayer_transport"
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+    "${test_dir}/test_ge_3ds_multiplayer_transport"

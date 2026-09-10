@@ -1270,6 +1270,32 @@ static uint64_t cache_hash_float(uint64_t hash, float value)
     return cache_hash_u64(hash, bits);
 }
 
+/* Related model parts commonly have identical placement. Reuse only this
+ * call's immediately preceding prefix, comparing the actual float bytes so
+ * signed zero remains part of the existing signature contract. Joint banks
+ * and mutable vertices are still appended independently for every input. */
+static uint64_t cache_placement_hash(
+    const GeOriginalModelSceneInput *input,
+    const GeOriginalModelSceneInput *previous, uint64_t previous_hash)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    size_t row;
+    size_t column;
+    if (previous != NULL && input->room_id == previous->room_id
+            && memcmp(input->position, previous->position,
+                      sizeof(input->position)) == 0
+            && memcmp(input->matrix, previous->matrix,
+                      sizeof(input->matrix)) == 0)
+        return previous_hash;
+    hash = cache_hash_u64(hash, input->room_id);
+    for (row = 0U; row < 3U; ++row)
+        hash = cache_hash_float(hash, input->position[row]);
+    for (row = 0U; row < 4U; ++row)
+        for (column = 0U; column < 4U; ++column)
+            hash = cache_hash_float(hash, input->matrix[row][column]);
+    return hash;
+}
+
 static int cache_matrix_bank_matches(
     const GeOriginalModelSceneInput *left,
     const GeOriginalModelSceneInput *right)
@@ -1309,6 +1335,7 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
         UINT64_C(1469598103934665603), topology_signature);
     size_t required_matrices = 0U;
     size_t input_index;
+    uint64_t placement_hash = 0U;
     if (cache == NULL || signature == NULL || quantization_ticks == NULL)
         return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     *quantization_ticks = 0U;
@@ -1397,21 +1424,12 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
     }
     for (input_index = 0U; input_index < input_count; ++input_index) {
         const GeOriginalModelSceneInput *input = &inputs[input_index];
-        uint64_t input_hash = UINT64_C(1469598103934665603);
-        size_t row;
-        size_t column;
-        input_hash = cache_hash_u64(input_hash, input->room_id);
-        for (row = 0U; row < 3U; ++row)
-            input_hash = cache_hash_float(
-                input_hash, input->position[row]);
-        for (row = 0U; row < 4U; ++row) {
-            for (column = 0U; column < 4U; ++column) {
-                input_hash = cache_hash_float(
-                    input_hash, input->matrix[row][column]);
-            }
-        }
+        uint64_t input_hash;
+        placement_hash = cache_placement_hash(input,
+            input_index != 0U ? &inputs[input_index - 1U] : NULL,
+            placement_hash);
         input_hash = cache_hash_u64(
-            input_hash,
+            placement_hash,
             cache->input_quantized_matrix_hashes[input_index]);
         for (size_t vertex = 0U; vertex < input->segment4_vertex_count; ++vertex) {
             GeGbiVertex value = {0};

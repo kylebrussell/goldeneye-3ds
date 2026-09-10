@@ -2141,6 +2141,7 @@ python3 "${repo_dir}/scripts/tests/test_3ds_gpu_commands.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_draw_sequence.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_shade_cache.py"
 python3 "${repo_dir}/scripts/tests/test_model_segment_publication.py"
+python3 "${repo_dir}/scripts/tests/test_model_placement_signature.py"
 python3 "${repo_dir}/scripts/tests/test_bond_move_state_slice_exact.py"
 python3 "${repo_dir}/scripts/tests/test_bond_move_collision_slice_exact.py" \
     "${repo_dir}"

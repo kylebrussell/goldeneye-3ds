@@ -170,3 +170,37 @@ The new multiplayer setup object requires the same native original type,
 `GE_PORT_SETUP_DATA`, `AIPARSE` and `VERSION_US` flags as the existing supplies
 object. Focused ARM `-fshort-enums -Wall -Wextra -Werror` compilation passes for
 the selection, supplies and materializer modules.
+
+## Ordinary pickup regeneration tick
+
+`ge_original_multiplayer_regen_tick(prop, tick60, providers)` retains the
+ordinary-root pickup arm of `chrpropTick`, including its original
+`chrpropIsFarFromPlayers` body. Invoke it once per simulation tick for each
+retained pickup, including disabled props whose `timetoregen` is positive.
+Its resource callbacks enable the existing prop, republish its rooms, and play
+the regeneration sound at its position. The wrapper verifies the 2..4 player
+roster and finite positions before entering the original distance decision.
+Embedded, assigned, parented and destroyed object branches are explicit
+unsupported owners; this adapter does not replace their construction or
+reparent logic. Zero tick or inactive timer returns `GE_ORIGINAL_MP_REGEN_IDLE`.
+
+The existing scheduler slice already retains `propExecuteTickOperation`.
+Canonical collection continues to return `TICKOP_FREE` to that owner, which
+starts the original 1200-tick timer and disables the regenerating object.
+There is no second runtime implementation of this pickup operation.
+
+Generate `ge_original_multiplayer_regen_slice.c` with
+`scripts/extract_multiplayer_regen_slice.py ROOT OUTPUT`; compile it and
+`ge_original_multiplayer_regen.c` with the original-type/setup/AIPARSE/US flags
+used by the rules slice. No extra gameplay-state globals are introduced: the
+canonical distance function reads the published player roster, while the tick
+argument supplies the original elapsed tick count.
+
+`scripts/test_multiplayer_regen.sh` links full original
+`propExecuteTickOperation`, `chrpropEnable`, and `chrpropDisable` bodies with
+the selected countdown. Under ASan/UBSan it verifies weapons/ammo/armour for
+2 and 4 players, 1200-tick collection delay, postponement by every nearby
+player, the exact 400-unit boundary, one enable/room/sound event, armour
+refill, final visibility flag restoration, repeated collection and rejection
+without mutation for missing resources, malformed rosters and unsupported
+owners. Both adapter and generated countdown pass focused ARM compilation.

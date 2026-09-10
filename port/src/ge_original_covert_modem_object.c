@@ -1,6 +1,7 @@
 #include "ge_original_covert_modem_object.h"
 
 #include <ultra64.h>
+#include "ge_original_prop_lifetime.h"
 #include <bondconstants.h>
 #include <bondtypes.h>
 #include <string.h>
@@ -43,6 +44,7 @@ extern PropRecord *g_FreeProps;
 
 static void ge_original_covert_modem_prop_free(PropRecord *prop)
 {
+    ge_original_prop_observe_free(prop);
     /* Exact chrpropFree body.  The bounded chrprop state slice deliberately
      * exports only its canonical allocator, so keep the matching free-list
      * operation beside this transactional constructor instead of adding a

@@ -324,6 +324,7 @@ def generate(repo: Path) -> str:
         "/* Generated mechanically from canonical GoldenEye explosion bodies/data. */",
         "#include <math.h>",
         "#include <stdint.h>",
+        '#include "ge_original_prop_lifetime.h"',
         "#include <limits.h>",
         "#include <stdio.h>",
         "#include <ultra64.h>",
@@ -406,7 +407,10 @@ def generate(repo: Path) -> str:
     for relative, names in FUNCTIONS.items():
         for name in names:
             body = extract_function(sources[relative], name)
-            sections.extend((f"/* {name} sha256={digest(body)} */", body, ""))
+            original_digest = digest(body)
+            if name == "chrpropFree":
+                body = body.replace("{", "{\n    ge_original_prop_observe_free(prop);", 1)
+            sections.extend((f"/* {name} sha256={original_digest} */", body, ""))
             if name == "vtxstore_allocate":
                 host_body = body.replace(
                     "s32 vtxstore_allocate(",

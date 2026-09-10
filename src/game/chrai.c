@@ -52,7 +52,9 @@
 
 #if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER) \
         || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
-#include "ge_original_stage_objective_live.h"
+/* Keep this boundary narrow: the full objective adapter header also exposes
+ * canonical s32 APIs as int32_t, which is a distinct C type on devkitARM. */
+extern void *ge_original_stage_objective_live_camera_by_tag(u16 tag_id);
 #endif
 
 #if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER)

@@ -86,6 +86,16 @@ GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run_with_providers(
     const GeOriginalBgVisibilityProviders *providers,
     GeOriginalBgVisibilityResult *result);
 
+/* Restore the local camera's full canonical room/portal publication after
+ * remote passes. Pass captured local door controls and no preload callback.
+ * Rebuilds visibility only; preserves the original load-cycle counter. */
+GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_restore_with_providers(
+    GeDamVisibilityRuntime *runtime,
+    const GeOriginalBondCameraResult *camera,
+    const float player_position[3],
+    const GeOriginalBgVisibilityProviders *providers,
+    GeOriginalBgVisibilityResult *result);
+
 const char *ge_dam_visibility_runtime_status_name(
     GeDamVisibilityRuntimeStatus status);
 

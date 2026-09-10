@@ -595,6 +595,20 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     return GE_ORIGINAL_BG_VISIBILITY_OK;
 }
 
+GeOriginalBgVisibilityStatus ge_original_bg_visibility_restore(
+    const GeOriginalBgVisibilityInput *input,
+    GeOriginalBgVisibilityResult *result)
+{
+    GeOriginalBgVisibilityStatus status;
+    const s32 saved_cycle = D_80044858;
+    if (input == NULL || (input->providers != NULL
+            && input->providers->preload_room != NULL))
+        return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
+    status = ge_original_bg_visibility_run(input, result);
+    D_80044858 = saved_cycle;
+    return status;
+}
+
 int ge_original_bg_visibility_room_snapshot(
     uint8_t room, GeOriginalBgRoomVisibilitySnapshot *snapshot)
 {

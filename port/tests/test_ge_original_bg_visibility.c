@@ -1,5 +1,8 @@
 #include "ge_original_bg_visibility.h"
 #include "ge_dam_preload_queue.h"
+#ifdef GE_TEST_MULTIPLAYER_VISIBILITY_RUNTIME
+#include "ge_dam_visibility_runtime.h"
+#endif
 
 #include <assert.h>
 #include <float.h>
@@ -18,6 +21,7 @@
  * ARM getROOMID_isRendered address calculation (room * 0x50) independently
  * of the C struct used by the visibility writer. */
 extern uint8_t ge_bg_visibility_room_info[];
+extern int32_t ge_bg_visibility_room_cycle;
 
 static uint8_t canonical_getROOMID_isRendered(uint8_t room)
 {
@@ -379,6 +383,117 @@ static void test_private_dam_spawn(const char *camera_matrix_path)
     free(background.bytes);
 }
 
+static void test_multiplayer_preload_independence(
+    const GeOriginalBgVisibilityInput *original)
+{
+    uint8_t background[FIXTURE_SIZE];
+    const size_t stream_offset = PORTAL_OFFSET - 64U;
+    GeOriginalBgVisibilityInput input = *original;
+    uint8_t *commands;
+    unsigned frame, mode;
+    memcpy(background, original->background, sizeof(background));
+    input.background = background;
+    put_be32(background + 12U, BG_BASE + (uint32_t)stream_offset);
+    commands = background + stream_offset;
+    memset(commands, 0, 64U);
+    commands[0] = 0x27U; commands[1] = 3U; /* preload rooms 1..3 */
+    commands[8] = 101U; put_be32(commands + 12U, 1U);
+    commands[16] = 101U; put_be32(commands + 20U, 3U);
+    commands[24] = 0x26U; commands[25] = 2U; /* preload room 2 again */
+    commands[32] = 101U; put_be32(commands + 36U, 2U);
+    commands[40] = 0x24U; commands[41] = 2U; /* authored disable room 3 */
+    commands[48] = 101U; put_be32(commands + 52U, 3U);
+    commands[57] = 1U; /* end */
+    for (frame = 0; frame < 32; ++frame) {
+        uint8_t controls[2] = {(uint8_t)(frame & 1U), (uint8_t)((frame >> 1U) & 1U)};
+        uint8_t room_publication[139U * 0x50U];
+        const uint8_t resident_rooms[3] = {1U, 2U, 3U};
+        GeDamPreloadQueue queue;
+        GeDamPreloadQueue before;
+        GeOriginalBgVisibilityProviders canonical = {
+            .context = &queue, .portal_controls = controls, .portal_control_count = 2U};
+        GeOriginalBgVisibilityResult baseline, result;
+        input.world_to_screen[0][0] = frame & 4U ? -1.0f : 1.0f;
+        input.world_to_screen[2][2] = input.world_to_screen[0][0];
+        input.providers = &canonical;
+        assert(ge_dam_preload_queue_init(&queue, 4U, 4U, NULL, 0U) == GE_DAM_PRELOAD_OK);
+        before = queue;
+        assert(ge_original_bg_visibility_run(&input, &baseline) == GE_ORIGINAL_BG_VISIBILITY_OK);
+        assert(baseline.preload_request_count == 4U);
+        assert(contains_room(&baseline, 2U) == ((frame & 5U) == 0U));
+        assert(memcmp(&before, &queue, sizeof(queue)) == 0);
+        memcpy(room_publication, ge_bg_visibility_room_info, sizeof(room_publication));
+        /* loaded_mask is the authored disable bit, not renderer residency. */
+        assert(room_publication[3U * 0x50U + 0x34U] != 0U);
+        for (mode = 0; mode < 3; ++mode) {
+            GeOriginalBgVisibilityProviders renderer;
+            const size_t resident_count = mode == 2 ? 3U : mode;
+            assert(ge_dam_preload_queue_init(&queue, 4U, 4U,
+                resident_rooms, resident_count) == GE_DAM_PRELOAD_OK);
+            renderer = ge_dam_preload_queue_providers(&queue, controls, 2U);
+            input.providers = &renderer;
+            assert(ge_original_bg_visibility_run(&input, &result) == GE_ORIGINAL_BG_VISIBILITY_OK);
+            assert(result.preload_request_count == (mode == 2 ? 4U : mode + 1U));
+            result.preload_request_count = baseline.preload_request_count;
+            assert(memcmp(&baseline, &result, sizeof(result)) == 0);
+            assert(memcmp(room_publication, ge_bg_visibility_room_info, sizeof(room_publication)) == 0);
+        }
+        /* Another shooter replaces all globals using different live doors.
+         * Restore from copied local camera/controls, with no loader callback. */
+        {
+            GeOriginalBgVisibilityInput remote = input;
+            uint8_t remote_controls[2] = {0U, 0U};
+            GeOriginalBgVisibilityProviders remote_providers = canonical;
+            int32_t cycle;
+            remote_providers.portal_controls = remote_controls;
+            remote.providers = &remote_providers;
+            remote.current_room = 2U;
+            remote.world_to_screen[0][0] *= -1.0f;
+            remote.world_to_screen[2][2] *= -1.0f;
+            before = queue;
+            assert(ge_original_bg_visibility_run(&remote, &result) == GE_ORIGINAL_BG_VISIBILITY_OK);
+            cycle = ge_bg_visibility_room_cycle;
+            input.providers = &canonical;
+            assert(ge_original_bg_visibility_restore(&input, &result) == GE_ORIGINAL_BG_VISIBILITY_OK);
+            assert(ge_bg_visibility_room_cycle == cycle);
+            assert(memcmp(&baseline, &result, sizeof(result)) == 0);
+            assert(memcmp(room_publication, ge_bg_visibility_room_info, sizeof(room_publication)) == 0);
+            assert(memcmp(&before, &queue, sizeof(queue)) == 0);
+#ifdef GE_TEST_MULTIPLAYER_VISIBILITY_RUNTIME
+            {
+                GeDamVisibilityRuntime runtime = {0};
+                GeOriginalBondCameraResult camera = {0};
+                runtime.background = background;
+                runtime.background_size = sizeof(background);
+                runtime.room_count = input.room_count;
+                memcpy(runtime.room_bounds, input.room_bounds,
+                    input.room_count * sizeof(runtime.room_bounds[0]));
+                runtime.level_scale = input.level_scale;
+                runtime.visibility_scale = input.visibility_scale;
+                runtime.near_distance = input.near_distance;
+                runtime.far_distance = input.far_distance;
+                runtime.loaded = 1;
+                camera.room = input.current_room;
+                camera.viewport_scale[0] = 640;
+                camera.viewport_scale[1] = 480;
+                memcpy(camera.view, input.world_to_screen, sizeof(camera.view));
+                assert(ge_dam_visibility_runtime_restore_with_providers(&runtime,
+                    &camera, input.player_position, &canonical, &result) == GE_DAM_VISIBILITY_RUNTIME_OK);
+                assert(ge_bg_visibility_room_cycle == cycle);
+                assert(memcmp(&baseline, &result, sizeof(result)) == 0);
+                assert(memcmp(room_publication, ge_bg_visibility_room_info, sizeof(room_publication)) == 0);
+                assert(memcmp(&before, &queue, sizeof(queue)) == 0);
+            }
+#endif
+            canonical.preload_room = ge_dam_preload_queue_request;
+            assert(ge_original_bg_visibility_restore(&input, &result) == GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+            assert(memcmp(&before, &queue, sizeof(queue)) == 0);
+            assert(ge_bg_visibility_room_cycle == cycle);
+        }
+    }
+    puts("multiplayer visibility: cold/partial/full preload invariance, live doors, remote/local restore and untouched queue passed");
+}
+
 int main(int argc, char **argv)
 {
     uint8_t background[FIXTURE_SIZE] = {0};
@@ -442,6 +557,7 @@ int main(int argc, char **argv)
     assert(contains_room(&backward, 3U));
     assert(forward.portal_descents == 2U);
     assert(backward.portal_descents == 2U);
+    test_multiplayer_preload_independence(&input);
     {
         GeOriginalBgVisibilityStatus status;
         GeOriginalBgVisibilityProgram *program = ge_original_bg_visibility_program_create(

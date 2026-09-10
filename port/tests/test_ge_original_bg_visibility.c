@@ -17,16 +17,46 @@
 #define GEOMETRY_OFFSET (PORTAL_OFFSET + 24U)
 #define FIXTURE_SIZE (GEOMETRY_OFFSET + 2U * 52U)
 
-/* Link to the shared storage as bytes so this host test models the unchanged
- * ARM getROOMID_isRendered address calculation (room * 0x50) independently
- * of the C struct used by the visibility writer. */
+/* Link the actual source reader, with the same fixed storage declaration as
+ * the publisher. A hand-written room*0x50 probe masked the old host reader's
+ * incorrect pointer-expanded stride and is deliberately not the oracle. */
 extern uint8_t ge_bg_visibility_room_info[];
 extern int32_t ge_bg_visibility_room_cycle;
+extern uint8_t getROOMID_isRendered(int32_t room);
+struct bbox2d { float f[2][2]; };
+extern int32_t bgGet2dBboxByRoomId(int32_t room, struct bbox2d *result);
 
-static uint8_t canonical_getROOMID_isRendered(uint8_t room)
+static void assert_native_room_reader(void)
 {
-    return ge_bg_visibility_room_info[(size_t)room * 0x50U];
+    unsigned char before[GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS * 0x50U];
+    memcpy(before, ge_bg_visibility_room_info, sizeof(before));
+    for (int32_t room = 0; room < (int32_t)GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS; ++room) {
+        GeOriginalBgRoomVisibilitySnapshot snapshot;
+        assert(ge_original_bg_visibility_room_snapshot((uint8_t)room, &snapshot));
+        assert(getROOMID_isRendered(room) == snapshot.rendered);
+    }
+    assert(memcmp(before, ge_bg_visibility_room_info, sizeof(before)) == 0);
 }
+
+static GeOriginalBgVisibilityStatus checked_visibility_run(
+    const GeOriginalBgVisibilityInput *input, GeOriginalBgVisibilityResult *result)
+{
+    GeOriginalBgVisibilityStatus status = ge_original_bg_visibility_run(input, result);
+    assert_native_room_reader();
+    if (status == GE_ORIGINAL_BG_VISIBILITY_OK) {
+        for (size_t i = 0; i < result->room_count; ++i) {
+            struct bbox2d box;
+            assert(bgGet2dBboxByRoomId(result->rooms[i].room, &box));
+            assert(memcmp(box.f, result->rooms[i].screen_box, sizeof(box.f)) == 0);
+        }
+        struct bbox2d absent = {{{1,2},{3,4}}};
+        assert(!bgGet2dBboxByRoomId(-1, &absent));
+        assert(absent.f[0][0] == 0 && absent.f[0][1] == 0 &&
+               absent.f[1][0] == 0 && absent.f[1][1] == 0);
+    }
+    return status;
+}
+#define ge_original_bg_visibility_run checked_visibility_run
 
 static void put_be32(uint8_t *data, uint32_t value)
 {
@@ -307,10 +337,10 @@ static void test_private_dam_spawn(const char *camera_matrix_path)
             assert(ge_original_bg_visibility_room_snapshot(
                 high_rooms[room_index], &snapshot));
             assert(snapshot.rendered != 0U);
-            assert(canonical_getROOMID_isRendered(
+            assert(getROOMID_isRendered(
                 high_rooms[room_index]) == snapshot.rendered);
         }
-        assert(canonical_getROOMID_isRendered(136U) == 0U);
+        assert(getROOMID_isRendered(136U) == 0U);
     }
     assert(result.portal_count == 194U);
     assert(result.global_visibility_used != 0U);

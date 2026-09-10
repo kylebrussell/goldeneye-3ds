@@ -252,7 +252,8 @@ GeOriginalMultiplayerStatus ge_original_multiplayer_respawn(
      * pad selector dereferences every roster entry. Revalidate retained setup
      * storage immediately before entering that canonical code. A pointer
      * match alone does not establish that mutable setup words are still safe. */
-    if (ge_original_multiplayer_publish_spawns(ge_mp_validated_intro,
+    if (check_ramrom_flags() != (uint32_t)ge_mp_validated_demo_playback
+            || ge_original_multiplayer_publish_spawns(ge_mp_validated_intro,
             ge_mp_validated_intro_words, ge_mp_validated_pads,
             ge_mp_validated_pad_count, ge_mp_validated_demo_playback) != GE_ORIGINAL_MP_OK
             || g_playerPointers[player]->field_29E0 < 0

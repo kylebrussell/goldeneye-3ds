@@ -62,6 +62,7 @@ ASFLAGS     := -g $(ARCH)
 LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 # Keep the new multiplayer entry points in link validation while match entry
 # remains gated. Otherwise --gc-sections can hide unresolved gameplay owners.
+LDFLAGS += -Wl,-u,ge_mp_state_core_capture
 LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_original_bond_live_initialize_multiplayer \
            -Wl,-u,ge_original_multiplayer_respawn \
@@ -467,7 +468,7 @@ ge_original_multiplayer_death.o ge_original_multiplayer_death_slice.o \
 ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
-ge_original_texture_hit_type.o ge_mp_state_inventory.o \
+ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
 ge_original_multiplayer_session_slice.o ge_original_player_held_items.o \
 ge_original_player_held_items_slice.o \

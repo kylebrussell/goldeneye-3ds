@@ -126,7 +126,6 @@ PRODUCTION_ROUTE_FUNCTIONS = (
     ("padhall", "waypointFindRandomByDist"),
     ("padhall", "waygroupFindRandomByDist"),
     ("padhall", "waypointFindNextStepToward"),
-    ("bg", "getROOMID_isRendered"),
     ("model", "setsubroty"),
     ("stan", "sub_GAME_7F0B0D0C"),
     ("stan", "stanFillSearch"),
@@ -514,8 +513,6 @@ def main() -> None:
         "#ifndef M_U16_MAX_VALUE_F",
         "#define M_U16_MAX_VALUE_F 65536.0f",
         "#endif",
-        "#define g_BgRoomInfo ge_bg_visibility_room_info",
-        "extern s_room_info ge_bg_visibility_room_info[MAXROOMCOUNT];",
         "",
     ]
     health_data = re.search(

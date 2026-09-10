@@ -31,7 +31,6 @@ extern s32 D_800483C0;
 extern ALSoundState *g_CasingSfxState;
 PropRecord *g_OnScreenPropList[601],**g_LastOnScreenProp=g_OnScreenPropList;
 s32 bossGetStageNum(void){return LEVELID_LIBRARY;}
-s32 getROOMID_isRendered(s32 room){return (room>=1&&room<=3)||room==35;}
 static unsigned room_visits;
 void chraiGetPropRoomIds(PropRecord *prop,s32 *rooms)
 {++room_visits;rooms[0]=prop->rooms[0];rooms[1]=-1;}

@@ -49,6 +49,8 @@ out.joinpath('visibility.c').write_text('''#include "ge_original_bg_visibility_i
 extern s32 g_BgNumberOfRoomsDrawn;
 extern s_bound_info dword_CODE_bss_8007FFA0[204];
 void fixture_rooms(void) {
+ for(unsigned i=0;i<MAXROOMCOUNT;++i)
+  g_BgRoomInfo[i].room_rendered=(i>=1&&i<=3)||i==35;
  g_BgNumberOfRoomsDrawn=3;
  dword_CODE_bss_8007FFA0[0].roomid=1;dword_CODE_bss_8007FFA0[0].unk1=257;
  dword_CODE_bss_8007FFA0[1].roomid=2;dword_CODE_bss_8007FFA0[1].unk1=-2;

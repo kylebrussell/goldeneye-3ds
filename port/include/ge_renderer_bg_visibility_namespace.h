@@ -3,8 +3,10 @@
  * Include before either original adapter or extracted interpreter. */
 #ifndef GE_RENDERER_BG_VISIBILITY_NAMESPACE_H
 #define GE_RENDERER_BG_VISIBILITY_NAMESPACE_H
+#define getROOMID_isRendered ge_renderer_private_getROOMID_isRendered
 #define bgDetermineVisibleRooms ge_renderer_private_bgDetermineVisibleRooms
 #define bgGetPortalBetweenRooms ge_renderer_private_bgGetPortalBetweenRooms
+#define bgGet2dBboxByRoomId ge_renderer_private_bgGet2dBboxByRoomId
 #define bgGetRoomCenter ge_renderer_private_bgGetRoomCenter
 #define bgIncrementRoomPortalVisitCount ge_renderer_private_bgIncrementRoomPortalVisitCount
 #define bgIsRoomOnScreen ge_renderer_private_bgIsRoomOnScreen

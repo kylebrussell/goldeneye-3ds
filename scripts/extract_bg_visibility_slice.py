@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 FUNCTIONS = (
+    ("getROOMID_isRendered", 0),
+    ("bgGet2dBboxByRoomId", 0),
     ("sub_GAME_7F0B39BC", 0),
     ("bgResetPortalVisitCounts", 0),
     ("bgUpdateCurrentPlayerScreenMinMax", 0),

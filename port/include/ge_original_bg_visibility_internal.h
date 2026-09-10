@@ -109,7 +109,8 @@ typedef struct s_room_info {
     u8 portal_visit_count;
     /* N64 pointers are 32-bit ABI words.  Keeping them as storage words is
      * essential on a 64-bit host: this shared array is also consumed by
-     * unchanged decompiled bodies compiled against src/game/bg.h. */
+     * the exact getROOMID_isRendered reader in this owner. Native geometry
+     * has a separate pointer-bearing table; it must never alias this array. */
     uint32_t vertices;
     uint32_t ptr_expanded_mapping_info;
     uint32_t ptr_secondary_expanded_mapping_info;
@@ -147,6 +148,8 @@ typedef struct s_bound_info {
     bbox2d bbox;
     s32 next;
 } s_bound_info;
+_Static_assert(sizeof(s_bound_info) == 0x1cU, "canonical US draw-room ABI size");
+_Static_assert(offsetof(s_bound_info, bbox) == 0x08U, "canonical US draw-room bbox offset");
 
 typedef struct bg_portal_entry {
     u8 numPoints;

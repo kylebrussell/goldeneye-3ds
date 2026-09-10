@@ -74,7 +74,8 @@ LDFLAGS += -Wl,-u,ge_mp_state_core_capture \
            -Wl,-u,ge_mp_state_session_capture -Wl,-u,ge_mp_state_session_schema \
            -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema \
            -Wl,-u,ge_mp_state_fog_capture -Wl,-u,ge_mp_state_fog_schema \
-           -Wl,-u,ge_mp_state_objects_export -Wl,-u,ge_mp_state_objects_schema
+           -Wl,-u,ge_mp_state_objects_export -Wl,-u,ge_mp_state_objects_schema \
+           -Wl,-u,ge_mp_state_models_export -Wl,-u,ge_mp_state_models_schema
 LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_original_bond_live_initialize_multiplayer \
            -Wl,-u,ge_original_multiplayer_respawn \

@@ -1,5 +1,6 @@
 #ifndef GE_ORIGINAL_MULTIPLAYER_PLAYERS_H
 #define GE_ORIGINAL_MULTIPLAYER_PLAYERS_H
+#include <stddef.h>
 #include <stdint.h>
 struct player;
 struct InvItem;
@@ -14,6 +15,10 @@ typedef struct GeOriginalMultiplayerInventoryStorage {
  * players_destroy. Lifetime detects address reuse across native sessions. */
 int ge_original_multiplayer_inventory_storage(uint32_t slot,
     GeOriginalMultiplayerInventoryStorage *storage);
+/* Actual full-Model span at the original player's overlaid model field.
+ * All four physical rows, including inactive rows, live until players_destroy. */
+int ge_original_multiplayer_player_model_storage(uint32_t slot,
+    const void **model, size_t *bytes);
 /* Stage-owned canonical storage. All allocation completes before publication;
  * a failed create preserves the prior game state. Close after freeing props
  * and model consumers. This allocates players, not a playable arena.

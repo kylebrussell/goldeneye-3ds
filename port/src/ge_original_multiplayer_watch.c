@@ -73,6 +73,27 @@ static GeOriginalMultiplayerWatchStatus validate(int awards)
         }
     }
     if(total>INT_MAX)return GE_ORIGINAL_MP_WATCH_INVALID_STATS;
+    if(awards==1)for(int i=0;i<count && i<3;++i) {
+        s32 kills=0,deaths=0;
+        for(int j=0;j<count;++j) {
+            deaths+=g_playerPlayerData[j].kill_counts[i];
+            if(i!=j)kills+=g_playerPlayerData[i].kill_counts[j];
+        }
+        const f32 cast_metrics[]={
+            kills*100.0f/(g_playerPlayerData[i].shot_count[SHOT_REGISTER_TOTAL]+1.0f),
+            kills*100.0f/(deaths+1.0f),
+            g_playerPlayerData[i].distance_traveled/100000.0f
+                /((getMissiontimer()+1)/(3600.0f*60.0f)),
+            g_playerPlayerData[i].body_armor_pickups
+        };
+        /* mpFindMax/MinFloat intentionally truncate their selected value
+         * through s32 aux. Slot 3 is only compared and never converted.
+         * Check the exact f32 expressions before any awards side effects;
+         * INT_MAX rounds up as f32, so the upper endpoint must be exclusive. */
+        for(unsigned m=0;m<sizeof(cast_metrics)/sizeof(cast_metrics[0]);++m)
+            if(!(cast_metrics[m]>=-2147483648.0f && cast_metrics[m]<2147483648.0f))
+                return GE_ORIGINAL_MP_WATCH_INVALID_STATS;
+    }
     if((int64_t)chevron_glow_timer+speedgraphframes>INT_MAX
             || (int64_t)alt_gameover_msg_timer+speedgraphframes>INT_MAX)
         return GE_ORIGINAL_MP_WATCH_INVALID_STATS;

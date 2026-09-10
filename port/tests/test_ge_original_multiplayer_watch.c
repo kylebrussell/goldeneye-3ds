@@ -154,10 +154,44 @@ static void menu_quit(void)
     assert(sndGetPlayingState(flagged)==SOUND_STATE_NONE&&sndGetPlayingState(keep)!=SOUND_STATE_NONE);
     sndDeactivate(keep);
 }
+
+static void awards_cast_preflight(void)
+{
+    struct player *saved=malloc(active_count*sizeof(*saved));assert(saved);
+    struct player_data baseline[4],changed[4];memcpy(baseline,g_playerPlayerData,sizeof(baseline));
+    GeOriginalMultiplayerWatchState before,after;
+    for(unsigned kind=0;kind<4;++kind)for(unsigned slot=0;slot<active_count && slot<3;++slot) {
+        memcpy(g_playerPlayerData,baseline,sizeof(baseline));
+        if(kind==0)g_playerPlayerData[slot].body_armor_pickups=2147483648.0f;
+        else if(kind==1)g_playerPlayerData[slot].distance_traveled=1e20f;
+        else {
+            memset(g_playerPlayerData[slot].kill_counts,0,sizeof(g_playerPlayerData[slot].kill_counts));
+            g_playerPlayerData[slot].kill_counts[(slot+1)%active_count]=21474837;
+            g_playerPlayerData[slot].shot_count[SHOT_REGISTER_TOTAL]=kind==2?0:2147483647;
+            if(kind==3)for(unsigned j=0;j<active_count;++j)g_playerPlayerData[j].kill_counts[slot]=0;
+        }
+        for(unsigned i=0;i<active_count;++i)saved[i]=*g_playerPointers[i];
+        memcpy(changed,g_playerPlayerData,sizeof(changed));
+        assert(ge_original_multiplayer_watch_snapshot(&before));
+        GeOriginalGameplayServiceStats audio_before,audio_after;
+        ge_original_gameplay_services_snapshot(&audio_before);
+        uint64_t rng=g_randomSeed,chr_rng=g_chrObjRandomSeed;
+        unsigned intros=fixture_music_intro_plays,stops=fixture_music_stops[0];s32 mission=mission_state;
+        assert(ge_original_multiplayer_watch_awards(0)==GE_ORIGINAL_MP_WATCH_INVALID_STATS);
+        assert(ge_original_multiplayer_watch_snapshot(&after));ge_original_gameplay_services_snapshot(&audio_after);
+        assert(!memcmp(&before,&after,sizeof(before))&&!memcmp(&audio_before,&audio_after,sizeof(audio_before)));
+        for(unsigned i=0;i<active_count;++i)assert(!memcmp(&saved[i],g_playerPointers[i],sizeof(saved[i])));
+        assert(!memcmp(changed,g_playerPlayerData,sizeof(changed))&&rng==g_randomSeed&&chr_rng==g_chrObjRandomSeed
+            &&intros==fixture_music_intro_plays&&stops==fixture_music_stops[0]&&mission==mission_state);
+    }
+    memcpy(g_playerPlayerData,baseline,sizeof(baseline));free(saved);
+}
+
+#ifndef GE_MP_WATCH_NO_MAIN
 int main(int argc,char **argv)
 {
     unsigned count=argc>1?(unsigned)atoi(argv[1]):2,local=argc>2?(unsigned)atoi(argv[2]):0;
-    assert(count==2||count==4);start_watch(count,local%count);pause_and_death();reference_awards();delayed_results();menu_quit();
+    assert(count==2||count==4);start_watch(count,local%count);pause_and_death();awards_cast_preflight();reference_awards();delayed_results();menu_quit();
     GeOriginalMultiplayerWatchState state;assert(ge_original_multiplayer_watch_snapshot(&state));
     if(argc>3) {FILE *f=fopen(argv[3],"wb");assert(f);fprintf(f,"%u %u %u %016llx\n",count,fixture_music_intro_plays,fixture_music_stops[0],(unsigned long long)g_randomSeed);
         for(unsigned i=0;i<count;++i)for(unsigned a=0;a<2;++a){const char *text;assert(ge_original_multiplayer_watch_award_text(i,a,&text));fprintf(f,"%s\n",text?text:"none");}fclose(f);}
@@ -189,3 +223,5 @@ int main(int argc,char **argv)
     printf("native watch %up: raw-pad pause ownership/death menus, full source awards RNG/text/favorites, delayed results, all-player exit, music state/SFX flags and prior-session history passed\n",count);
     return 0;
 }
+
+#endif

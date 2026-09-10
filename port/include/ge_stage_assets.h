@@ -13,6 +13,8 @@ extern "C" {
 #endif
 
 #define GE_STAGE_ASSET_PATH_CAPACITY 160U
+#define GE_MULTIPLAYER_STAGE_COUNT 11U
+#define GE_MULTIPLAYER_STAGE_ID_BASE 0x100U
 
 typedef enum GeStageId {
     GE_STAGE_DAM = 0,
@@ -91,6 +93,13 @@ const GeStageAssetDescriptor *ge_stage_asset_descriptor(GeStageId stage);
 const GeStageAssetDescriptor *ge_stage_asset_descriptor_by_key(const char *key);
 const GeStageAssetDescriptor *ge_stage_asset_descriptor_by_level_id(
     int32_t level_id);
+/* Distinct multiplayer descriptors retain the solo enum/registry count and
+ * use stage IDs GE_MULTIPLAYER_STAGE_ID_BASE + original frontend arena index.
+ * Shared solo levels must be selected through these explicit MP functions. */
+const GeStageAssetDescriptor *ge_stage_asset_multiplayer(size_t arena_index);
+const GeStageAssetDescriptor *ge_stage_asset_multiplayer_by_level_id(int32_t level_id);
+size_t ge_stage_asset_multiplayer_spawn_count(size_t arena_index);
+size_t ge_stage_asset_multiplayer_max_players(size_t arena_index);
 const GeStageAssetDescriptor *ge_stage_asset_dam(void);
 const GeStageAssetDescriptor *ge_stage_asset_facility(void);
 

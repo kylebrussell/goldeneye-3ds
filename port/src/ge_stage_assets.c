@@ -75,10 +75,75 @@ static const GeStageAssetDescriptor ge_stage_descriptors[GE_STAGE_COUNT] = {
     },
 };
 
+static const GeStageAssetDescriptor ge_multiplayer_descriptors[GE_MULTIPLAYER_STAGE_COUNT] = {
+#define GE_MP_STAGE(index, level, level_index_value, scale, visibility, distance, \
+                    key_value, bg_key, setup_key_value, stan_key_value, \
+                    bg_size, bg_fnv, collision_size, collision_fnv, \
+                    bounds_size, bounds_fnv, setup_size, setup_fnv, \
+                    rooms, portals, tiles, points, spawn_tile, spawn_room, spawns, players) \
+    { (GeStageId)(GE_MULTIPLAYER_STAGE_ID_BASE + index), level, level_index_value, \
+      scale, visibility, distance, "mp_" key_value, bg_key, setup_key_value, stan_key_value, \
+      "converted/multiplayer/" key_value "/background.bin", \
+      "converted/multiplayer/" key_value "/rooms", \
+      "converted/multiplayer/" key_value "/room_bounds.gebounds", \
+      "converted/multiplayer/" key_value "/collision.gestan", \
+      "converted/multiplayer/" key_value "/setup.bin", \
+      bg_size, collision_size, bounds_size, setup_size, \
+      bg_fnv, collision_fnv, bounds_fnv, setup_fnv, \
+      rooms, portals, tiles, points, spawn_tile, spawn_room },
+#include "ge_multiplayer_stage_registry.inc"
+#undef GE_MP_STAGE
+};
+
+static const uint8_t ge_multiplayer_spawn_counts[GE_MULTIPLAYER_STAGE_COUNT] = {
+#define GE_MP_STAGE(index, level, level_index_value, scale, visibility, distance, \
+                    key_value, bg_key, setup_key_value, stan_key_value, \
+                    bg_size, bg_fnv, collision_size, collision_fnv, \
+                    bounds_size, bounds_fnv, setup_size, setup_fnv, \
+                    rooms, portals, tiles, points, spawn_tile, spawn_room, spawns, players) spawns,
+#include "ge_multiplayer_stage_registry.inc"
+#undef GE_MP_STAGE
+};
+static const uint8_t ge_multiplayer_max_players[GE_MULTIPLAYER_STAGE_COUNT] = {
+#define GE_MP_STAGE(index, level, level_index_value, scale, visibility, distance, \
+                    key_value, bg_key, setup_key_value, stan_key_value, \
+                    bg_size, bg_fnv, collision_size, collision_fnv, \
+                    bounds_size, bounds_fnv, setup_size, setup_fnv, \
+                    rooms, portals, tiles, points, spawn_tile, spawn_room, spawns, players) players,
+#include "ge_multiplayer_stage_registry.inc"
+#undef GE_MP_STAGE
+};
+
+const GeStageAssetDescriptor *ge_stage_asset_multiplayer(size_t arena_index)
+{
+    return arena_index < GE_MULTIPLAYER_STAGE_COUNT ? &ge_multiplayer_descriptors[arena_index] : NULL;
+}
+
+const GeStageAssetDescriptor *ge_stage_asset_multiplayer_by_level_id(int32_t level_id)
+{
+    size_t i;
+    for (i = 0; i < GE_MULTIPLAYER_STAGE_COUNT; ++i)
+        if (ge_multiplayer_descriptors[i].level_id == level_id) return &ge_multiplayer_descriptors[i];
+    return NULL;
+}
+
+size_t ge_stage_asset_multiplayer_spawn_count(size_t arena_index)
+{
+    return arena_index < GE_MULTIPLAYER_STAGE_COUNT ? ge_multiplayer_spawn_counts[arena_index] : 0;
+}
+
+size_t ge_stage_asset_multiplayer_max_players(size_t arena_index)
+{
+    return arena_index < GE_MULTIPLAYER_STAGE_COUNT ? ge_multiplayer_max_players[arena_index] : 0;
+}
+
 const GeStageAssetDescriptor *ge_stage_asset_descriptor(GeStageId stage)
 {
-    return (unsigned)stage < (unsigned)GE_STAGE_COUNT
-        ? &ge_stage_descriptors[(size_t)stage] : NULL;
+    if ((unsigned)stage < (unsigned)GE_STAGE_COUNT)
+        return &ge_stage_descriptors[(size_t)stage];
+    if ((unsigned)stage >= GE_MULTIPLAYER_STAGE_ID_BASE)
+        return ge_stage_asset_multiplayer((unsigned)stage - GE_MULTIPLAYER_STAGE_ID_BASE);
+    return NULL;
 }
 
 const GeStageAssetDescriptor *ge_stage_asset_descriptor_by_key(const char *key)
@@ -89,6 +154,10 @@ const GeStageAssetDescriptor *ge_stage_asset_descriptor_by_key(const char *key)
     for (index = 0U; index < GE_STAGE_COUNT; ++index) {
         if (strcmp(ge_stage_descriptors[index].key, key) == 0)
             return &ge_stage_descriptors[index];
+    }
+    for (index = 0U; index < GE_MULTIPLAYER_STAGE_COUNT; ++index) {
+        if (strcmp(ge_multiplayer_descriptors[index].key, key) == 0)
+            return &ge_multiplayer_descriptors[index];
     }
     return NULL;
 }

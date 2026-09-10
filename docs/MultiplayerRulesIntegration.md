@@ -77,7 +77,13 @@ hash comments identify each extracted body.
   for solo, two and four players; armour and permanent pickup statistics remain
   owned by the collecting slot. Distance and occlusion rejection are retained.
 - [x] Native rules adapter compiles with `-Wall -Wextra -Werror`.
-- [ ] Authored multiplayer asset conversion/registry and live world loading.
+- [x] Verified-ROM conversion/registry and native world/setup loading for all
+  eleven authored multiplayer arenas. `bash scripts/test_multiplayer_assets.sh
+  /path/to/baserom.u.z64` runs ASan/UBSan through full setup relocation, native
+  STAN binding and original respawn for every allowed 2–4 player count. Each
+  map's authored spawn count is retained; all source STAN geometry and spawn
+  records are checked against the verified ROM bytes. This is a headless
+  asset/spawn fixture, not a rendered playable match.
 - [ ] Integrated hand fire/hit detection across player bodies and actual
   dropped-weapon actor materialization, pickup regeneration and scenario items.
 - [ ] Results frontend, original awards/music, and complete match flow.
@@ -90,3 +96,39 @@ remain original source. The separate pickup fixture uses the original
 `propsTickPlayer → objTickPlayer → propPickupByPlayer` chain with collision,
 object-free and audiovisual providers. Neither fixture validates a full arena,
 renderer, weapon firing, object regeneration, wireless radio or physical play.
+
+## Multiplayer assets
+
+`extract_3ds_multiplayer_stages.py` reads the canonical US ROM by SHA-1 and the
+original source mapping tables, emits private bundles to `build/3ds-multiplayer`,
+and generates `ge_multiplayer_stage_registry.inc`. It never modifies the ROM or
+shared source assets. `build_3ds_assets.sh` includes all bundle files under
+`converted/multiplayer/<arena>/` and verifies the packed background, setup,
+collision and room-bound bytes against the generated inputs.
+
+`ge_stage_asset_multiplayer(index)` follows the original frontend's eleven
+non-Random entries. `ge_stage_asset_multiplayer_by_level_id(level)` explicitly
+selects the multiplayer form of a shared solo level. `GE_STAGE_COUNT` remains
+21; multiplayer descriptor IDs occupy `0x100..0x10A`. The generic descriptor
+lookup accepts those IDs, and keys use `mp_temple`, `mp_facility`, etc. The
+existing solo by-level lookup continues to return the solo descriptor.
+
+| Arena | Max players | Authored spawns | Setup |
+| --- | ---: | ---: | --- |
+| Temple | 4 | 5 | Ump_setupdishZ |
+| Complex | 4 | 7 | Ump_setuprefZ |
+| Caves | 4 | 8 | Ump_setupoatZ |
+| Library | 4 | 8 | Ump_setupameZ |
+| Basement | 4 | 5 | Ump_setupashZ |
+| Stack | 4 | 5 | Ump_setupimpZ |
+| Facility | 4 | 8 | Ump_setuparkZ |
+| Bunker 2 | 3 | 5 | Ump_setupsevbZ |
+| Archives | 3 | 8 | Ump_setuparchZ |
+| Caverns | 3 | 7 | Ump_setupcaveZ |
+| Egyptian | 2 | 6 | Ump_setupcrypZ |
+
+Library/Basement/Stack intentionally share background and STAN geometry while
+retaining their distinct authored setup files. The fixture validates native
+world/setup loading and player spawn positions; authored arena restrictions
+also depend on the canonical background visibility commands and live object
+construction in the integrated renderer/simulation.

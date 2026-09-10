@@ -220,7 +220,7 @@ def main() -> None:
                 if name == "gunTickHandState":
                     assert actual_body.count("GE_PORT_INPUT_OTHER_HAND(g_CurrentPlayer->hands, hand)") == 2
                     assert "#define GE_PORT_INPUT_OTHER_HAND(hands, hand) ((hands) + (1 - (hand)))" in generated_text
-                    assert "#define GE_PORT_INPUT_OTHER_HAND(hands, hand) ((hands - hand) + 1)" in generated_text
+                    assert generated_text.count("#define GE_PORT_INPUT_OTHER_HAND(") == 1
                     actual_body = actual_body.replace("GE_PORT_INPUT_OTHER_HAND(g_CurrentPlayer->hands, hand)",
                         "(g_CurrentPlayer->hands - hand) + 1")
                 actual = canonical_tokens(actual_body)

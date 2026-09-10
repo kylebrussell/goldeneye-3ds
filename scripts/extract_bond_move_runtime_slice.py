@@ -2,8 +2,9 @@
 """Extract unchanged on-foot MoveBond dependencies from the decomp sources.
 
 The emitted translation unit is deliberately a source slice rather than a
-second implementation: every function body is copied byte-for-byte from the
-canonical decomp file and its digest is recorded beside the body.
+second implementation. The canonical digest is recorded beside each body;
+only the death-animation offset-to-pointer argument crosses a typed host ABI
+boundary. Its native expression and original RNG calls are retained.
 """
 
 from __future__ import annotations
@@ -13,6 +14,9 @@ import hashlib
 import re
 from pathlib import Path
 
+
+DEATH_ANIMATION_OFFSET = "g_bondviewBondDeathAnimations[((u32) randomGetNext() % (u32) g_bondviewBondDeathAnimationsCount)]"
+DEATH_ANIMATION_POINTER = "(struct ModelAnimation *) ((s32)" + DEATH_ANIMATION_OFFSET + " + (s32)&ptr_animation_table->data[0])"
 
 BONDVIEW2_FUNCTIONS = (
     "bondviewMoveAnimationTick",
@@ -141,6 +145,7 @@ def main() -> None:
         extract_define(bondview2, "BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH"),
         extract_define(bondview2, "BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH"),
         '#include "ge_original_bond_movement_internal.h"',
+        '#include "ge_original_guard_animation_table.h"',
         '#include "game/bondhead.h"',
         '#include "game/bondview_internal.h"',
         '#include "game/chrai.h"',
@@ -177,7 +182,22 @@ def main() -> None:
         if frontier_only:
             sections.append("#ifdef GE_PORT_EXACT_MOVEBOND_FRONTIER")
         sections.append(f"/* {name} sha256={digest(body)} */")
-        sections.append(body)
+        if name == "bondviewMoveAnimationTick":
+            if body.count(DEATH_ANIMATION_POINTER) != 1:
+                raise ValueError("review source death-animation offset producer")
+            sections.extend((
+                "#if defined(GE_PORT_BOND_INPUT_HOST_STATE) && __SIZEOF_POINTER__ > 4",
+                "#define GE_PORT_BOND_DEATH_ANIMATION(offset) \\\n    ((struct ModelAnimation *)ge_port_guard_animation_resolve((u32)(offset)))",
+                "#else",
+                "#define GE_PORT_BOND_DEATH_ANIMATION(offset) \\\n    ((struct ModelAnimation *)((s32)(offset) + (s32)&ptr_animation_table->data[0]))",
+                "#endif",
+            ))
+            body = body.replace(DEATH_ANIMATION_POINTER,
+                                "GE_PORT_BOND_DEATH_ANIMATION(" + DEATH_ANIMATION_OFFSET + ")")
+            sections.append(body)
+            sections.append("#undef GE_PORT_BOND_DEATH_ANIMATION")
+        else:
+            sections.append(body)
         if frontier_only:
             sections.append("#endif /* GE_PORT_EXACT_MOVEBOND_FRONTIER */")
         sections.append("")

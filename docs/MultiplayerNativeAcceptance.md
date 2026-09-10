@@ -66,3 +66,49 @@ execution remain resource/platform boundaries. This gate does not establish
 player-hit, death, respawn, score/results, dual-wield rendering, complete state
 hash agreement, radio behavior or performance. Those require further gates;
 retaining their entrypoints in the link is not execution evidence.
+
+## Controller-driven match gate
+
+Append `--combat` to the populated Caves command above. This writes
+`combat-transcript.txt` and uses the same freshly built production archive and
+strong-entrypoint audit. No instrumented or replacement gameplay functions are
+linked. Both two- and four-player rosters run the production shared runner until
+all players request the title screen through their original results menus.
+
+Player zero collects and equips the authored PP7. A test controller computes a
+route for player one from the loaded arena's actual STAN adjacency, then emits
+ordinary Honey stick/buttons. Original MoveBond owns every position, floor and
+collision result. Player zero aims using its published camera and ordinary pad
+input; no position, health, inventory, ammo, hand state, score or death flag is
+assigned by the fixture.
+
+The current canonical seed produces this transcript (ticks are zero-based):
+
+| Transition | Two players | Four players |
+| --- | ---: | ---: |
+| Authored PP7 pickup | 84 | 84 |
+| First native player damage | 592 | 592 |
+| Victim death and killer score 1 | 688 | 942 |
+| Controller-triggered native respawn | 1088 | 1254 |
+| Original timed results/awards | 1799 | 1799 |
+| All menus FINISHED, original TITLE request | 1808 | 1808 |
+
+The two-player victim dies from the PP7. In the four-player run, the PP7 uses
+its ten rounds and the original fist dispatch finishes the victim. The test
+requires exactly one observed death, one respawn with full health, one recorded
+kill, timed results with readable native award text ownership, and the original
+all-player menu completion condition. It verifies reuse of the same native
+player, prop and inventory owners across respawn. A neutral interval followed by
+a Start edge on every pad closes the original results menus.
+
+Every canonical viewport also compares the actual retained room visibility and
+room-bbox readers with the current native publication. These checks exposed two
+host layout errors: the fixed room and draw-room tables were read through
+pointer-expanded declarations. Both unchanged source readers now live beside
+their publisher. The match additionally executes the typed host death-animation
+offset conversion; source animation choice and RNG calls remain unchanged.
+
+This gate covers CPU gameplay through the title request. GPU submission, audio
+hardware, dual-wield presentation, complete exported-state agreement, networking,
+radio behavior and performance remain separate acceptance work. The routing and
+aiming code is test input generation; it does not replace a game subsystem.

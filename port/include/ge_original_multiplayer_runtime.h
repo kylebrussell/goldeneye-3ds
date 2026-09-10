@@ -62,8 +62,11 @@ typedef struct GeOriginalMultiplayerRuntimeFrame {
 
 /* Call after the one committed input/timer/sky tick, before global music.
  * Retains effects (sparks, casings, shards, flying particles), all-chr pre-tick,
- * pickup regeneration and one canonical shuffle, in that exact order. The
+ * pickup regeneration, native music-slot countdown and one canonical shuffle,
+ * in that exact order. Countdown uses the committed native g_ClockTimer and
+ * runs even when the pre-tick owner is paused or already pending. The
  * previous frame's last shuffled player remains selected across this boundary.
+ * The title stage is rejected before any world owner runs.
  * Unsupported positive-timer owners fail closed after earlier accepted
  * owners may have ticked; the caller must not retry that partial frame. */
 GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_begin_world(

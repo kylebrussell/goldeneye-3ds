@@ -30,7 +30,7 @@ static unsigned events[256], event_slots[256], event_count;
 static int arena_active, held_frontier, reload, object_present;
 PropRecord *g_InteractProp, *g_OnScreenPropList[3], **g_LastOnScreenProp;
 static PropRecord object_prop, door_prop;
-enum Event {EFFECTS, BG_SEMANTICS, WORLD, REGEN, SHUFFLE, VIEWS_BEGIN, HUD_BEGIN, SELECT, FOV, PRE_DEATH, Y_AIM,
+enum Event {EFFECTS, BG_SEMANTICS, WORLD, MUSIC_SLOTS, REGEN, SHUFFLE, VIEWS_BEGIN, HUD_BEGIN, SELECT, FOV, PRE_DEATH, Y_AIM,
     X_AIM, LOOK, AMMO, SIGHT, MOVE, WATCH, CAMERA, VIEW, PROPS, ONSCREEN, AUTOAIM,
     HELD, TEST_DOOR, DOOR, TEST_OBJECT, INTERACT, EXECUTE_OP, RELOAD_RIGHT, RELOAD_LEFT,
     PICKUPS, SYNC, GUN, RENDERER, MATRICES, FLASH, HUD_PREPARE, POST_DEATH,
@@ -42,6 +42,8 @@ s32 get_cur_playernum(void) {return (s32)selected;}
 s32 get_nth_player_from_shuffled(PLAYER_ID ordinal) {return (s32)((count-1-(uint32_t)ordinal+shuffle_rotation)%count);}
 u32 osGetCount(void) {return 12345;} /* Wall-clock resource, not game timers. */
 void shuffle_player_ids(void) {event(SHUFFLE);}
+void reset_all_music_slots(void) {event(MUSIC_SLOTS);}
+s32 lvlGetCurrentStageToLoad(void) {return LEVELID_CAVERNS;}
 int ge_original_gun_frame_arena_active(void) {return arena_active;}
 int ge_original_effect_runtime_pre_world(void) {event(EFFECTS);return 1;}
 int ge_original_prop_render_semantics_prepare(GeOriginalStageGuardRuntime *r,uint64_t tick,unsigned slot)
@@ -155,7 +157,7 @@ static void run(uint32_t n,uint32_t display,uint32_t rotation,int activation,int
     arena_active=1;
     assert(ge_original_multiplayer_runtime_begin_world(&active,1,&regen)==GE_ORIGINAL_MP_RUNTIME_OK);
     assert(ge_original_multiplayer_runtime_tick(&frame)==GE_ORIGINAL_MP_RUNTIME_OK);
-    unsigned cursor=0;expect(&cursor,EFFECTS,display);expect(&cursor,WORLD,display);expect(&cursor,REGEN,display);expect(&cursor,SHUFFLE,display);
+    unsigned cursor=0;expect(&cursor,EFFECTS,display);expect(&cursor,WORLD,display);expect(&cursor,REGEN,display);expect(&cursor,MUSIC_SLOTS,display);expect(&cursor,SHUFFLE,display);
     expect(&cursor,VIEWS_BEGIN,display);expect(&cursor,HUD_BEGIN,display);
     for(uint32_t ordinal=0;ordinal<n;++ordinal){
         uint32_t slot=(n-1-ordinal+shuffle_rotation)%n;

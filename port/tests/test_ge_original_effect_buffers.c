@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <bondconstants.h>
 
 #include "game/explosion.h"
 
@@ -74,6 +75,22 @@ int main(void)
     assert(g_NumParticleEntries == 0);
     assert(g_SpExplosionDamageMult == 1.0f);
 
-    puts("canonical single-player effect buffer reset passed");
+    for (unsigned count = 2; count <= 4; ++count) {
+        assert(ge_original_effect_buffers_reset_players(count, LEVELID_DAM));
+        assert(!g_ScorchBuffer && !g_NumScorchEntries);
+        assert(max_particles == MAX_FLYING_PARTICLES/(s32)count);
+        assert(ge_original_effect_particle_capacity() == (size_t)max_particles);
+        assert(!g_FlyingParticlesBuffer[max_particles-1].unk00);
+        assert(ge_original_effect_buffers_reset_players(count, LEVELID_STREETS));
+        assert(max_particles == (MAX_FLYING_PARTICLES/(s32)count)/2);
+        assert(ge_original_effect_buffers_reset_players(count, LEVELID_DEPOT));
+        assert(max_particles == (MAX_FLYING_PARTICLES/(s32)count)/2);
+        assert(!ge_original_effect_buffers_reset_players(0, LEVELID_DAM));
+        assert(!ge_original_effect_buffers_reset_players(5, LEVELID_DAM));
+        assert(max_particles == (MAX_FLYING_PARTICLES/(s32)count)/2);
+    }
+    ge_original_effect_buffers_reset_single_player();
+    assert(g_ScorchBuffer && max_particles == MAX_FLYING_PARTICLES);
+    puts("canonical effect buffer reset passed: solo, 2/3/4 players, Streets/Depot caps");
     return 0;
 }

@@ -1,6 +1,7 @@
 #include "ge_original_effect_buffers.h"
 
 #include <stddef.h>
+#include <bondconstants.h>
 
 #include "game/explosion.h"
 
@@ -8,7 +9,7 @@
  * The N64 stage allocator supplies these arrays to the exact globals in
  * explosion.c. The 3DS frontend does not run the monolithic lvlReset path, so
  * this module is the equivalent stage-allocation boundary. Capacities and
- * initialization order below are the single-player branch of
+ * initialization order below retain the roster/stage branches of
  * alloc_explosion_smoke_casing_scorch_impact_buffers.
  */
 static _Alignas(16) struct Explosion explosion_stage_storage[
@@ -28,10 +29,12 @@ __attribute__((weak)) struct Scorch *g_ScorchBuffer;
 __attribute__((weak)) s32 g_NumScorchEntries;
 __attribute__((weak)) s32 g_NumImpactEntries;
 
-void ge_original_effect_buffers_reset_single_player(void)
+int ge_original_effect_buffers_reset_players(uint32_t player_count,
+                                             int32_t stage_id)
 {
     s32 i;
     s32 j;
+    if (player_count < 1 || player_count > 4) return 0;
 
     g_NumExplosionEntries = 0;
     g_NumSmokeEntries = 0;
@@ -60,9 +63,9 @@ void ge_original_effect_buffers_reset_single_player(void)
         }
     }
 
-    g_ScorchBuffer = scorch_stage_storage;
+    g_ScorchBuffer = player_count == 1 ? scorch_stage_storage : NULL;
 
-    for (i = 0; i < SCORCH_BUFFER_LEN; i++) {
+    for (i = 0; player_count == 1 && i < SCORCH_BUFFER_LEN; i++) {
         g_ScorchBuffer[i].roomid = -1;
     }
 
@@ -72,12 +75,20 @@ void ge_original_effect_buffers_reset_single_player(void)
         g_BulletImpactBuffer[i].room = -1;
     }
 
-    max_particles = MAX_FLYING_PARTICLES;
+    max_particles = MAX_FLYING_PARTICLES / (s32)player_count;
+    if (stage_id == LEVELID_STREETS || stage_id == LEVELID_DEPOT)
+        max_particles = (s32)max_particles >> 1;
     g_FlyingParticlesBuffer = particle_stage_storage;
 
     for (i = 0; i < max_particles; i++) {
         g_FlyingParticlesBuffer[i].unk00 = 0;
     }
+    return 1;
+}
+
+void ge_original_effect_buffers_reset_single_player(void)
+{
+    (void)ge_original_effect_buffers_reset_players(1, LEVELID_DAM);
 }
 
 size_t ge_original_effect_explosion_capacity(void)
@@ -92,5 +103,5 @@ size_t ge_original_effect_smoke_capacity(void)
 
 size_t ge_original_effect_particle_capacity(void)
 {
-    return MAX_FLYING_PARTICLES;
+    return (size_t)max_particles;
 }

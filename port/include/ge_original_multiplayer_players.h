@@ -34,6 +34,16 @@ int ge_original_multiplayer_select_local_player(void);
 uint32_t ge_original_multiplayer_player_count(void);
 struct player *ge_original_multiplayer_player(uint32_t slot);
 int32_t ge_original_multiplayer_control_style(int32_t slot);
+/* Explicit launch settings override the diagnostic input-layout default for
+ * this storage lifetime and all later respawns. No selection or RNG changes. */
+int ge_original_multiplayer_players_apply_control_styles(const int32_t *styles,uint32_t count);
+typedef struct GeOriginalMultiplayerControlStorage {
+    int32_t styles[4];
+    uint32_t count;
+    uint8_t explicit_selection;
+} GeOriginalMultiplayerControlStorage;
+/* Typed future respawn selection owner; no addresses/padding are exported. */
+int ge_original_multiplayer_players_control_storage(GeOriginalMultiplayerControlStorage *);
 /* Run once per player after allocating distinct hand buffers. */
 int ge_original_multiplayer_player_bind_inventory(uint32_t slot);
 #endif

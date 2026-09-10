@@ -117,6 +117,16 @@ int ge_original_bond_input_bind_roster(struct player *const *players,
     return 1;
 }
 
+int ge_original_bond_input_set_roster_control_styles(const int32_t *styles,uint32_t count)
+{
+    if(!styles || count<2 || count>4 || count!=g_roster_count)return 0;
+    for(uint32_t i=0;i<count;++i)
+        if(styles[i]<0 || styles[i]>7 || !g_roster[i].current_player
+            || g_roster[i].current_player!=g_playerPointers[i] || !g_roster[i].player_permissions)return 0;
+    for(uint32_t i=0;i<count;++i)g_roster[i].control_type=styles[i];
+    return 1;
+}
+
 void ge_original_bond_input_unbind_roster(void)
 {
     g_roster_count = 0;

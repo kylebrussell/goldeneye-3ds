@@ -295,6 +295,33 @@ static void incomplete_digest(void)
     memset(digest,0xA5,32);assert(ge_mp_state_sha256(&aggregate,digest,&report)==GE_MP_STATE_INCOMPLETE);
     for(unsigned i=0;i<32;++i)assert(digest[i]==0xA5);
 }
+static void controls(unsigned count,unsigned peer)
+{
+    setup(count,peer);GeOriginalMultiplayerControlStorage view;
+    assert(ge_original_multiplayer_players_control_storage(&view));
+    assert(view.count==count && !view.explicit_selection);
+    capture(1);assert(!snapshot.values.controls_explicit);
+    int32_t styles[4]={0,0,0,0};unsigned char before[32],after[32];
+    fingerprint(before,1);
+    assert(ge_original_multiplayer_players_apply_control_styles(styles,count));
+    fingerprint(after,1);assert(memcmp(before,after,32));
+    assert(snapshot.values.controls_explicit==1);
+    for(unsigned i=0;i<count;++i) {
+        fingerprint(before,1);styles[i]=(int32_t)(i+1);
+        assert(ge_original_multiplayer_players_apply_control_styles(styles,count));
+        fingerprint(after,1);assert(memcmp(before,after,32));
+        assert(snapshot.values.control_styles[i]==styles[i]);
+    }
+    assert(ge_original_multiplayer_players_control_storage(&view));
+    styles[0]=8;assert(!ge_original_multiplayer_players_apply_control_styles(styles,count));
+    GeOriginalMultiplayerControlStorage unchanged;
+    assert(ge_original_multiplayer_players_control_storage(&unchanged));
+    assert(view.count==unchanged.count && view.explicit_selection==unchanged.explicit_selection
+        && !memcmp(view.styles,unchanged.styles,sizeof(view.styles)));
+    teardown();assert(!ge_original_multiplayer_players_control_storage(&view));
+    setup(count,peer);assert(ge_original_multiplayer_players_control_storage(&view));
+    assert(!view.explicit_selection);for(unsigned i=0;i<4;++i)assert(!view.styles[i]);teardown();
+}
 int main(int argc,char **argv)
 {
     assert(argc==4);unsigned count=(unsigned)atoi(argv[1]),peer=(unsigned)atoi(argv[2]);
@@ -306,6 +333,7 @@ int main(int argc,char **argv)
     capture(1);FILE *file=fopen(argv[3],"wb");assert(file);size_t n=payload(bytes);assert(fwrite(bytes,1,n,file)==n);assert(!fclose(file));
     legacy_projection=0;mutations_and_negative(count);publication(count);terminal(count);incomplete_digest();teardown();
     setup(4,peer);teardown();setup(count,peer);legacy_projection=1;fingerprint(again,1);assert(!memcmp(initial,again,32));teardown();
-    printf("kind0: %up peer%u, %u native mutations, authored Caves spawn order, exact death/limits, replay/ref/schedule rejection, prior-domain session convergence and retained watch mutations passed\n",count,peer,mutations);
+    legacy_projection=0;controls(count,peer);
+    printf("kind0: %up peer%u, %u native mutations, authored Caves spawn order, exact death/limits, replay/ref/schedule rejection, prior-domain session convergence, launch controls and retained watch mutations passed\n",count,peer,mutations);
     return 0;
 }

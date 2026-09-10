@@ -56,8 +56,8 @@ int ge_original_player_body_character(
     int32_t character, GeOriginalPlayerBodyCharacter *selection);
 uint16_t get_player_mp_char_head(int32_t player_slot);
 uint16_t get_player_mp_char_body(int32_t player_slot);
-uint8_t get_player_mp_char_gender(int32_t player_slot);
-float get_player_mp_char_height(int32_t player_slot);
+uint8_t get_player_mp_char_gender(int player_slot);
+float get_player_mp_char_height(int player_slot);
 const char *ge_original_player_body_status_name(
     GeOriginalPlayerBodyStatus status);
 

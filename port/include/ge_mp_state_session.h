@@ -6,7 +6,7 @@
 #include "ge_original_stage_active_props.h"
 #include "ge_original_multiplayer_hud.h"
 
-#define GE_MP_SESSION_SCHEMA_VERSION 3U
+#define GE_MP_SESSION_SCHEMA_VERSION 4U
 #define GE_MP_SESSION_MAX_GAPS 64U
 #define GE_MP_SESSION_SYSTEMS (GE_MP_SYSTEM_SESSION|GE_MP_SYSTEM_RULES|GE_MP_SYSTEM_RESPAWN)
 /* Typed paths and stable field IDs. No pointer or native ABI width is wire state. */
@@ -91,8 +91,10 @@
  X(333,I32,1,watch_alternate_timer,"alt_gameover_msg_timer") \
  X(334,I32,1,watch_gamemode,"gamemode") \
  X(335,I32,1,watch_selected_count,"selected_num_players") \
- X(336,I32,8,watch_favorites,"array_favweapon")
-#define GE_MP_SESSION_FIELD_COUNT 81U
+ X(336,I32,8,watch_favorites,"array_favweapon") \
+ X(337,BOOL,1,controls_explicit,"players.launch_controls.explicit") \
+ X(338,I32,4,control_styles,"players.launch_controls.styles")
+#define GE_MP_SESSION_FIELD_COUNT 83U
 typedef enum GeMpSessionBoundary {
     GE_MP_SESSION_INITIAL,
     GE_MP_SESSION_WORLD_COMMITTED,
@@ -146,7 +148,8 @@ typedef enum GeMpSessionGapReason {
     GE_MP_SESSION_GAP_RAMROM_OWNER,
     GE_MP_SESSION_GAP_MUSIC_TRANSITION_OWNER,
     GE_MP_SESSION_GAP_RESOURCE_PROVIDERS,
-    GE_MP_SESSION_GAP_BUILD
+    GE_MP_SESSION_GAP_BUILD,
+    GE_MP_SESSION_GAP_CONTROL_OWNER
 } GeMpSessionGapReason;
 typedef struct GeMpSessionGap {
     uint16_t field, index;
@@ -172,6 +175,8 @@ typedef struct GeMpSessionValues {
     uint8_t active_bound,active_pending,active_player_count,active_player_mask,active_ordered_present;
     int32_t watch_who_paused,watch_glow,watch_glow_timer,watch_alternate,watch_alternate_timer;
     int32_t watch_gamemode,watch_selected_count,watch_favorites[4][2];
+    int32_t control_styles[4];
+    uint8_t controls_explicit;
     uint64_t hud_tick;
     uint8_t hud_initialized,hud_prepared,hud_captured,hud_failed,hud_intro_camera;
 } GeMpSessionValues;

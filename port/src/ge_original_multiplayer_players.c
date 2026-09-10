@@ -31,6 +31,8 @@ typedef struct GeMultiplayerStorage {
     u64 previous_rng;
     u64 previous_chr_rng;
     int32_t previous_control_style;
+    int32_t control_styles[4];
+    uint8_t controls_explicit;
     uint32_t count;
     uint32_t local;
     uint64_t lifetime;
@@ -136,8 +138,29 @@ struct player *ge_original_multiplayer_player(uint32_t slot)
 int32_t ge_original_multiplayer_control_style(int32_t slot)
 {
     if (slot < 0 || g_players == NULL || (uint32_t)slot >= g_players->count) return 0;
+    if(g_players->controls_explicit)return g_players->control_styles[slot];
     /* Every local machine supplies both original controller roles. */
     return ge_original_input_dual_analog() ? CONTROLLER_CONFIG_GALORE : CONTROLLER_CONFIG_HONEY;
+}
+int ge_original_multiplayer_players_apply_control_styles(const int32_t *styles,uint32_t count)
+{
+    if(!g_players || count!=g_players->count || !styles)return 0;
+    for(uint32_t i=0;i<count;++i)
+        if(g_playerPointers[i]!=&g_players->players[i])return 0;
+    if(!ge_original_bond_input_set_roster_control_styles(styles,count))return 0;
+    for(uint32_t i=0;i<count;++i) {
+        g_players->control_styles[i]=styles[i];
+        g_players->players[i].controldef=styles[i];
+    }
+    g_players->controls_explicit=1;
+    return 1;
+}
+int ge_original_multiplayer_players_control_storage(GeOriginalMultiplayerControlStorage *out)
+{
+    if(!g_players || !out)return 0;
+    for(unsigned i=0;i<4;++i)out->styles[i]=g_players->control_styles[i];
+    out->count=g_players->count;out->explicit_selection=g_players->controls_explicit;
+    return 1;
 }
 int ge_original_multiplayer_player_bind_inventory(uint32_t slot)
 {

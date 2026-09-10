@@ -957,7 +957,8 @@ if [[ -f "${repo_dir}/build/3ds-models/first-person-pp7/GwppkZ.bin" \
         --source-sha1 abe01e4aeb033b6c0836819f549c791b26cfde83 \
         --extra-dir "converted/models/first-person-pp7=${repo_dir}/build/3ds-models/first-person-pp7" \
         --output "${first_person_pack}"
-    bash "${repo_dir}/scripts/test_multiplayer_gun_gameplay.sh" "${first_person_pack}"
+    bash "${repo_dir}/scripts/test_multiplayer_gun_gameplay.sh" "${first_person_pack}" \
+        "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
     cc -std=c11 -Wall -Wextra -Werror -pedantic -Wconversion \
         -Wsign-conversion -Wshadow \
         -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE \

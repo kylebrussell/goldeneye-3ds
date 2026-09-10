@@ -233,3 +233,32 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   `build/integration/aggregate-host-evidence-760e600c`. Later domain and
   lifecycle changes require a new common-source run; this receipt does not
   imply full mission, multiplayer, performance or physical acceptance.
+- Player and BG domains, explicit native arena/player lifetimes, and a fresh
+  registry for each canonical match are integrated through `872473c0`.
+  Native and short-enum lifecycle checks preserve the early BG identity,
+  advance generations for reuse within a match, and start identical IDs after
+  different two/four/two-player and partial-match histories. This establishes
+  identity behavior, not complete native state convergence.
+- Independent player-field review found `players_cur_animation` held an
+  animation address despite its integer declaration. Repair `4969e84e` makes
+  it an explicit animation owner/offset reference in E6 schema version 2.
+  Unknown, stale and unrecoverably truncated addresses leave gaps; relocated
+  tokens resolving to the same owner and offset produce the same typed values.
+  The complete frozen host suite and pinned ARM build pass at `4969e84e`,
+  including four cases of 6,688 scalar mutations and the new reference checks.
+- The private candidate at `31fce6e5` additionally includes the exact native
+  MoveBond scratch-size repair and defined unsigned matrix bit packing. Their
+  focused sanitizer regressions and the complete same-source host suite pass;
+  the old scratch declaration fails the expected overflow control. A forced
+  pinned ARM build passes, with executable SHA-256
+  `f8d7ebda64157f8edbc9518a65e52d5382a653679f414fe43f02dd1740a205e9`.
+  Its retained ELF defines 26 checked native entry points.
+- `build/integration/candidate-31fce6e5` is a verified private package with
+  456 inventoried files, the verified full asset pack, and 85 scoped evidence
+  references. Manifest SHA-256 is
+  `6bd391cebc77cf89af097f1bc14b734ab78a0919565dafe38d0f19edcbc2dd72`.
+  Every acceptance area remains partial, and the completeness gate rejects
+  the package. It uses compiled settings defaults and contains no saves,
+  diagnostic overrides or DSP firmware; external DSP support is explicit.
+  It has not been deployed. Later body/effect/fog/visibility/session and host
+  callback changes are outside this checkpoint and need their own closure.

@@ -102,9 +102,16 @@ still required. See
 cannot start a synchronized match. Its compatibility tag and lineage fingerprint
 are not exact executable/asset hashes; the match protocol's exact identity fields
 require a complete runtime contract and verified state coverage. Typed native
-core, inventory/permanent-player, prop-pool and hand domains are exported, with
-explicit gaps. Their native entry points are retained in the ARM executable;
+core, inventory/permanent-player, prop-pool, hand, player and background domains
+are exported, with explicit gaps. Their native entry points are retained in the ARM executable;
 they cannot attest complete game state or authorize a finish-tick digest.
+
+A private candidate at `31fce6e5` passes the complete host suite, a pinned ARM
+build and package verification. Its acceptance manifest keeps all nine areas
+partial and the completeness gate rejects it. The package has not been
+deployed; later multiplayer body, effect, visibility and session work remains
+outside that frozen checkpoint. See the
+[integration acceptance record](IntegrationAcceptance20260910.md).
 
 ## Reproducible checks
 

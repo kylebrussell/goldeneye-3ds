@@ -109,6 +109,24 @@ satisfy these requirements.
 No new complete gameplay route was recorded in this workstream. The preexisting
 Dam route generator/verifier and Facility AI flow harness remain useful narrow
 checks; they do not establish the other stages or every Dam/Facility difficulty.
+Direct controller diagnostics default to the existing canonical difficulty
+(Agent on a fresh launch). In an isolated probe SD directory,
+`probe-difficulty.cfg` can explicitly select `0` Agent, `1` Secret Agent,
+`2` 00 Agent or `3` 007. Only one digit plus optional surrounding ASCII
+whitespace is accepted. A valid controller probe must also be present; a
+difficulty file alone never bypasses or changes the normal frontend. Visual
+tours take priority over controller probes and ignore this override. Invalid
+difficulty input stops the controller diagnostic before setup. The original
+`lvlSetSelectedDifficulty` body applies a valid override before stage setup,
+so authored difficulty filters and AI initialization see the same selection.
+Results record `setup_difficulty`, final `difficulty`, and
+`probe_difficulty_override`. The all-objective Dam verifier now requires both
+difficulty values to be `2`; older results without provenance cannot certify
+that route. The integration coordinator must stage the explicit difficulty
+file with its private route inputs and remove it after the run. Mode 007 uses
+the existing custom slider values; selecting it does not certify any specific
+slider configuration.
+
 The unresolved routes must exercise live NPC timing and survival, object
 interaction/destruction, pickups and gadgets, moving vehicles, special room
 triggers, and their actual terminal AI branches. The fixture only proves that

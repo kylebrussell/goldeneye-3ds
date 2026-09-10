@@ -21,6 +21,7 @@ bash "${repo_dir}/scripts/test_scene_overlay_growth.sh" "${test_dir}/scene-overl
 bash "${repo_dir}/scripts/test_3ds_scene_texture_reconcile.sh"
 bash "${repo_dir}/scripts/test_3ds_texture_uv.sh"
 bash "${repo_dir}/scripts/test_3ds_controls.sh"
+bash "${repo_dir}/scripts/test_3ds_probe_difficulty.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_control_gestures.py"
 bash "${repo_dir}/scripts/test_original_inventory.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_touch_objectives.py"

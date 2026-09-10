@@ -12,3 +12,4 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
     "${test_dir}/test_ge_3ds_probe_difficulty" "${test_dir}/difficulty.cfg" "${test_dir}"
+python3 "${repo_dir}/scripts/tests/test_3ds_probe_difficulty_wiring.py"

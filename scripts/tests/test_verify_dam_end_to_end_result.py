@@ -12,6 +12,8 @@ from scripts.verify_dam_end_to_end_result import verify
 
 GOOD = """GE_INPUT_PROBE_RESULT 1
 status=complete
+setup_difficulty=2
+difficulty=2
 route_targets=124,124
 simulation_frames=7200
 actor_ticks=6760
@@ -60,6 +62,13 @@ class EndToEndVerifierTests(unittest.TestCase):
 
     def test_accepts_complete_authored_flow(self) -> None:
         self.assertIn("Dam end-to-end verified", self.check(GOOD))
+
+    def test_requires_00_agent_at_setup_and_result(self) -> None:
+        for key in ("setup_difficulty", "difficulty"):
+            for replacement in ("", f"{key}=0\n", f"{key}=1\n", f"{key}=3\n"):
+                with self.subTest(key=key, replacement=replacement):
+                    with self.assertRaisesRegex(ValueError, "requires 00 Agent"):
+                        self.check(GOOD.replace(f"{key}=2\n", replacement))
 
     def test_reports_shot_origin_stan_blocker_before_route_failure(self) -> None:
         with self.assertRaisesRegex(

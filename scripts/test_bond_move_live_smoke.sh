@@ -69,6 +69,7 @@ compile_support port/src/ge_original_prop_state_source.c prop_state_source.o
 compile_support port/src/ge_original_prop_state.c prop_state.o
 compile_support port/src/ge_original_objinit_source.c objinit_source.o
 compile_support port/src/ge_original_gameplay_services.c gameplay_services.o
+compile_support port/src/ge_original_player_body.c player_body.o -DPLAYERFLAG=int
 compile_support port/src/ge_original_effect_buffers.c effect_buffers.o
 compile_support port/src/ge_original_door_collision.c door_collision.o
 compile_support port/src/ge_original_dam_guard_model.c dam_guard_model.o
@@ -181,6 +182,7 @@ objects=(
     "${smoke_dir}/prop_state.o"
     "${smoke_dir}/objinit_source.o"
     "${smoke_dir}/gameplay_services.o"
+    "${smoke_dir}/player_body.o"
     "${smoke_dir}/effect_buffers.o"
     "${smoke_dir}/door_collision.o"
     "${smoke_dir}/dam_guard_model.o"

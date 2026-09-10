@@ -1,4 +1,5 @@
 #include "ge_3ds_shade_cache.h"
+#include "ge_3ds_lifecycle.h"
 #include <3ds.h>
 #include <citro3d.h>
 #include <tex3ds.h>
@@ -778,6 +779,7 @@ typedef struct RuntimeInputProbe {
     uint8_t *replay_retraces;
     uint64_t initial_rng[2];
     bool deep_profile;
+    uint32_t suspend_events;
     size_t timing_count;
     size_t timing_capacity;
     uint64_t timing_previous_start;
@@ -2988,8 +2990,10 @@ static bool write_input_probe_result(
             ? objects->preview->stage_assets->level_id : LEVELID_NONE));
     fprintf(stream, "idle_present_skips=%llu\n",
         (unsigned long long)fine_profile.idle_present_skips);
+    fprintf(stream, "suspend_events=%lu\n", (unsigned long)runtime->suspend_events);
     fprintf(stream, "status=%s\n",
-        objects->actor_tick_status == RUNTIME_STAGE_ACTOR_TICK_READY
+        runtime->suspend_events == 0U
+                && objects->actor_tick_status == RUNTIME_STAGE_ACTOR_TICK_READY
                 && objects->active_prop_status
                     == GE_ORIGINAL_STAGE_ACTIVE_PROP_OK
                 && first_person_models->bond_live.move_tick_count
@@ -12797,6 +12801,26 @@ static GePortInput read_input(bool cstick_available)
     return ge_3ds_controls_sample(&controls, &sample, controls_gameplay);
 }
 
+/* APT callbacks only flag the transition. Ring/input mutation happens here,
+ * on the main thread after aptMainLoop has restored the services. */
+static bool handle_runtime_resume(GeOriginalMusicRuntime *music, bool *audio_active)
+{
+    if (!ge_3ds_lifecycle_take_resume()) return false;
+    if (music != NULL) (void)ge_original_music_runtime_finish(music);
+    ge_3ds_music_worker_wait();
+    ge_3ds_audio_resume();
+    *audio_active = ge_3ds_audio_is_active();
+    hidScanInput();
+    const u32 held = hidKeysHeld();
+    ge_3ds_controls_resume(&controls, map_actions(held), (held & KEY_TOUCH) != 0);
+    if (frontend_probe.enabled && !frontend_probe.result_written) {
+        frontend_probe.failed = true;
+        (void)snprintf(frontend_probe.failure, sizeof(frontend_probe.failure),
+                       "APT suspend/resume interrupted this capture");
+    }
+    return true;
+}
+
 typedef struct RuntimeFrontendEmbeddedTexture {
     Ge3dsSceneTextureSlot slot;
     int32_t model_id;
@@ -16009,6 +16033,8 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         }
     }
     while (aptMainLoop()) {
+        if (handle_runtime_resume(*music_runtime, &audio_active))
+            runtime->axis_held = 0U;
         const uint64_t probe_frame_start = svcGetSystemTick();
         uint64_t probe_capture_ticks = 0U;
         uint64_t probe_phase_marks[5] = {0U, 0U, 0U, 0U, 0U};
@@ -16644,7 +16670,10 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
             printf("Original frontend music completion failed.\n");
             music_failed = true;
         }
-        if (audio_active) ge_3ds_audio_pump();
+        if (audio_active) {
+            ge_3ds_audio_pump();
+            audio_active = ge_3ds_audio_is_active();
+        }
         if (frontend_probe.enabled) {
             const uint64_t draw_end = svcGetSystemTick();
             const uint64_t work = draw_end - probe_frame_start
@@ -16794,7 +16823,11 @@ static bool renderer_init(GeAssetPack *asset_pack,
     }
 
     shaderProgramInit(&shader_program);
-    shaderProgramSetVsh(&shader_program, &shader_dvlb->DVLE[0]);
+    if (R_FAILED(shaderProgramSetVsh(&shader_program, &shader_dvlb->DVLE[0]))) {
+        shaderProgramFree(&shader_program);
+        DVLB_Free(shader_dvlb);
+        return false;
+    }
     C3D_BindProgram(&shader_program);
     C3D_CullFace(GPU_CULL_NONE);
     projection_uniform = shaderInstanceGetUniformLocation(shader_program.vertexShader, "projection");
@@ -18758,6 +18791,7 @@ int main(void)
     bool assets_mounted = false;
     bool texture_catalog_mounted = false;
     bool texture_cache_ready = false;
+    bool renderer_ready = false;
     bool scheduler_active = false;
     bool audio_output_ready = false;
     bool audio_active = false;
@@ -18776,6 +18810,7 @@ int main(void)
     int result = 0;
 
     gfxInitDefault();
+    ge_3ds_lifecycle_init();
     consoleInit(GFX_BOTTOM, &bottom_console);
     ge_3ds_controls_init(&controls);
     (void)ge_3ds_controls_load(&controls, CONTROLS_CONFIG_PATH);
@@ -18895,8 +18930,9 @@ start_stage_runtime:
                        &rareware_mesh, &blotter_preview, &dam_preview)) {
         printf("\nCould not initialize the PICA200 renderer.\n");
         result = 1;
-        goto exit_citro3d;
+        goto cleanup_runtime;
     }
+    renderer_ready = true;
     ge_port_init(&port);
     if (ge_audio_output_init(&audio_output, audio_ring_storage,
                              AUDIO_RING_FRAMES,
@@ -19389,6 +19425,17 @@ start_stage_runtime:
     uint32_t last_submit_vblank = C3D_FrameCounter(0);
 
     while (aptMainLoop()) {
+        if (handle_runtime_resume(original_music, &audio_active)) {
+            /* Exclude sleep/HOME time without hiding an ordinary slow frame.
+             * The scheduler consumes elapsed deltas, so retain its phase and
+             * counters. A resumed capture is explicitly failed below. */
+            previous_time = osGetTime();
+            last_submit_vblank = C3D_FrameCounter(0);
+            port.accumulator_seconds = 0.0;
+            memset(&port.input, 0, sizeof(port.input));
+            port.original_buttons_pressed = 0U;
+            if (input_probe.enabled) ++input_probe.suspend_events;
+        }
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (controls_gameplay) {
@@ -19561,6 +19608,7 @@ start_stage_runtime:
         }
         if (audio_active) {
             ge_3ds_audio_pump();
+            audio_active = ge_3ds_audio_is_active();
         }
         previous_time = current_time;
 
@@ -20826,7 +20874,8 @@ cleanup_runtime:
     ge_3ds_save_provider_close(&mission_save_provider);
     ge_original_stage_setup_close(&packaged_stage_setup);
     close_dam_collision(&dam_collision);
-    renderer_exit();
+    if (renderer_ready) renderer_exit();
+    renderer_ready = false;
 
     if (next_stage_requested) {
         const GeStageAssetDescriptor *next_stage =
@@ -20892,6 +20941,7 @@ exit_citro3d:
     }
     C3D_Fini();
 exit_graphics:
+    ge_3ds_lifecycle_close();
     if (cstick_available) {
         irrstExit();
     }

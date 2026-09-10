@@ -32,9 +32,19 @@ close unregisters the hook and discards the pending event.
    `ge_3ds_audio_is_active()` after the drain/pump when choosing producer
    fallback. The APT callback must never manipulate NDSP or producer storage.
 
-The helper does not itself implement these main-loop policies. Their complete
-hookup must be reviewed in the integrated candidate, including frontend loops
-which keep local timestamps separate from gameplay.
+The integrated main loop implements these policies in `handle_runtime_resume`
+and the gameplay-loop rebase block. Both frontend and gameplay resynchronize
+their sink-active flag after a pump failure. Gameplay records `suspend_events`
+and fails any interrupted probe; frontend probes record the explicit APT
+interruption reason. `test_3ds_lifecycle_integration.py` executes the actual
+helper with ordered service doubles and checks its surrounding time/probe
+boundary. No ordinary slow-frame elapsed time is clamped.
+
+Renderer initialization now checks shader instance allocation. Startup failure
+uses common stage cleanup to release already-loaded collision/model assets,
+while a readiness guard prevents freeing a renderer that never initialized.
+That full allocation-failure path has source/ARM review, not physical fault
+injection.
 
 Libctru already owns DSP suspension and restoration. Its
 [NDSP service hook](https://github.com/devkitPro/libctru/blob/master/libctru/source/ndsp/ndsp.c)

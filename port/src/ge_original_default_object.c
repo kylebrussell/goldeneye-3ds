@@ -187,6 +187,13 @@ GeOriginalDefaultObjectStatus ge_original_default_object_place_standard(
             || ge_object_prepared->prop != object->prop
             || ge_object_prepared->model_instance != object->model)
         return GE_ORIGINAL_DEFAULT_OBJECT_NOT_CONSTRUCTED;
+    /* Construction may have obtained a placeholder/incomplete model from
+     * its native provider. The canonical bbox walk assumes a root exists;
+     * reject this missing placement input before entering that traversal. */
+    if (object->model == NULL || object->model->obj == NULL
+            || object->model->obj->RootNode == NULL
+            || chrobjGetBboxFromObjFile(object->model->obj) == NULL)
+        return GE_ORIGINAL_DEFAULT_OBJECT_PLACEMENT_FAILED;
     memcpy(position.f, ge_object_prepared->position, sizeof(position.f));
     memcpy(pad_position.f, ge_object_prepared->position,
            sizeof(pad_position.f));

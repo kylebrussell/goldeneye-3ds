@@ -356,6 +356,71 @@ static void test_tick_gates_and_conflicts(void)
     assert(n->peer[0].failure == GE_MP_FAILURE_CONFLICT);
     free(n);
 }
+static void test_receive_deadline(void)
+{
+    const uint64_t times[] = { GE_MP_TIMEOUT_MS - 1U, GE_MP_TIMEOUT_MS, 10000U };
+    unsigned slot, scenario;
+    /* A receive-first event loop must enforce the same deadline as poll,
+     * both for client PREPARE and host PREPARE_ACK progress. */
+    for (slot = 0; slot < 2; ++slot) for (scenario = 0; scenario < 4; ++scenario) {
+        Network *n = network(2, 101, 0);
+        GeMpProtocol *p = &n->peer[slot];
+        Event e;
+        uint64_t now = scenario < 3 ? times[scenario] : 99U;
+        uint64_t progress_before;
+        unsigned aborts;
+        ge_mp_protocol_poll(&n->peer[0], 0);
+        assert(n->count == 1);
+        e = n->events[0]; n->count = 0;
+        if (!slot) {
+            assert(ge_mp_protocol_receive(&n->peer[1], 11, e.bytes, e.length, 0) == GE_MP_RECEIVED);
+            ge_mp_protocol_poll(&n->peer[1], 0);
+            assert(n->count == 1);
+            e = n->events[0]; n->count = 0;
+        }
+        ge_mp_protocol_poll(p, scenario < 3 ? GE_MP_TIMEOUT_MS - 1U : 100U);
+        progress_before = p->progress_ms;
+        assert(p->state != GE_MP_ABORTED);
+        if (scenario == 0) {
+            assert(ge_mp_protocol_receive(p, (uint16_t)(11U + e.source), e.bytes, e.length, now) == GE_MP_RECEIVED);
+            assert(p->state == (slot ? GE_MP_PREPARE : GE_MP_COMMIT));
+            assert(p->progress_ms == now);
+            ge_mp_protocol_poll(p, GE_MP_TIMEOUT_MS);
+            assert(p->state != GE_MP_ABORTED);
+        } else {
+            assert(ge_mp_protocol_receive(p, (uint16_t)(11U + e.source), e.bytes, e.length, now) == GE_MP_IGNORED);
+            assert(p->state == GE_MP_ABORTED && !p->execution_ready);
+            assert(p->failure == (scenario == 3 ? GE_MP_FAILURE_CLOCK :
+                slot ? GE_MP_FAILURE_HOST_LOST : GE_MP_FAILURE_TIMEOUT));
+            assert(p->progress_ms == progress_before);
+            aborts = n->sent[14];
+            ge_mp_protocol_poll(p, scenario == 3 ? 100U : now);
+            assert(n->sent[14] == aborts + 1U);
+        }
+        free(n);
+    }
+    /* A delayed EXECUTE must not revive a stalled running match or expose
+     * its old frame after a long pause before receive draining resumes. */
+    {
+        Network *n = network(2, 71, 0);
+        GeMpFrame frame;
+        Event e;
+        unsigned i;
+        n->blocked_type = 10; n->blocked_slot = 1;
+        for (i = 0; i < 100; ++i) drive(n, 1);
+        assert(n->peer[1].state == GE_MP_RUNNING && !n->completed[1]);
+        assert(!ge_mp_protocol_take_frame(&n->peer[1], &frame));
+        n->blocked_type = 0; n->count = 0;
+        ge_mp_protocol_poll(&n->peer[0], n->now + GE_MP_RETRY_MS);
+        assert(n->count == 1 && n->events[0].bytes[5] == 10);
+        e = n->events[0];
+        assert(ge_mp_protocol_receive(&n->peer[1], 11, e.bytes, e.length, 10000) == GE_MP_IGNORED);
+        ge_mp_protocol_poll(&n->peer[1], 10000);
+        assert(n->peer[1].state == GE_MP_ABORTED && n->peer[1].failure == GE_MP_FAILURE_HOST_LOST);
+        assert(!ge_mp_protocol_take_frame(&n->peer[1], &frame));
+        free(n);
+    }
+}
 static void test_api(void)
 {
     Network *n = network(2, 88, 0);
@@ -391,6 +456,7 @@ int main(void)
 {
     unsigned seed;
     test_wire(); test_api(); test_barriers(); test_terminal(); test_tick_gates_and_conflicts();
+    test_receive_deadline();
     for (seed = 1; seed <= 24; ++seed) {
         test_loss(2, seed * 1709U); test_loss(4, seed * 7919U);
     }

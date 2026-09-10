@@ -16,11 +16,15 @@
 #include <bondconstants.h>
 #include <bondtypes.h>
 #include "game/player.h"
+#include "game/bondview.h"
+#include "game/frametiming.h"
 
 struct player *g_CurrentPlayer;
 static struct player players[4];
 static GeOriginalBondLiveState lives[4];
 static uint32_t count, selected, local, failed_slot;
+static uint32_t shuffle_rotation, move_ordinal;
+static int mission_before, watch_before, passed_zero;
 static unsigned events[256], event_slots[256], event_count;
 static int arena_active, held_frontier, reload, object_present;
 PropRecord *g_InteractProp, *g_OnScreenPropList[3], **g_LastOnScreenProp;
@@ -34,7 +38,8 @@ static void event(unsigned id) {assert(event_count<256);events[event_count]=id;e
 uint32_t ge_original_multiplayer_player_count(void) {return count;}
 struct player *ge_original_multiplayer_player(uint32_t slot) {return slot<count?&players[slot]:NULL;}
 s32 get_cur_playernum(void) {return (s32)selected;}
-s32 get_nth_player_from_shuffled(PLAYER_ID ordinal) {return (s32)count-1-(s32)ordinal;}
+s32 get_nth_player_from_shuffled(PLAYER_ID ordinal) {return (s32)((count-1-(uint32_t)ordinal+shuffle_rotation)%count);}
+u32 osGetCount(void) {return 12345;} /* Wall-clock resource, not game timers. */
 void shuffle_player_ids(void) {event(SHUFFLE);}
 int ge_original_gun_frame_arena_active(void) {return arena_active;}
 GeOriginalStageActivePropStatus ge_original_stage_active_props_pre_tick_exact(GeOriginalStageActiveProps *s)
@@ -57,7 +62,11 @@ u32 cur_player_get_ammo_onscreen_setting(void) {return 1;}
 void gunSetGunAmmoVisible(s32 reason,s32 value) {assert(reason==GUNAMMOREASON_OPTION&&value==1);event(AMMO);}
 void ge_original_player_apply_sight_option_exact(void) {event(SIGHT);}
 int ge_original_bond_move_live_tick(GeOriginalBondLiveState *s,int32_t clock,int32_t timer,float delta)
-{assert(s==&lives[selected]&&clock==1&&timer==91&&delta==1);g_CurrentPlayer->fovy=20+(float)selected;event(MOVE);return 1;}
+{assert(s==&lives[selected]&&clock==1&&timer==91&&delta==1);
+    passed_zero|=selected==0;
+    assert(getMissiontimer()==mission_before+passed_zero);
+    assert(watch_time_0==watch_before+(int)move_ordinal*speedgraphframes);
+    ++move_ordinal;g_CurrentPlayer->fovy=20+(float)selected;event(MOVE);return 1;}
 void chraiUpdateOnscreenPropCount(void) {event(ONSCREEN);}
 void chrpropUpdateAutoaimTarget(void) {event(AUTOAIM);}
 GeOriginalPlayerHeldItemsStatus ge_original_player_held_items_tick(void)
@@ -105,7 +114,7 @@ GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_finish_local(GeOri
 static int select_player(void *context,uint32_t slot)
 {assert(context==players);selected=slot;g_CurrentPlayer=&players[slot];g_CurrentPlayer->field_D0=reload;event(SELECT);return 1;}
 static int camera(void *context,uint32_t slot,GeOriginalBondCameraConfig *c,GeOriginalBondCameraResult *r)
-{float fovy;assert(context==players&&slot==selected);assert(ge_original_multiplayer_runtime_camera_fovy(&fovy)&&fovy==20+(float)slot);memset(c,0,sizeof(*c));memset(r,0,sizeof(*r));r->view[0][0]=1;event(CAMERA);return 1;}
+{float fovy;assert(context==players&&slot==selected);assert(watch_time_0==watch_before+(int)move_ordinal*speedgraphframes);assert(ge_original_multiplayer_runtime_camera_fovy(&fovy)&&fovy==20+(float)slot);memset(c,0,sizeof(*c));memset(r,0,sizeof(*r));r->view[0][0]=1;event(CAMERA);return 1;}
 static int sync_gun(void *context,uint32_t slot) {assert(context==players&&slot==selected);event(SYNC);return 1;}
 static int renderer(void *context,uint32_t slot,const GeOriginalBondCameraConfig *c,const GeOriginalBondCameraResult *r)
 {assert(context==players&&slot==selected&&slot==local&&c&&r);event(RENDERER);return 1;}
@@ -124,6 +133,12 @@ static void run(uint32_t n,uint32_t display,int activation,int object)
         .context=players,.select_player=select_player,
         .produce_camera=camera,.sync_gun_resources=sync_gun,.prepare_local_renderer=renderer};
     count=n;local=selected=display;reload=activation;object_present=object;held_frontier=0;
+    shuffle_rotation=display;move_ordinal=0;passed_zero=0;
+    mission_timer=mission_before=57;watch_time_0=watch_before=101;
+    g_CameraMode=CAMERAMODE_NONE;is_timer_active=1;
+    /* Native updateFrameCounters must replace a stale prior-stage raw delta.
+     * Mission uses the committed simulation clock; watch uses raw retraces. */
+    speedgraphframes=99;updateFrameCounters(3);assert(speedgraphframes==3);
     object_prop.type=PROP_TYPE_OBJ;door_prop.type=PROP_TYPE_DOOR;
     g_OnScreenPropList[0]=object==1?&door_prop:&object_prop;
     g_OnScreenPropList[1]=object==1?&object_prop:&door_prop;
@@ -137,7 +152,7 @@ static void run(uint32_t n,uint32_t display,int activation,int object)
     unsigned cursor=0;expect(&cursor,WORLD,display);expect(&cursor,REGEN,display);expect(&cursor,SHUFFLE,display);
     expect(&cursor,VIEWS_BEGIN,display);expect(&cursor,HUD_BEGIN,display);
     for(uint32_t ordinal=0;ordinal<n;++ordinal){
-        uint32_t slot=n-1-ordinal;
+        uint32_t slot=(n-1-ordinal+shuffle_rotation)%n;
         unsigned prefix[]={SELECT,FOV,PRE_DEATH,Y_AIM,X_AIM,LOOK,AMMO,SIGHT,MOVE,CAMERA,
             VIEW,PROPS,ONSCREEN,AUTOAIM,HELD};
         for(size_t i=0;i<sizeof(prefix)/sizeof(*prefix);++i)expect(&cursor,prefix[i],slot);
@@ -152,10 +167,12 @@ static void run(uint32_t n,uint32_t display,int activation,int object)
         if(slot==local)expect(&cursor,CAPTURE,slot);
     }
     expect(&cursor,FINISH,display);expect(&cursor,SERVICES,display);
-    assert(cursor==event_count&&frame.tick==17&&frame.last_slot==0);
+    assert(cursor==event_count&&frame.tick==17&&frame.last_slot==display);
+    assert(getMissiontimer()==58&&watch_time_0==101+(int)(3*n));
     /* A real held-item frontier is fail-closed: no subsequent interaction,
      * pickup, gun, HUD or local draw can hide or retry partial gameplay. */
-    held_frontier=1;failed_slot=n-1;event_count=0;
+    held_frontier=1;failed_slot=(n-1+shuffle_rotation)%n;event_count=0;
+    mission_before=mission_timer;watch_before=watch_time_0;move_ordinal=0;passed_zero=0;
     assert(ge_original_multiplayer_runtime_tick(&frame)==GE_ORIGINAL_MP_RUNTIME_HELD_ITEMS_FAILED);
     assert(events[event_count-1]==HELD&&frame.last_slot==failed_slot);
     for(unsigned i=0;i<event_count;++i)assert(events[i]!=GUN&&events[i]!=SERVICES&&events[i]!=CAPTURE);
@@ -163,11 +180,32 @@ static void run(uint32_t n,uint32_t display,int activation,int object)
     assert(ge_original_multiplayer_runtime_tick(&frame)==GE_ORIGINAL_MP_RUNTIME_INVALID_ARGUMENT&&!event_count);
 }
 
+static void native_clock_modes(void)
+{
+    extern void ge_original_mp_runtime_mission_clock_exact(s32);
+    extern void ge_original_mp_runtime_watch_clock_exact(void);
+    for(int mode=CAMERAMODE_NONE;mode<CAMERAMODE_COUNT;++mode)
+    for(int active=0;active<2;++active)
+    for(selected=0;selected<4;++selected)
+    for(int clock=0;clock<2;++clock){
+        mission_timer=17;watch_time_0=29;g_CameraMode=(enum CAMERAMODE)mode;
+        is_timer_active=active;updateFrameCounters(2);
+        ge_original_mp_runtime_mission_clock_exact(clock);
+        int advances=selected==0&&(mode==CAMERAMODE_NONE
+            ||(mode==CAMERAMODE_FP&&active)||mode==CAMERAMODE_FADE_TO_TITLE);
+        assert(getMissiontimer()==17+(advances?clock:0));
+        assert(watch_time_0==29);
+        ge_original_mp_runtime_watch_clock_exact();
+        assert(watch_time_0==31);
+    }
+}
+
 int main(void)
 {
     for(uint32_t n=2;n<=4;n+=2)for(uint32_t display=0;display<n;++display)
         for(int activation=0;activation<2;++activation)for(int object=0;object<3;++object)
             run(n,display,activation,object);
-    puts("shared multiplayer runtime: 2/4-slot reverse traversal, native call order, canonical mixed interaction/TICKOP, both-hand reload, FOV, local capture, HUD/respawn and frontier abort; observing producer doubles, not match acceptance");
+    native_clock_modes();
+    puts("shared multiplayer runtime: 2/4-slot rotated traversal, native mission/watch timers around movement, canonical mixed interaction/TICKOP, both-hand reload, FOV, local capture, HUD/respawn and frontier abort; other observing producer doubles, not match acceptance");
     return 0;
 }

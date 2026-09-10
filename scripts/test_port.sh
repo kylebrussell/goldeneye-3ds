@@ -63,6 +63,7 @@ else
     bash "${repo_dir}/scripts/test_mp_state_bg.sh"
 fi
 bash "${repo_dir}/scripts/test_multiplayer_runtime.sh"
+python3 "${repo_dir}/scripts/tests/test_bg_room_reader_owner.py"
 bash "${repo_dir}/scripts/test_original_multiplayer_frontend.sh"
 bash "${repo_dir}/scripts/test_mp_state.sh"
 bash "${repo_dir}/scripts/test_mp_state_core.sh"

@@ -772,6 +772,19 @@ typedef struct RuntimeInputProbeTiming {
     uint64_t present_wait_ticks;
     uint32_t previous_gpu_us;
     uint32_t submit_vblank;
+    /* Completed preceding Citro3D queue, sampled after FrameBegin waits.
+     * Float microseconds retain the library's precision; legacy rows below
+     * still expose truncated integer microseconds for older analyzers. */
+    float previous_gpu_us_precise;
+    float previous_processing_us;
+    float slider;
+    uint8_t previous_gpu_valid;
+    uint8_t eye_count;
+    uint8_t ndsp_active;
+    uint8_t music_rendered;
+    uint8_t capture_io;
+    uint64_t audio_source_frames;
+    uint64_t audio_silent_frames;
 } RuntimeInputProbeTiming;
 
 typedef struct RuntimeInputProbe {
@@ -780,6 +793,7 @@ typedef struct RuntimeInputProbe {
     uint64_t initial_rng[2];
     bool deep_profile;
     uint32_t suspend_events;
+    uint64_t stage_load_ticks;
     size_t timing_count;
     size_t timing_capacity;
     uint64_t timing_previous_start;
@@ -3721,7 +3735,14 @@ static bool write_input_probe_result(
         (unsigned long long)music_worker_stats.submissions,
         (unsigned long long)music_worker_stats.execution_ticks,
         (unsigned long long)music_worker_stats.wait_ticks);
-    fprintf(stream, "frame_timing_version=3\n");
+    fprintf(stream, "frame_timing_version=4\n");
+    fprintf(stream, "frame_pipeline_version=1\n");
+    fprintf(stream, "stage_load_ticks=%llu\n", (unsigned long long)runtime->stage_load_ticks);
+    fprintf(stream, "stereo_config=%u,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
+        stereo_config.enabled ? 1U : 0U, (double)stereo_config.parallax_px,
+        (double)stereo_config.convergence, (double)stereo_config.first_person_parallax_px,
+        (double)stereo_config.first_person_convergence, (double)stereo_config.hud_parallax_px,
+        (double)stereo_config.cull_margin_per_px);
     fprintf(stream, "frame_timing_count=%lu\n", (unsigned long)runtime->timing_count);
     for (size_t frame = 0U; frame < runtime->timing_count; ++frame) {
         const RuntimeInputProbeTiming *timing = &runtime->timings[frame];
@@ -3746,6 +3767,14 @@ static bool write_input_probe_result(
                 (unsigned long long)timing->present_wait_ticks,
                 (unsigned long)timing->previous_gpu_us,
                 (unsigned long)timing->submit_vblank);
+        fprintf(stream, "frame_pipeline=%lu,%u,%.9g,%.9g,%.9g,%u,%u,%u,%u,%llu,%llu\n",
+                (unsigned long)(frame + 1U), (unsigned)timing->previous_gpu_valid,
+                (double)timing->previous_gpu_us_precise,
+                (double)timing->previous_processing_us, (double)timing->slider,
+                (unsigned)timing->eye_count, (unsigned)timing->ndsp_active,
+                (unsigned)timing->music_rendered, (unsigned)timing->capture_io,
+                (unsigned long long)timing->audio_source_frames,
+                (unsigned long long)timing->audio_silent_frames);
     }
     fprintf(stream,
         "frame_profile_ms=%llu,%llu,%llu,%llu,%llu,%llu,%lu\n",
@@ -18805,6 +18834,7 @@ int main(void)
     bool next_stage_requested = false;
     void *texture_catalog_data = NULL;
     u64 previous_time;
+    uint64_t stage_load_started = 0U;
     uint64_t scheduler_ticks = 0U;
     uint64_t rendered_player_generation = 0U;
     unsigned frame_counter = 0;
@@ -18898,6 +18928,7 @@ int main(void)
                                  NULL, NULL, NULL) == GE_TEXTURE_CACHE_OK;
 
 start_stage_runtime:
+    stage_load_started = svcGetSystemTick();
     /* A probe bypasses the frontend, so gameplay must initialize its music
      * here just as it does on subsequent stage loads. Use the same decision
      * for both audio ownership and the actual frontend dispatch. */
@@ -19424,6 +19455,7 @@ start_stage_runtime:
     }
     previous_time = osGetTime();
     uint32_t last_submit_vblank = C3D_FrameCounter(0);
+    input_probe.stage_load_ticks = svcGetSystemTick() - stage_load_started;
 
     while (aptMainLoop()) {
         if (handle_runtime_resume(original_music, &audio_active)) {
@@ -19453,6 +19485,7 @@ start_stage_runtime:
             ge_3ds_controls_draw_panel(&controls, stdout);
         }
         const uint64_t frame_start_ticks = input_probe.enabled ? svcGetSystemTick() : 0U;
+        const uint64_t frame_music_calls_before = fine_profile.music_render_calls;
         const uint64_t frame_counters_before[15] = {
             fine_profile.frame_begin_ticks, fine_profile.music_render_ticks,
             fine_profile.gameplay_phase_ticks[0], fine_profile.guard_scene_ticks,
@@ -19487,6 +19520,10 @@ start_stage_runtime:
         unsigned elapsed_retraces = 0U;
         uint64_t present_wait_ticks = 0U;
         uint32_t previous_gpu_us = 0U;
+        float previous_gpu_us_precise = 0.0f;
+        float previous_processing_us = 0.0f;
+        bool previous_gpu_valid = false;
+        bool probe_capture_io = false;
         GeRetracePumpReport retrace_report;
 #if defined(GE_DAM_FULL_PROPS_LIVE)
         bool guard_runtime_updated = false;
@@ -19625,16 +19662,27 @@ start_stage_runtime:
         }
         {
             const uint64_t frame_begin_start = svcGetSystemTick();
-            C3D_FrameBegin(0);
+            const bool frame_began = C3D_FrameBegin(0);
             fine_profile.frame_begin_ticks += svcGetSystemTick() - frame_begin_start;
-            if (input_probe.enabled)
-                previous_gpu_us = (uint32_t)(C3D_GetDrawingTime() * 1000.0f);
+            if (input_probe.enabled && frame_began) {
+                previous_gpu_us_precise = C3D_GetDrawingTime() * 1000.0f;
+                previous_processing_us = C3D_GetProcessingTime() * 1000.0f;
+                previous_gpu_valid = input_probe.timing_count != 0U
+                    && isfinite(previous_gpu_us_precise) && previous_gpu_us_precise >= 0.0f
+                    && previous_gpu_us_precise < 4294967296.0f
+                    && isfinite(previous_processing_us) && previous_processing_us >= 0.0f;
+                if (previous_gpu_valid)
+                    previous_gpu_us = (uint32_t)previous_gpu_us_precise;
+                else
+                    previous_gpu_us_precise = previous_processing_us = 0.0f;
+            }
         }
         if (frontend_probe.enabled && frontend_probe.gameplay_capture_frame != 0U
                 && fine_profile.rendered_frames
                     == frontend_probe.gameplay_capture_frame + 2U) {
             /* Diagnostic capture of both eyes' displayed images: the frame
              * submitted two presentations ago now occupies the back buffers. */
+            probe_capture_io = true;
             (void)ge_3ds_frontend_probe_write_ppm(
                 FRONTEND_PROBE_CAPTURE_DIR "/gameplay-left.ppm",
                 gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL));
@@ -20668,6 +20716,19 @@ start_stage_runtime:
                     timing->ticks[0] = svcGetSystemTick() - frame_start_ticks - present_wait_ticks;
                     timing->present_wait_ticks = present_wait_ticks;
                     timing->previous_gpu_us = previous_gpu_us;
+                    timing->previous_gpu_us_precise = previous_gpu_us_precise;
+                    timing->previous_processing_us = previous_processing_us;
+                    timing->previous_gpu_valid = previous_gpu_valid;
+                    timing->slider = stereo_slider;
+                    timing->eye_count = stereo_active ? 2U : 1U;
+                    timing->ndsp_active = ge_3ds_audio_is_active();
+                    timing->music_rendered = fine_profile.music_render_calls > frame_music_calls_before;
+                    timing->capture_io = probe_capture_io;
+                    const GeAudioRefillState *probe_audio = ge_3ds_audio_refill_stats();
+                    if (probe_audio != NULL) {
+                        timing->audio_source_frames = probe_audio->source_frames;
+                        timing->audio_silent_frames = probe_audio->silent_frames;
+                    }
                     timing->submit_vblank = last_submit_vblank;
                     timing->ticks[1] = input_probe.timing_previous_start != 0U
                         ? frame_start_ticks - input_probe.timing_previous_start : 0U;

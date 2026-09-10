@@ -134,6 +134,17 @@ def main() -> None:
         state_declaration,
         "    /* State retains its original lifetime in the named interpreter owner. */",
     ) for body in bodies]
+    # bgLevelRender reaches this persistent native lake-depth adjustment before
+    # sub_GAME_7F0B3C8C computes either pass order. Retain its entire pre-return
+    # block; only the following GPU/scissor/traversal call belongs elsewhere.
+    prefix = extract_function(source, "sub_GAME_7F0B8D78", 0)
+    tail = "    return bgScissorCurrentPlayerViewDefault(sub_GAME_7F0B3C8C(arg0));"
+    if prefix.count(tail) != 1:
+        raise ValueError("Dam render-prefix source boundary changed")
+    prefix = prefix[:prefix.index(tail)] + "}"
+    prefix = prefix.replace("Gfx *sub_GAME_7F0B8D78(Gfx *arg0)",
+                            "void ge_original_bg_visibility_render_prefix_exact(void)", 1)
+    bodies.append(prefix)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         "/* Generated from src/game/bg.c; do not edit. */\n"

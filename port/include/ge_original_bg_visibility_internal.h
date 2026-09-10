@@ -23,6 +23,7 @@ typedef int32_t bool;
 #define PORTMAX 200
 #define BG_PORTAL_QUEUE_LEN 500
 #define BG_STACK_SIZE 20
+#define LEVEL_INDEX_DAM 13
 #define LEVEL_INDEX_CRAD 21
 #define PORTALFLAG_DISABLED 0x01
 #define PORTALFLAG_SPECIAL 0x02
@@ -289,6 +290,7 @@ GlobalVisCommand *parse_global_vis_command_list(GlobalVisCommand *cmd,
                                                 s32 execute);
 void *sub_GAME_7F0B8A24(s32 *pc);
 void bgDetermineVisibleRooms(void);
+void ge_original_bg_visibility_render_prefix_exact(void);
 void bgUpdateCurrentPlayerScreenMinMax(void);
 void bgGetRoomCenter(s32 roomnum, coord3d *dst);
 void sub_GAME_7F0B96CC(s32 portalnum, f32 *out);

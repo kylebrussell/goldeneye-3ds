@@ -32,6 +32,18 @@ every canonical viewport. This is `bgLevelRender`'s semantic position in
 room publication order and signed `s_bound_info.unk1`; the existing public
 8-bit portal depth is insufficient for this order.
 
+Before copying/sorting rooms, the runtime now executes the exact pre-return
+block of `bg.c::sub_GAME_7F0B8D78` through
+`ge_original_bg_visibility_render_prefix_exact`. On native
+`levelentry_index == LEVEL_INDEX_DAM`, the first published room 0x23 receives
+signed `unk1 = 0`, then the source loop breaks. This persistent mutation uses
+the canonical visibility table, so the E9 native visibility exporter observes
+it. It must occur before both opaque and alpha ordering; modifying a private
+render list would miss both the canonical order and exported future state.
+The first read validates native count before this source loop, and the next
+read captures its mutation. The existing BG slice generator owns the prefix;
+its private-renderer symbol remains separately namespaced.
+
 The runtime visits signed depths ascending for each room's opaque pass 0
 then post-BG pass 2, followed by descending depth alpha pass 1. Equal depths
 retain native publication order. Sorting the bounded room list skips only
@@ -95,3 +107,12 @@ consumers and exporters before `ge_original_effect_runtime_end`; pre-world and
 render hooks reject an absent or ended owner. This bookkeeping does not alter
 original effect fields. See NativeEffectsState.md for E8 identities and
 remaining reference obligations.
+
+The Dam prefix differential fixture retains the original full prefix and
+original ascending/descending depth loops separately from production. For
+room35/depth5 plus room1/depth1 it checks opaque35,1 then alpha1,35, with
+native depth0 persisting afterward and repeated calls idempotent. The eleven
+multiplayer arena indices are derived from original front.c/bg.c tables;
+all preserve depth5 and original order. Both native/short-enum ASan/UBSan
+variants pass. E9 observing this mutation does not close E8 audio/model/image
+references or attest complete aggregate state coverage.

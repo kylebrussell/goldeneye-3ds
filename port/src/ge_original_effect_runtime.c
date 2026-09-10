@@ -67,6 +67,12 @@ int ge_original_effect_runtime_render_view(void *context,
     if(!ge_original_effect_runtime_storage(&storage)
             || !ge_original_bg_visibility_render_rooms(rooms,
             GE_ORIGINAL_BG_VISIBILITY_MAX_VISIBLE,&count))return 0;
+    /* The first read validates the native count before the original bounded
+     * loop. The prefix mutates native signed depth, observed by E9, then the
+     * copied traversal must use that updated publication. */
+    ge_original_bg_visibility_render_prefix_exact();
+    if(!ge_original_bg_visibility_render_rooms(rooms,
+            GE_ORIGINAL_BG_VISIBILITY_MAX_VISIBLE,&count))return 0;
     /* Same room sequence as bg.c: signed unk1, original j
      * order within each depth. Skip absent depth values without iterating
      * their empty buckets; no native state changes during this ordering. */

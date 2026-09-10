@@ -47,3 +47,47 @@ void fixture_rooms(void) {
  dword_CODE_bss_8007FFA0[2].roomid=3;dword_CODE_bss_8007FFA0[2].unk1=257;
 }
 ''')
+# Independent original prefix + original depth loops as a differential oracle.
+# GPU/resource operations are removed, while the full source control flow and
+# both original room/depth loops remain. Its prop boundary records pass0/1;
+# pass2 has no eligible props in this fixture.
+import re
+bg=(repo/'src/game/bg.c').read_text()
+order=extract_function(bg,'sub_GAME_7F0B3C8C')
+order=re.sub(r'\bgSP\w+\([^;]*;', '(void)0;',order)
+def strip_graphics(match):
+    return match.group(0) if 'chrpropsRenderPass(' in match.group(0) else '(void)0;'
+order=re.sub(r'\bgdl\s*=[^;]*;',strip_graphics,order)
+prefix=extract_function(bg,'sub_GAME_7F0B8D78')
+levels=re.findall(r'\{\s*(LEVELID_\w+)\s*,',extract_data(bg,'levelinfotable'))
+mp=extract_data((repo/'src/game/front.c').read_text(),'multi_stage_setups')
+mp=re.sub(r'/\*.*?\*/|//[^\n]*','',mp,flags=re.S)
+arenas=[x for x in re.findall(r'\bLEVELID_\w+',mp) if x!='LEVELID_NONE']
+assert len(arenas)==11 and levels.index('LEVELID_DAM')==13
+indices=[levels.index(x) for x in arenas]
+out.joinpath('prefix_reference.c').write_text('''#include "ge_original_bg_visibility_internal.h"
+typedef void Gfx;
+static unsigned observed[32],observed_count;
+#define get_debug_do_draw_obj() 1
+#define get_debug_do_draw_bg() 1
+#define sub_GAME_7F0BD8F0() 1
+#define bgScissorCurrentPlayerViewDefault(gdl) (gdl)
+static Gfx *chrpropsRenderPass(Gfx *gdl,s32 room,s32 pass) {
+ if(pass!=2)observed[observed_count++]=(unsigned)(room*10+pass);
+ return gdl;
+}
+'''+order+'\n'+prefix+'''
+void fixture_render_rooms(int index) {
+ levelentry_index=index;g_BgNumberOfRoomsDrawn=2;
+ dword_CODE_bss_8007FFA0[0].roomid=35;dword_CODE_bss_8007FFA0[0].unk1=5;
+ dword_CODE_bss_8007FFA0[1].roomid=1;dword_CODE_bss_8007FFA0[1].unk1=1;
+}
+void fixture_original_render(unsigned *sequence,size_t *count) {
+ observed_count=0;sub_GAME_7F0B8D78(NULL);*count=observed_count;
+ for(unsigned i=0;i<observed_count;++i)sequence[i]=observed[i];
+}
+int fixture_arena_index(unsigned slot) {
+ static const int indices[]={'''+','.join(map(str,indices))+'''};
+ return slot<11?indices[slot]:-1;
+}
+''')

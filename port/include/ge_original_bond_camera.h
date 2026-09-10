@@ -73,6 +73,11 @@ int ge_original_bond_camera_publish_live_player(
     const GeOriginalBondCameraConfig *config,
     const GeOriginalBondCameraResult *result);
 
+/* After selecting a previously published player, restore the shared original
+ * frustum globals from that player's retained camera. This neither rotates
+ * previous/current matrix history nor advances any simulation. */
+int ge_original_bond_camera_restore_live_player(void);
+
 const char *ge_original_bond_camera_status_name(
     GeOriginalBondCameraStatus status);
 

@@ -13,6 +13,8 @@ typedef int PLAYERFLAG;
 
 static struct player player;
 struct player *g_CurrentPlayer;
+struct player *g_playerPointers[4];
+static struct player roster[4];
 static uint32_t frustum_publications;
 
 void ge_original_bondview_update_frustum_planes_exact(void)
@@ -22,7 +24,7 @@ void ge_original_bondview_update_frustum_planes_exact(void)
 
 struct player *ge_original_spawn_player_get(void)
 {
-    return &player;
+    return g_CurrentPlayer != NULL ? g_CurrentPlayer : &player;
 }
 
 static void identity(float matrix[4][4])
@@ -35,6 +37,74 @@ static void identity(float matrix[4][4])
 static int near(float actual, float expected)
 {
     return fabsf(actual - expected) < 1.0e-5f;
+}
+
+static void test_multiplayer_isolation(GeOriginalBondCameraConfig config)
+{
+    static const unsigned order[4] = {2, 0, 3, 1};
+    GeOriginalBondCameraResult result;
+    unsigned frame, pass, slot;
+    config.vertical_fov_degrees = 60.0f;
+    memset(roster, 0, sizeof(roster));
+    memset(&result, 0, sizeof(result));
+    identity(result.view);
+    identity(result.view_to_world);
+    identity(result.projection);
+    for (slot = 0; slot < 4; ++slot) g_playerPointers[slot] = &roster[slot];
+    for (frame = 0; frame < 24; ++frame) {
+        for (pass = 0; pass < 4; ++pass) {
+            Mtxf saved[4][5];
+            unsigned other;
+            slot = order[(pass + frame) % 4];
+            for (other = 0; other < 4; ++other) {
+                struct player *p = &roster[other];
+                if (p->field_10CC == NULL) continue;
+                saved[other][0] = *p->field_10CC;
+                saved[other][1] = *p->viewtoworldmtxf;
+                saved[other][2] = *p->projmatrixf;
+                if (p->field_10E8 != NULL) saved[other][3] = *p->field_10E8;
+                if (p->field_10EC != NULL) saved[other][4] = *p->field_10EC;
+            }
+            g_CurrentPlayer = &roster[slot];
+            result.view[3][0] = -(float)(100 * slot + frame);
+            result.view_to_world[3][0] = -result.view[3][0];
+            result.projection[0][0] = (float)(slot + 1);
+            assert(ge_original_bond_camera_publish_live_player(&config, &result));
+            for (other = 0; other < 4; ++other) {
+                struct player *p = &roster[other];
+                if (other == slot || p->field_10CC == NULL) continue;
+                assert(memcmp(&saved[other][0], p->field_10CC, sizeof(Mtxf)) == 0);
+                assert(memcmp(&saved[other][1], p->viewtoworldmtxf, sizeof(Mtxf)) == 0);
+                assert(memcmp(&saved[other][2], p->projmatrixf, sizeof(Mtxf)) == 0);
+                if (p->field_10E8 != NULL)
+                    assert(memcmp(&saved[other][3], p->field_10E8, sizeof(Mtxf)) == 0);
+                if (p->field_10EC != NULL)
+                    assert(memcmp(&saved[other][4], p->field_10EC, sizeof(Mtxf)) == 0);
+            }
+            if (frame != 0) {
+                assert(g_CurrentPlayer->field_10E8->m[3][0]
+                    == -(float)(100 * slot + frame - 1));
+                assert(g_CurrentPlayer->field_10EC->m[3][0]
+                    == (float)(100 * slot + frame - 1));
+            }
+        }
+        for (slot = 0; slot < 4; ++slot) {
+            struct player before;
+            uint32_t publications = frustum_publications;
+            g_CurrentPlayer = &roster[slot];
+            memcpy(&before, g_CurrentPlayer, sizeof(before));
+            assert(ge_original_bond_camera_restore_live_player());
+            assert(frustum_publications == publications + 1);
+            assert(memcmp(&before, g_CurrentPlayer, sizeof(before)) == 0);
+            assert(g_CurrentPlayer->field_10CC->m[3][0]
+                == -(float)(100 * slot + frame));
+        }
+    }
+    g_CurrentPlayer = &roster[0];
+    g_CurrentPlayer->field_10CC = NULL;
+    assert(!ge_original_bond_camera_restore_live_player());
+    g_CurrentPlayer = NULL;
+    assert(!ge_original_bond_camera_restore_live_player());
 }
 
 int main(void)
@@ -124,6 +194,7 @@ int main(void)
     assert(!ge_original_bond_camera_publish_live_player(&config, &second));
     assert(frustum_publications == 2U);
     assert(player.viewtoworldmtxf->m[3][0] == 20.0f);
-    puts("original live camera publication passed");
+    test_multiplayer_isolation(config);
+    puts("original live camera publication: solo and four-player history isolation passed");
     return 0;
 }

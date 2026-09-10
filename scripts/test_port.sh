@@ -84,6 +84,10 @@ bash "${repo_dir}/scripts/test_multiplayer_fog.sh" "${test_dir}/multiplayer-fog"
 # These fixtures share the native gameplay archive and must run sequentially.
 bash "${repo_dir}/scripts/test_full_runtime_animation_refs.sh"
 bash "${repo_dir}/scripts/test_multiplayer_render_semantics.sh"
+bash "${repo_dir}/scripts/test_multiplayer_match_bootstrap.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 bash "${repo_dir}/scripts/test_original_multiplayer_frontend.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_multiplayer_stage_pipeline.py"
 bash "${repo_dir}/scripts/test_original_reverb_filter.sh"

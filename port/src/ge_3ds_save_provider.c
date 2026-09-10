@@ -573,6 +573,13 @@ int32_t ge_3ds_save_provider_stage_time(
     const Ge3dsSaveProvider *state, int32_t mission, int32_t difficulty)
 {
     if (state == NULL || !state->ready) return 0;
+    /* The original 007 branch queries this same folder's unlock state, not
+     * a stored best time. The private file2 slice cannot resolve a folder
+     * outside a mutation, so bind the read through the actual provider here.
+     * The unlock query below reads only 00 Agent times and cannot recurse. */
+    if (difficulty == DIFFICULTY_007)
+        return mission >= SP_LEVEL_DAM && mission < SP_LEVEL_MAX
+            && ge_3ds_save_provider_007_unlocked(state) ? 0x3ff : 0;
     return ge_save_get_stage_time_exact((save_data *)ge_save_slot_const(state),
         (LEVEL_SOLO_SEQUENCE)mission, (DIFFICULTY)difficulty);
 }

@@ -60,7 +60,9 @@ void ge_original_mission_result_bind(
     const GeOriginalMissionResultProviders *providers);
 
 /* Publishes the frontend's canonical mission-part selection, then runs the
- * unchanged end_of_mission_briefing body with the live difficulty/timer. */
+ * unchanged end_of_mission_briefing body with the live difficulty/timer.
+ * apply rejects out-of-range difficulties and negative ticks without a
+ * persistence call. Custom 007 remains valid and never writes completion. */
 int ge_original_mission_result_set_current_mission(int32_t mission);
 int ge_original_mission_result_apply_exact(int32_t difficulty,
                                             int32_t mission_ticks);

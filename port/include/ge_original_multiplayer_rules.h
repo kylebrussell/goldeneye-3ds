@@ -69,6 +69,24 @@ void ge_original_multiplayer_bind_intro_slot(int playback, int recording,
 GeOriginalMultiplayerStatus ge_original_multiplayer_publish_spawns(
     const int32_t *intro, size_t word_count, void *pads, size_t pad_count,
     int32_t demo_playback);
+typedef struct GeOriginalMultiplayerRulesNativeView {
+    int32_t scenario, weapon_set, startpad_count, starting_weapon[2];
+    const void *startpads[16];
+    const int32_t *validated_intro;
+    size_t validated_intro_words;
+    const void *validated_pads;
+    size_t validated_pad_count;
+    int32_t validated_demo_playback;
+    const int32_t *current_intro;
+    const void *current_pads;
+    const void *active_demo;
+    int32_t playback, recording;
+    uint32_t owned_demo_slot;
+    uint8_t demo_is_owned;
+} GeOriginalMultiplayerRulesNativeView;
+/* Does not reparse or republish mutable setup and never dereferences an
+ * external demo. The typed content resolver must validate external storage. */
+int ge_original_multiplayer_rules_native_view(GeOriginalMultiplayerRulesNativeView *);
 GeOriginalMultiplayerStatus ge_original_multiplayer_respawn(
     int32_t player, uint16_t buttons);
 

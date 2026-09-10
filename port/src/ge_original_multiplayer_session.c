@@ -117,6 +117,22 @@ GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_tick(
     return ge_original_multiplayer_session_snapshot(state);
 }
 
+GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_native_view(
+    GeOriginalMultiplayerSessionNativeView *view)
+{
+    GeOriginalMultiplayerSessionStatus status;
+    GeOriginalMultiplayerSessionNativeView next = {0};
+    if (!view) return GE_ORIGINAL_MP_SESSION_INVALID_ARGUMENT;
+    status = validate(1);
+    if (status != GE_ORIGINAL_MP_SESSION_OK) return status;
+    status = ge_original_multiplayer_session_snapshot(&next.state);
+    if (status != GE_ORIGINAL_MP_SESSION_OK) return status;
+    next.count = (uint32_t)session_count;
+    for (unsigned i = 0; i < next.count; ++i) next.players[i] = session_players[i];
+    *view = next;
+    return GE_ORIGINAL_MP_SESSION_OK;
+}
+
 GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_abort(
     GeOriginalMultiplayerSessionState *state)
 {

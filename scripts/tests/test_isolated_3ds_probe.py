@@ -59,7 +59,8 @@ class RunnerTests(unittest.TestCase):
     def save_request(self):
         self.args.request.write_text(json.dumps(self.request))
 
-    def run_mock_request(self, status='complete', mutate_config=False, mutate_profile=False):
+    def run_mock_request(self, status='complete', mutate_config=False, mutate_profile=False,
+                         mutate_dsp_source=False, mutate_dsp_staged=False):
         class Process:
             def poll(self): return 0
         def start(command, **kwargs):
@@ -76,6 +77,10 @@ class RunnerTests(unittest.TestCase):
                 profile = Path(kwargs['env']['XDG_CONFIG_HOME']) / 'azahar-emu/qt-config.ini'
                 with profile.open('a') as stream:
                     stream.write('\n[Fixture]\nrewritten=true\n')
+            if mutate_dsp_source:
+                self.args.dsp_component.write_bytes(b'changed source after launch')
+            if mutate_dsp_staged:
+                (install.parent / 'dspfirm.cdc').write_bytes(b'changed staged component')
             return Process()
         with patch.object(runner.subprocess, 'check_output', return_value='shell\n'), \
                 patch.object(runner.subprocess, 'Popen', side_effect=start), \
@@ -296,6 +301,97 @@ class RunnerTests(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, 'exactly 0, 1, 2 or 3'):
                 runner.execute(self.args)
         self.assertFalse(self.args.output.exists())
+
+    def test_dsp_component_private_bytes_and_environment_receipt_are_stable(self):
+        self.request_fixture()
+        self.args.dsp_component = self.root / 'component.bin'
+        original = b'non-firmware fixture bytes' * 16
+        self.args.dsp_component.write_bytes(original)
+        original_hash = runner.digest(self.args.dsp_component)
+        original_prepare = runner.prepare_profile
+        def mutate_before_staging(*args, **kwargs):
+            self.args.dsp_component.write_bytes(b'changed after validation before staging')
+            return original_prepare(*args, **kwargs)
+        with patch.object(runner, 'prepare_profile', side_effect=mutate_before_staging):
+            self.assertEqual(self.run_mock_request(mutate_dsp_source=True), 0)
+        report = json.loads((self.args.output / 'run.json').read_text())
+        component = report['environment_components']['dsp']
+        staged = self.args.output / component['staged_path']
+        self.assertEqual(component['kind'], 'supplied-dsp-component')
+        self.assertEqual(component['source_sha256'], original_hash)
+        self.assertEqual(component['staged_sha256'], original_hash)
+        self.assertEqual(component['staged_after_sha256'], original_hash)
+        self.assertTrue(component['staged_unchanged'])
+        self.assertEqual(staged.read_bytes(), original)
+        self.assertFalse(staged.samefile(self.args.dsp_component))
+        self.assertNotEqual(runner.digest(self.args.dsp_component), original_hash)
+        for phase in ('before', 'after'):
+            environment = json.loads((self.args.output / ('environment-' + phase + '.json')).read_text())
+            self.assertEqual(environment['request_sha256'], runner.digest(self.args.request))
+            self.assertEqual(environment['components']['dsp']['staged_sha256'], original_hash)
+            self.assertEqual(report['environment_' + phase + '_sha256'],
+                             runner.digest(self.args.output / ('environment-' + phase + '.json')))
+            inventory = json.loads((self.args.output / (phase + '.json')).read_text())
+            self.assertEqual(inventory['configurations'], self.request['configurations'])
+            self.assertEqual(inventory['assets'], self.request['assets'])
+
+    def test_staged_component_mutation_fails_environment_verification(self):
+        self.request_fixture()
+        self.args.dsp_component = self.root / 'component.bin'
+        self.args.dsp_component.write_bytes(b'bounded fixture')
+        self.assertEqual(self.run_mock_request(mutate_dsp_staged=True), 1)
+        report = json.loads((self.args.output / 'run.json').read_text())
+        self.assertFalse(report['environment_components']['dsp']['staged_unchanged'])
+        self.assertEqual(report['status'], 'failed')
+        self.assertTrue((self.args.output / 'environment-after.json').is_file())
+
+    def test_component_rejects_empty_oversize_nonregular_and_symlink_files(self):
+        source = self.root / 'component.bin'
+        for payload in (b'', b'x' * (runner.MAX_DSP_COMPONENT_BYTES + 1)):
+            source.write_bytes(payload)
+            with self.assertRaisesRegex(ValueError, 'nonempty regular file'):
+                runner.read_dsp_component(source)
+        source.unlink()
+        source.symlink_to(self.args.pack)
+        with self.assertRaisesRegex(ValueError, 'non-symlink'):
+            runner.read_dsp_component(source)
+        source.unlink()
+        source.mkdir()
+        with self.assertRaisesRegex(ValueError, 'non-symlink'):
+            runner.read_dsp_component(source)
+
+    def test_hle_marker_requires_verified_mode_and_is_labeled_not_firmware(self):
+        self.request_fixture()
+        self.args.azahar_hle_dsp_marker = True
+        self.profile.write_text('[Audio]\naudio_emulation=0\naudio_emulation\\default=true\n')
+        original_profile = self.profile.read_bytes()
+        self.assertEqual(self.run_mock_request(), 0)
+        report = json.loads((self.args.output / 'run.json').read_text())
+        component = report['environment_components']['dsp']
+        self.assertEqual(component['kind'], 'azahar-hle-dsp-marker')
+        self.assertTrue(component['emulator_only'] and component['not_firmware'])
+        self.assertIsNone(component['source_sha256'])
+        self.assertEqual(component['size_bytes'], 0)
+        self.assertEqual((self.args.output / component['staged_path']).read_bytes(), b'')
+        self.assertEqual(component['staged_after_sha256'], runner.hashlib.sha256(b'').hexdigest())
+        self.assertEqual(self.profile.read_bytes(), original_profile)
+        self.assertNotIn('audible_confirmed', report)
+
+    def test_hle_marker_never_changes_lle_or_missing_settings(self):
+        self.args.azahar_hle_dsp_marker = True
+        for audio in ('', 'audio_emulation=1\n', 'audio_emulation=2\n',
+                      'enable_dsp_lle=false\n', 'audio_emulation=0\nenable_dsp_lle=true\n'):
+            self.profile.write_text('[Audio]\n' + audio)
+            with patch.object(runner.subprocess, 'check_output', return_value='shell\n'), \
+                    patch.object(runner.subprocess, 'Popen') as start, \
+                    self.assertRaisesRegex(ValueError, 'HLE DSP marker'):
+                runner.execute(self.args)
+            start.assert_not_called()
+            self.assertFalse(self.args.output.exists())
+            self.assertEqual(self.profile.read_text(), '[Audio]\n' + audio)
+        self.args.dsp_component = self.args.pack
+        with self.assertRaisesRegex(ValueError, 'mutually exclusive'):
+            runner.execute(self.args)
 
     def test_unknown_absolute_destination_rejected(self):
         self.profile.write_text('[Video Dumping]\nvideo_file=/shared/capture.webm\n')

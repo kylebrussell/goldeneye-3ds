@@ -47,6 +47,38 @@ must contain exactly one ASCII digit from 0 through 3 followed by a newline.
 It cannot be inherited into a frontend-only probe. Every explicit setting's
 hash is recorded in `run.json`.
 
+## Explicit DSP environment inputs
+
+`--dsp-component /path/to/dspfirm.cdc` copies explicitly supplied bytes into
+the private SD root at `3ds/dspfirm.cdc`. It accepts a regular non-symlink file
+from 1 byte through 1 MiB; this is a storage bound and identity check, not a
+DSP-format, authenticity or hardware-compatibility certification. The source
+is read once with a bounded read and stable-file checks. Staging uses those
+captured bytes, so later source changes cannot change the staged receipt.
+No component is downloaded or obtained from shared storage implicitly.
+
+`--azahar-hle-dsp-marker` is a separate emulator-only option, mutually
+exclusive with `--dsp-component`. It creates a private zero-byte marker only
+when the prepared profile explicitly contains `[Audio] audio_emulation=0`.
+Missing settings, LLE values and conflicting legacy LLE flags are rejected;
+the runner never changes audio mode. Azahar 2126.0's
+[HLE LoadComponent](https://github.com/azahar-emu/azahar/blob/2126.0/src/audio_core/hle/hle.cpp)
+ignores DSP program bytes, while
+[its Qt audio configuration](https://github.com/azahar-emu/azahar/blob/2126.0/src/citra_qt/configuration/config.cpp)
+reads `audio_emulation`. This marker is explicitly labeled `not_firmware` and
+must never be included in a hardware candidate or represented as a supplied
+DSP component. It does not prove successful NDSP initialization or audible
+output; inspect the actual run telemetry and output separately.
+
+Both options record source/staged hashes as applicable under
+`run.json`'s `environment_components`, separately from the game's asset and
+config inventories. `environment-before.json` and `environment-after.json`
+bind that identity to the request (when present), executable and respective
+profile hash. A changed or missing staged component fails the run. Empty
+files are always rejected by `--dsp-component`; marker creation requires the
+explicit HLE option. Package tooling does not gain component/marker support
+from this runner change.
+
 ## Profile provenance and stereo
 
 The runner preserves caller-selected audio/emulation settings, removes shared

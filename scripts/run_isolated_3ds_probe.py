@@ -3,12 +3,14 @@
 from __future__ import annotations
 import argparse
 import configparser
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
 import sys
 import signal
+import stat
 import subprocess
 import time
 from package_3ds_candidate import digest
@@ -19,6 +21,7 @@ REQUEST_CONFIGS = frozenset((
     'controls.cfg', 'probe-retraces.cfg', 'dam-input-probe.cfg',
     'probe-difficulty.cfg'))
 REQUIRED_REQUEST_CONFIGS = REQUEST_CONFIGS - {'probe-retraces.cfg', 'probe-difficulty.cfg'}
+MAX_DSP_COMPONENT_BYTES = 1024 * 1024
 
 
 def prepare_profile(source, destination, user, max_stereo=False):
@@ -81,6 +84,51 @@ def regular_file(path):
 def validate_difficulty(path):
     if path.read_bytes() not in (b'0\n', b'1\n', b'2\n', b'3\n'):
         raise ValueError('probe-difficulty.cfg requires exactly 0, 1, 2 or 3 followed by a newline')
+
+
+def read_dsp_component(path):
+    """Freeze bounded supplied bytes once; never rehash a mutable source later."""
+    regular_file(path)
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+    with os.fdopen(os.open(path, flags), 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= MAX_DSP_COMPONENT_BYTES:
+            raise ValueError('DSP component must be a nonempty regular file of at most 1 MiB')
+        data = stream.read(MAX_DSP_COMPONENT_BYTES + 1)
+        after = os.fstat(stream.fileno())
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                              value.st_mtime_ns, value.st_ctime_ns)
+    if len(data) != before.st_size or identity(before) != identity(after):
+        raise ValueError('DSP component changed while reading')
+    return data, {'kind': 'supplied-dsp-component', 'source_path': str(path.absolute()),
+                  'source_sha256': hashlib.sha256(data).hexdigest(),
+                  'size_bytes': len(data), 'validation': 'bounded-file-and-byte-identity'}
+
+
+def require_azahar_hle(profile):
+    config = configparser.ConfigParser(interpolation=None, strict=False)
+    config.read(profile)
+    # 2126.0 AudioEmulation::HLE=0; QtConfig::ReadAudioValues uses this key.
+    # Do not infer HLE from a missing key or silently change an LLE profile.
+    if config.get('Audio', 'audio_emulation', fallback=None) != '0':
+        raise ValueError('HLE DSP marker requires explicit [Audio] audio_emulation=0')
+    legacy = config.get('Audio', 'enable_dsp_lle', fallback='false').lower()
+    if legacy not in ('false', '0'):
+        raise ValueError('HLE DSP marker rejects conflicting legacy enable_dsp_lle')
+
+
+def write_environment_snapshot(output, provenance, phase):
+    record = {'schema': 'ge-3ds-isolated-environment-v1', 'phase': phase,
+              'request_sha256': provenance.get('request_sha256'),
+              'binary_sha256': provenance['binary_sha256'],
+              'profile_sha256': provenance['profile_sha256' if phase == 'before'
+                                           else 'profile_after_sha256'],
+              'components': provenance['environment_components']}
+    path = output / ('environment-' + phase + '.json')
+    with path.open('x') as stream:
+        json.dump(record, stream, indent=2)
+        stream.write('\n')
+    provenance['environment_' + phase + '_sha256'] = digest(path)
 
 
 def validate_request(path, binary, pack):
@@ -170,6 +218,10 @@ def result_has_status(path):
 def execute(args):
     request_path = getattr(args, 'request', None)
     max_stereo = getattr(args, 'max_stereo', False)
+    dsp_source = getattr(args, 'dsp_component', None)
+    hle_marker = getattr(args, 'azahar_hle_dsp_marker', False)
+    if dsp_source is not None and hle_marker:
+        raise ValueError('--dsp-component and --azahar-hle-dsp-marker are mutually exclusive')
     if request_path is not None and (args.probe is not None or args.stage is not None or args.setting):
         raise ValueError('--request is mutually exclusive with --probe, --stage and --setting')
     if request_path is None and args.probe is None:
@@ -205,6 +257,14 @@ def execute(args):
             validate_difficulty(setting)
     if len({setting.name for setting in args.setting}) != len(args.setting):
         raise ValueError('duplicate setting names are not supported')
+    dsp_data, dsp_identity = None, None
+    if dsp_source is not None:
+        dsp_data, dsp_identity = read_dsp_component(dsp_source)
+    elif hle_marker:
+        require_azahar_hle(args.profile)
+        dsp_data = b''
+        dsp_identity = {'kind': 'azahar-hle-dsp-marker', 'emulator_only': True,
+                        'not_firmware': True, 'source_sha256': None, 'size_bytes': 0}
     args.output.mkdir(parents=True)
     # macOS Azahar changes cwd to the app's parent. Explicit existing XDG
     # roots survive that change and prevent fallback to the shared profile.
@@ -216,6 +276,16 @@ def execute(args):
     install.mkdir(parents=True)
     profile = config_root / 'qt-config.ini'
     prepare_profile(args.profile, profile, user, max_stereo=max_stereo)
+    if hle_marker:
+        require_azahar_hle(profile)
+    if dsp_identity is not None:
+        dsp_staged = install.parent / 'dspfirm.cdc'
+        with dsp_staged.open('xb') as stream:
+            stream.write(dsp_data)
+        dsp_identity['staged_path'] = str(dsp_staged.relative_to(args.output.resolve()))
+        dsp_identity['staged_sha256'] = digest(dsp_staged)
+        if dsp_identity['staged_sha256'] != hashlib.sha256(dsp_data).hexdigest():
+            raise ValueError('staged DSP bytes differ from captured input')
     shutil.copyfile(profile, args.output / 'profile-before.ini')
     shutil.copyfile(args.binary, install / 'goldeneye-3ds.3dsx')
     shutil.copyfile(args.pack, install / 'goldeneye.u.gepack')
@@ -250,6 +320,9 @@ def execute(args):
         benchmark.snapshot(argparse.Namespace(request=stored_request, installed=install,
                                              output=args.output / 'before.json', phase='before'))
         provenance['before_sha256'] = digest(args.output / 'before.json')
+    if dsp_identity is not None:
+        provenance['environment_components'] = {'dsp': dsp_identity}
+        write_environment_snapshot(args.output, provenance, 'before')
     (args.output / 'run.json').write_text(json.dumps(provenance, indent=2) + '\n')
     expected_gameplay = gameplay_only or any(line.split()[:1] == ['gameplay_frames'] and int(line.split()[1]) > 0
                             for line in probe_text.splitlines())
@@ -313,6 +386,20 @@ def execute(args):
     provenance['profile_isolation_verified'] = private_log.is_file() and private_log.stat().st_size > 0
     shutil.copyfile(profile, args.output / 'profile-after.ini')
     provenance['profile_after_sha256'] = digest(profile)
+    if dsp_identity is not None:
+        dsp_identity['staged_after_sha256'] = (digest(dsp_staged)
+            if not dsp_staged.is_symlink() and dsp_staged.is_file()
+            and dsp_staged.stat().st_size <= MAX_DSP_COMPONENT_BYTES else None)
+        dsp_identity['staged_unchanged'] = (not dsp_staged.is_symlink()
+            and dsp_identity['staged_after_sha256'] == dsp_identity['staged_sha256'])
+        passed &= dsp_identity['staged_unchanged']
+        if hle_marker:
+            try:
+                require_azahar_hle(profile)
+            except ValueError as error:
+                provenance['environment_error'] = str(error)
+                passed = False
+        write_environment_snapshot(args.output, provenance, 'after')
     passed &= provenance['profile_isolation_verified']
     provenance['status'] = 'complete' if passed else 'failed' 
     (args.output / 'run.json').write_text(json.dumps(provenance, indent=2) + '\n')
@@ -333,6 +420,11 @@ def main():
     parser.add_argument('--max-stereo', action='store_true',
                         help='set maximum slider and side-by-side output in the isolated Azahar profile')
     parser.add_argument('--protect', type=Path, action='append', default=[])
+    dsp = parser.add_mutually_exclusive_group()
+    dsp.add_argument('--dsp-component', type=Path,
+                     help='copy an explicitly supplied nonempty DSP component into the private SD tree')
+    dsp.add_argument('--azahar-hle-dsp-marker', action='store_true',
+                     help='create an emulator-only empty DSP marker; requires explicit audio_emulation=0')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('timeout must be positive')

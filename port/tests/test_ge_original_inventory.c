@@ -17,6 +17,8 @@ static PropRecord props[4];
 static ObjectRecord objects[4], rocket;
 static textoverride overrides[4];
 GunModelFileRecord gitem_structs[ITEM_JOYPAD + 1];
+WeaponStats default_weaponstats;
+static WeaponStats weaponstats[ITEM_JOYPAD + 1];
 s32 g_bondviewForceDisarm;
 int g_curWatchItemIndex, D_800409C4;
 ALBank *g_musicSfxBufferPtr;
@@ -41,8 +43,6 @@ void place_item_in_hand_swap_and_make_visible(GUNHAND hand, ITEM_IDS weapon)
 void sub_GAME_7F09B368(GUNHAND hand) { (void)hand; assert(0); }
 void objFreePermanently(ObjectRecord *object, s32 free_prop)
 { assert(object == &rocket && free_prop == 1); ++freed; }
-s32 get_ammo_type_for_weapon(ITEM_IDS weapon)
-{ return weapon == ITEM_WPPKSIL || weapon == ITEM_TT33 ? 1 : 0; }
 s32 bondwalkItemHasAmmo(ITEM_IDS weapon) { (void)weapon; return 1; }
 u32 bondwalkItemCheckBitflags(ITEM_IDS weapon, u32 mask)
 { (void)weapon; return mask & WEAPONSTATBITFLAG_CAN_DUAL_WIELD; }
@@ -78,6 +78,8 @@ static void reset(void)
     for (int i = 0; i <= ITEM_JOYPAD; ++i) {
         snprintf(names[i], sizeof(names[i]), "Weapon %d", i);
         gitem_structs[i].watch_equipment_text = (u16)(i + 1);
+        gitem_structs[i].item_weapon_stats = &weaponstats[i];
+        weaponstats[i].AmmoType = i == ITEM_WPPKSIL || i == ITEM_TT33 ? 1 : 0;
     }
 }
 

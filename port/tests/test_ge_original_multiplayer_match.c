@@ -1,9 +1,9 @@
 /* Headless production composition. All gameplay producers are linked from the
  * production recipe. Callbacks below own native assets/cameras/publications;
  * they do not replace movement, props, gun, held-item hits or death rules.
- * The initial milestone runs the real arena/player/body graph. Authored supply
- * construction and a hit/death/respawn transcript are subsequent acceptance
- * gates; reaching this file's bootstrap is not a completed match claim. */
+ * Temple is a two-frame bootstrap gate. Optional Caves runs all authored live
+ * supplies, controller pickup/equip/fire/reload and native impacts for 480
+ * frames. Player hit/death/respawn/results remain subsequent acceptance gates. */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -17,6 +17,8 @@
 #include "game/gun.h"
 #include "game/bondview_r.h"
 #include "game/initanitable.h"
+#include "game/bgroomtrans.h"
+#include "game/explosion.h"
 extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_port.h"
 #include "ge_dam_world.h"
@@ -31,6 +33,8 @@ extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_original_gameplay_services.h"
 #include "ge_original_guard_animation_table.h"
 #include "ge_original_gun_live.h"
+#include "ge_original_guard_bullet_hit.h"
+#include "ge_original_pp7_fire.h"
 #include "ge_original_multiplayer_players.h"
 #include "ge_original_multiplayer_runtime.h"
 #include "ge_original_multiplayer_session.h"
@@ -41,6 +45,7 @@ extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_original_player_held_items.h"
 #include "ge_original_prop_state.h"
 #include "ge_original_stage_supplies.h"
+#include "ge_original_stage_items.h"
 
 typedef struct PlayerResources {
     GeOriginalPlayerViewState view;
@@ -54,6 +59,13 @@ typedef struct PlayerResources {
     GeOriginalMultiplayerSpawnProviders spawn_providers;
     void *hand_buffers[2];
 } PlayerResources;
+
+typedef struct ObjectOwner {
+    void *definition, *prop;
+    size_t command_index;
+    int16_t room;
+    GeOriginalDefaultObjectPrepared prepared;
+} ObjectOwner;
 
 typedef struct Match {
     unsigned count;
@@ -76,6 +88,12 @@ typedef struct Match {
     GeOriginalMultiplayerViews views;
     GeOriginalBondCameraResult local_camera;
     PlayerResources players[4];
+    ObjectOwner objects[128];
+    GeOriginalStageActivePropInput ordinary_props[128];
+    void *collision_blocks[128];
+    size_t object_count, collision_count;
+    unsigned native_visible_hands[2], native_firing_frames;
+    GeOriginalDefaultObjectProviders object_providers;
 } Match;
 
 static const GeOriginalBondMovementProviders movement = {
@@ -161,6 +179,16 @@ static int restore(void *context,uint32_t slot,const GeOriginalBondCameraConfig 
 static int prepare_renderer(void *context,uint32_t slot,const GeOriginalBondCameraConfig *config,const GeOriginalBondCameraResult *result)
 {
     Match *match=context;(void)config;(void)result;
+    for(unsigned hand=0;hand<2;++hand){
+        GeOriginalGunLiveHand native;
+        assert(ge_original_gun_live_hand_snapshot(hand,&native));
+        if(native.visible){
+            assert(native.model && native.matrices && native.matrix_count);
+            const Model *model=native.model;assert(model->datas && model->obj);
+            ++match->native_visible_hands[hand];
+        }
+        if(g_CurrentPlayer->hands[hand].weapon_firing_status)++match->native_firing_frames;
+    }
     ge_original_stage_guard_runtime_set_local_player_view(match->guards,ge_original_multiplayer_player(slot),1);
     return 1;
 }
@@ -176,11 +204,85 @@ static int sync_gun(void *context,uint32_t slot)
     return 1;
 }
 
+static int32_t item_load(void *context,int32_t model)
+{ return ge_original_pitem_model_load(((Match *)context)->items,model); }
+static int item_available(void *context,int32_t model)
+{ return ge_original_pitem_model_available(((Match *)context)->items,model); }
+static int item_resolve(void *context,int32_t model,void **header,void **instance,float *scale)
+{ return ge_original_pitem_model_resolve_instance(((Match *)context)->items,model,header,instance,scale); }
+static int item_hit_ready(void *context,const void *model)
+{ return ge_original_pitem_model_hit_ready(((Match *)context)->items,model); }
+static int32_t player_count(void *context)
+{ (void)context;return (int32_t)ge_original_multiplayer_player_count(); }
+static int32_t scenario(void *context)
+{ (void)context;return SCENARIO_NORMAL; }
+static void *item_collision(void *context,uint32_t size)
+{
+    Match *match=context;assert(size==0x50 && match->collision_count<128);
+    void *block=calloc(1,size);assert(block);
+    match->collision_blocks[match->collision_count++]=block;return block;
+}
+static int item_floor(void *context,void *stan,float x,float z,float *out)
+{ if(!stan || !out)return -1;*out=floor_y(context,stan,x,z);return 1; }
+static int room_bounds(void *context,const float pos[3],int16_t room,float *top,float *bottom)
+{ (void)context;return ge_original_prop_state_room_object_at_position(pos,room,top,bottom)!=NULL; }
+static int walk_tiles(void *context,void **stan,float x,float z,float end_x,float end_z)
+{ return ge_original_stan_walk_tiles_between_points(&((Match *)context)->stan,(GeStanNativeTile **)stan,x,z,end_x,end_z); }
+static int supply_room(void *context,void *definition)
+{
+    Match *match=context;
+    for(size_t i=0;i<match->object_count;++i){ObjectOwner *owner=&match->objects[i];
+        if(owner->definition!=definition)continue;
+        ge_original_prop_state_register_room(&match->props,owner->prop,owner->room);
+        return ge_original_prop_state_room_contains(owner->room,owner->prop);
+    }
+    return 0;
+}
+static int supply_activate(void *context,void *prop)
+{ ge_original_prop_state_activate(&((Match *)context)->props,prop);return ge_original_prop_state_is_active(prop); }
+static int supply_enable(void *context,void *prop)
+{ ge_original_prop_state_enable(&((Match *)context)->props,prop);return ge_original_prop_state_is_enabled(prop); }
+static int construct_object(void *context,const GeOriginalStagePropConstructionRequest *request)
+{
+    Match *match=context;assert(match->object_count<128);
+    ObjectOwner *owner=&match->objects[match->object_count++];
+    size_t size=ge_original_stage_prop_native_definition_size(request);assert(size);
+    owner->definition=calloc(1,size);assert(owner->definition);
+    owner->room=request->placement.room;owner->command_index=request->command_index;
+    owner->prop=ge_original_prop_state_allocate(&match->props,owner->definition);assert(owner->prop);
+    if(request->record->type==PROPDEF_COLLECTABLE){
+        assert(ge_original_stage_prop_native_definition_init(request,owner->definition,size));
+        assert(projectile_models(match,(int8_t)(request->record->words[32]>>24)));
+        GeOriginalStageItemStatus status=ge_original_stage_item_construct_standard_exact(request,
+            owner->definition,owner->prop,sizeof(PropRecord),&match->object_providers,&owner->prepared);
+        if(status)fprintf(stderr,"item command %zu status %s\n",request->command_index,ge_original_stage_item_status_name(status));
+        assert(status==GE_ORIGINAL_STAGE_ITEM_OK);
+        assert(supply_room(match,owner->definition));assert(supply_activate(match,owner->prop));
+        assert(supply_enable(match,owner->prop));
+    }else{
+        GeOriginalStageSupplyInstance instance;
+        GeOriginalStageSupplyProviders supply={.default_object=&match->object_providers,
+            .prepared=&owner->prepared,.update_room_position=supply_room,
+            .activate_prop=supply_activate,.enable_prop=supply_enable};
+        GeOriginalStageSupplyStatus status=ge_original_stage_supply_construct_exact(request,
+            owner->definition,size,owner->prop,sizeof(PropRecord),&supply,&instance);
+        if(status)fprintf(stderr,"supply command %zu status %s\n",request->command_index,ge_original_stage_supply_status_name(status));
+        assert(status==GE_ORIGINAL_STAGE_SUPPLY_OK);
+    }
+    match->ordinary_props[match->object_count-1]=(GeOriginalStageActivePropInput){request->command_index,owner->prop,GE_ORIGINAL_STAGE_ACTIVE_PROP_AUTHORED};
+    assert(((ObjectRecord *)owner->definition)->model && ((PropRecord *)owner->prop)->stan);
+    return 1;
+}
+static size_t hit_player_count(void *context)
+{ return ((Match *)context)->count; }
+static void *hit_player(void *context,size_t slot)
+{ (void)context;return ge_original_multiplayer_player((uint32_t)slot); }
+
 static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
-    const char *animation_dir,unsigned count)
+    const char *animation_dir,unsigned count,GeAssetPack *supplies)
 {
     Match *match=calloc(1,sizeof(*match));assert(match);match->count=count;
-    const GeStageAssetDescriptor *stage=ge_stage_asset_multiplayer(0);
+    const GeStageAssetDescriptor *stage=ge_stage_asset_multiplayer(supplies?2:0);
     GeStanCollisionSurface surface;size_t size,storage_size;
     GeOriginalBgGeometryReport bg_report;
     GeOriginalCharacterModelStatus model_status;GeOriginalPitemModelStatus item_status;
@@ -200,6 +302,11 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     match->geometry=ge_original_bg_geometry_load(arena,stage,&match->world,match->visibility.room_bounds,&bg_report);
     assert(match->geometry);ge_original_bg_geometry_bind(match->geometry);
     ge_original_player_held_items_bind_lights(match->geometry,ge_original_bg_geometry_light_break);
+    if(supplies)for(size_t room=0;room<match->world.room_count;++room){
+        const struct coord3d *origin=ge_original_bg_geometry_room_origin((int32_t)room);
+        assert(origin && getRoomPositionByIndex((s32)room)==origin);
+        assert(memcmp(origin->f,match->world.rooms[room].origin,sizeof(origin->f))==0);
+    }
     assert(ge_original_prop_state_reset(&match->props,256));
     assert(ge_original_multiplayer_players_create(count,0,UINT64_C(0x73d600),UINT64_C(0x73d601)));
     assert(ge_original_multiplayer_fog_load(stage->level_id,0,count,stage->visibility_scale));
@@ -223,10 +330,10 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     assert(ge_original_guard_animation_table_bind(animation,animation_size));
     snprintf(path,sizeof(path),"%s/animation_entries.bin",animation_dir);unsigned char *entries=file_bytes(path,&size);
     assert(ge_original_guard_animation_entries_bind(entries,size));
-    assert(ge_original_effect_runtime_reset(count,stage->level_id));
     ge_original_gameplay_services_reset();
+    assert(ge_original_effect_runtime_reset(count,stage->level_id));
     match->models=ge_original_character_model_provider_create(models,ge_original_character_model_dependency_count(),14,&model_status);assert(match->models);
-    match->items=ge_original_pitem_model_provider_create(models,64,64,&item_status);assert(match->items);
+    match->items=ge_original_pitem_model_provider_create(supplies?supplies:models,128,160,&item_status);assert(match->items);
     ge_original_gameplay_services_bind_model_loader(match->items,ge_original_pitem_model_load);
     GeOriginalStageGuardRuntimeServices body_services={match,allocate_body_prop,
         ge_original_character_appearance_choose_head,ge_original_character_appearance_choose_sunglasses,resident,tile_rgb};
@@ -236,6 +343,21 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     ge_original_player_body_bind_held_item(match->guards,ge_original_stage_guard_runtime_attach_player_held_item);
     assert(ge_original_stage_guard_runtime_bind_authored_weapons(match->guards,&match->setup,match->items,
         projectile_models,match,&weapon_report)==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+    match->object_providers=(GeOriginalDefaultObjectProviders){match,item_load,player_count,scenario,
+        item_resolve,item_collision,item_floor,room_bounds,walk_tiles,tile_rgb};
+    if(supplies){
+        GeOriginalStagePropMaterializerProviders providers={.context=match,
+            .capabilities=GE_ORIGINAL_STAGE_PROP_CAP_ITEM|GE_ORIGINAL_STAGE_PROP_CAP_SUPPLY,
+            .model_available=item_available,.construct_item=construct_object,.construct_special_object=construct_object};
+        GeOriginalStagePropMaterializerReport report;
+        assert(ge_original_stage_prop_materialize_ready(&match->prepared.view,&providers,&report));
+        fprintf(stderr,"native arena %s constructed %zu omitted %zu missing %zu model %zu unsupported %zu\n",
+            stage->key,report.constructed,report.canonical_omitted,report.missing_service,report.missing_model,report.unsupported_branch);
+        assert(!report.failed && !report.missing_model && !report.missing_service && !report.unsupported_branch);
+        assert(report.constructed==match->object_count && report.canonical_omitted==match->prepared.omitted);
+    }
+    ge_original_pp7_fire_bind_object_hit_ready(match,item_hit_ready);
+    ge_original_guard_bullet_hit_bind_players(match,hit_player_count,hit_player);
     GeOriginalAnimationRoot *roots[3];void *frames[3];const char *names[]={"sprinting","bond_eye_walk","idle"};
     for(unsigned index=0;index<3;++index){
         roots[index]=ge_original_animation_root_create(animation,animation_size,(GeOriginalBondAnimationId)index);assert(roots[index]);
@@ -257,7 +379,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
         player_props[slot]=g_CurrentPlayer->prop;
     }
     size_t chr_count;ChrRecord *chrs=ge_original_stage_guard_runtime_chr_pool(match->guards,&chr_count);
-    assert(ge_original_stage_active_props_compose_players(&match->active,&match->setup,player_props,count,chrs,chr_count,NULL,0)==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
+    assert(ge_original_stage_active_props_compose_players(&match->active,&match->setup,player_props,count,chrs,chr_count,match->ordinary_props,match->object_count)==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(ge_original_multiplayer_death_reset(&match->death));
     assert(ge_original_multiplayer_session_reset(0,0)==GE_ORIGINAL_MP_SESSION_OK);
     ge_original_gun_live_reset();ge_original_gameplay_services_set_exact_gun_dispatch(1);ge_original_gameplay_services_set_exact_held_item_dispatch(1);
@@ -267,22 +389,65 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
         .view_providers={match,select_player,visibility,capture,restore}};
     for(unsigned slot=0;slot<count;++slot)frame.lives[slot]=&match->players[slot].live;
     assert(select_player(match,0)); /* Initial prior viewport, then retain last shuffled. */
-    for(unsigned tick=0;tick<2;++tick){
+    unsigned tick_count=supplies?480:2;
+    int last_item=-1,last_mag=-1,last_reserve=-1,reloads=0,pickup_timer=0;
+    PropRecord *picked_prop=NULL;
+    for(unsigned tick=0;tick<tick_count;++tick){
         GeOriginalInputPad pads[4][2]={0};GeOriginalMultiplayerRegenBatch regen;GeOriginalMultiplayerSessionState session;
+        if(supplies){
+            /* Original Honey raw-pad route from the fixed canonical spawn:
+             * walk toward the authored PP7, tap inventory, then pulse Z.
+             * No position, inventory, ammo, hand state or damage is assigned. */
+            pads[0][0].stick_y=tick<110?60:0;
+            pads[0][0].stick_x=tick<30?20:0;
+            pads[0][0].buttons=tick>=128 && tick%16<8?Z_TRIG:0;
+            if(tick==100)pads[0][0].buttons=A_BUTTON;
+        }
         assert(ge_port_advance_multiplayer_tick(&match->port,pads,count)==1);
         assert(ge_original_multiplayer_session_tick(match->port.original_clock_timer,(int32_t)tick,&session)==GE_ORIGINAL_MP_SESSION_OK);
         assert(ge_original_gun_live_frame_begin());
         frame.tick=tick;frame.clock_timer=match->port.original_clock_timer;frame.global_timer=match->port.original_global_timer;frame.global_timer_delta=match->port.original_global_timer_delta;
         assert(ge_original_multiplayer_runtime_begin_world(&match->active,frame.clock_timer,&regen)==GE_ORIGINAL_MP_RUNTIME_OK);
         GeOriginalMultiplayerRuntimeStatus status=ge_original_multiplayer_runtime_tick(&frame);
-        fprintf(stderr,"native arena %s players %u tick %u slot %u status %d\n",stage->key,count,tick,frame.last_slot,status);
+        if(!supplies || status)fprintf(stderr,"native arena %s players %u tick %u slot %u status %d\n",stage->key,count,tick,frame.last_slot,status);
         assert(status==GE_ORIGINAL_MP_RUNTIME_OK);
+        if(supplies){
+            struct player *player=ge_original_multiplayer_player(0);
+            int item=player->hands[0].weaponnum,mag=player->hands[0].weapon_ammo_in_magazine;
+            int reserve=player->ammoheldarr[AMMO_9MM];
+            if(last_mag==0 && mag>0 && g_playerPlayerData[0].shot_count[0]>0)++reloads;
+            if(item!=last_item || mag!=last_mag || reserve!=last_reserve){
+                fprintf(stderr,"native Caves %u players tick%u item%d mag%d reserve%d shots%d impacts%d\n",
+                    count,tick,item,mag,reserve,g_playerPlayerData[0].shot_count[0],g_NumImpactEntries);
+                last_item=item;last_mag=mag;last_reserve=reserve;
+            }
+            if(!picked_prop)for(size_t i=0;i<match->object_count;++i){
+                PropRecord *prop=match->objects[i].prop;
+                if(prop->type==PROP_TYPE_WEAPON && prop->weapon->weaponnum==ITEM_WPPKSIL && prop->timetoregen>0){
+                    assert(!ge_original_prop_state_is_enabled(prop));
+                    picked_prop=prop;pickup_timer=prop->timetoregen;
+                    fprintf(stderr,"native pickup command%zu tick%u regeneration%d\n",match->objects[i].command_index,tick,pickup_timer);
+                    break;
+                }
+            }
+        }
         assert(ge_original_gun_live_frame_finalize(NULL));
+    }
+    if(supplies){
+        assert(picked_prop && picked_prop->timetoregen>0 && picked_prop->timetoregen<pickup_timer);
+        assert(g_playerPlayerData[0].shot_count[0]==10 && g_NumImpactEntries==10 && reloads==1);
+        assert(last_item==ITEM_FIST && last_mag==0 && last_reserve==0);
+        assert(match->native_firing_frames>=10 && match->native_visible_hands[0]>0);
+        for(int i=0;i<g_NumImpactEntries;++i){
+            assert(g_BulletImpactBuffer[i].prop==NULL);
+            assert(g_BulletImpactBuffer[i].room>=0 && (size_t)g_BulletImpactBuffer[i].room<match->world.room_count);
+        }
+        fprintf(stderr,"native Caves %u players:480 frames,26 authored supplies,PP7 pickup,10 shots/impacts,1 reload,ammo depletion; player damage/death/results not asserted\n",count);
     }
     for(unsigned slot=0;slot<count;++slot){
         assert(ge_original_multiplayer_select_player(slot));
         GeOriginalGunLiveStats gun_stats;ge_original_gun_live_snapshot(&gun_stats);
-        assert(gun_stats.ticks==2);
+        assert(gun_stats.ticks==tick_count);
         const void *native_animation=NULL;uint32_t animation_offset=UINT32_MAX;
         assert(ge_original_guard_animation_legacy_reference(g_CurrentPlayer->players_cur_animation,
             (uintptr_t)ptr_animation_table,&native_animation,&animation_offset));
@@ -297,6 +462,9 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
         PlayerResources *player=&match->players[slot];ge_original_player_gait_destroy(player->gait);
         ge_original_first_person_assets_close(&player->assets);free(player->hand_buffers[0]);free(player->hand_buffers[1]);
     }
+    ge_original_guard_bullet_hit_bind_players(NULL,NULL,NULL);ge_original_pp7_fire_bind_object_hit_ready(NULL,NULL);
+    for(size_t i=0;i<match->object_count;++i)free(match->objects[i].definition);
+    for(size_t i=0;i<match->collision_count;++i)free(match->collision_blocks[i]);
     ge_original_character_model_provider_destroy(match->models);ge_original_pitem_model_provider_destroy(match->items);
     ge_original_effect_runtime_end();ge_original_multiplayer_fog_close();
     ge_original_multiplayer_players_destroy();assert(ge_original_prop_state_end(&match->props));
@@ -307,10 +475,13 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
 }
 int main(int argc,char **argv)
 {
-    GeAssetPack arena,models,guns;assert(argc==5);
+    GeAssetPack arena,models,guns,supplies;assert(argc==5 || argc==6);
     assert(ge_asset_pack_open(&arena,argv[1])==GE_ASSET_PACK_OK);
     assert(ge_asset_pack_open(&models,argv[2])==GE_ASSET_PACK_OK);
     assert(ge_asset_pack_open(&guns,argv[3])==GE_ASSET_PACK_OK);
-    run(&arena,&models,&guns,argv[4],2);run(&arena,&models,&guns,argv[4],4);
+    run(&arena,&models,&guns,argv[4],2,NULL);run(&arena,&models,&guns,argv[4],4,NULL);
+    if(argc==6){assert(ge_asset_pack_open(&supplies,argv[5])==GE_ASSET_PACK_OK);
+        run(&arena,&models,&guns,argv[4],2,&supplies);run(&arena,&models,&guns,argv[4],4,&supplies);
+        ge_asset_pack_close(&supplies);}
     ge_asset_pack_close(&guns);ge_asset_pack_close(&models);ge_asset_pack_close(&arena);return 0;
 }

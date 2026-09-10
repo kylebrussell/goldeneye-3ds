@@ -38,9 +38,14 @@ bash "${repo_dir}/scripts/test_local_wireless.sh"
 bash "${repo_dir}/scripts/test_multiplayer_protocol.sh"
 bash "${repo_dir}/scripts/test_mp_state.sh"
 bash "${repo_dir}/scripts/test_mp_state_core.sh"
+bash "${repo_dir}/scripts/test_mp_state_inventory.sh"
 bash "${repo_dir}/scripts/test_multiplayer_players.sh"
+bash "${repo_dir}/scripts/test_multiplayer_input_gates.sh"
 bash "${repo_dir}/scripts/test_multiplayer_active_props.sh"
 bash "${repo_dir}/scripts/test_multiplayer_gun_ownership.sh"
+# The native producer consumes the full pack's converted first-person models.
+bash "${repo_dir}/scripts/test_multiplayer_gun_producer.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 bash "${repo_dir}/scripts/test_multiplayer_rules.sh"
 bash "${repo_dir}/scripts/test_multiplayer_combat.sh"
 bash "${repo_dir}/scripts/test_multiplayer_assets.sh"
@@ -187,7 +192,8 @@ cc -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
 
 "${test_dir}/test_ge_original_boss"
 
-"${repo_dir}/scripts/test_facility_mission_flow.sh"
+"${repo_dir}/scripts/test_facility_mission_flow.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 
 original_dam_setup_dir="${test_dir}/original-dam-setup"
 mkdir -p "${original_dam_setup_dir}"

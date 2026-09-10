@@ -11,6 +11,7 @@
 #include "ge_mp_state_fog.h"
 #include "ge_mp_state_objects.h"
 #include "ge_mp_state_models.h"
+#include "ge_mp_state_music.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
@@ -135,6 +136,7 @@ static void repeated_stage(unsigned count)
     size_t used = 0;
     begin(count);
     ids[used++] = multiplayer_state.core;
+    ids[used++] = multiplayer_state.music;
     ids[used++] = multiplayer_state.bg;
     ids[used++] = multiplayer_state.visibility;
     for (unsigned slot = 0; slot < 4; ++slot) {
@@ -166,7 +168,7 @@ static void repeated_stage(unsigned count)
     assert(!multiplayer_state.failed);
     for (size_t index = 0; index < used; ++index)
         assert(ge_mp_registry_resolve(&multiplayer_state.registry, ids[index], NULL) == GE_MP_STATE_STALE);
-    assert(multiplayer_state.registry.count == 740);
+    assert(multiplayer_state.registry.count == 741);
 }
 
 static void object_bindings(unsigned count)

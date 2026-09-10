@@ -8,6 +8,7 @@
 s32 g_pausedFlag;
 s32 speedgraphframes;
 extern s32 mission_state;
+extern s32 music_slot_active_0[4],music_slot_minutes_0[4],music_slot_seconds_0[4];
 extern unsigned fixture_music_intro_plays;
 #define mission_calls fixture_music_intro_plays
 extern s32 g_ClockTimer,g_GlobalTimer,chevron_glow_timer,alt_gameover_msg_timer;
@@ -147,9 +148,41 @@ static void invalid(void)
     assert(!g_stopPlayFlag && !g_gameOverFlag && memcmp(&out,&before,sizeof(out))==0);
 }
 
+static void death_music_recovery(unsigned count)
+{
+    start((int)count,SCENARIO_NORMAL,0,0);
+    for(unsigned i=0;i<4;++i) {
+        music_slot_active_0[i]=(s32)i+1;
+        music_slot_minutes_0[i]=(s32)i+2;
+        music_slot_seconds_0[i]=(s32)i+3;
+    }
+    ge_original_multiplayer_music_stage_reset();
+    for(unsigned i=0;i<4;++i)
+        assert(!music_slot_active_0[i] && !music_slot_minutes_0[i] && !music_slot_seconds_0[i]);
+    assert(mission_state==6);
+    const uint32_t before_rng=rng;
+    /* Exact native predicate: at least one dead player, and every dead
+     * player's blood complete. Animation/fade completion and clock are not
+     * additional gates at this pre-limit boundary. */
+    for(unsigned dead=0;dead<(1U<<count);++dead)
+        for(unsigned blood=0;blood<(1U<<count);++blood) {
+            for(unsigned slot=0;slot<count;++slot) {
+                players[slot].bonddead=(dead>>slot)&1;
+                players[slot].redbloodfinished=(blood>>slot)&1;
+                players[slot].deathanimfinished=0;
+                players[slot].colourfadetimemax60=2;
+            }
+            mission_state=6;
+            GeOriginalMultiplayerSessionState out=tick(0,0);
+            assert(out.decision==GE_ORIGINAL_MP_END_RUNNING);
+            assert(mission_state==(dead && (dead&blood)==dead ? 1 : 6));
+            assert(rng==before_rng && !mission_calls);
+        }
+}
+
 int main(void)
 {
-    point_round(2);point_round(4);limits();invalid();
+    point_round(2);point_round(4);limits();death_music_recovery(2);death_music_recovery(4);invalid();
     puts("canonical session: 2/4 damage -> stop-play -> completed death -> immediate results, original clock lock, time/point/YOLT/abort and simultaneous cause order passed");
     return 0;
 }

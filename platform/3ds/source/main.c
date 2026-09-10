@@ -117,6 +117,7 @@
 #include "ge_mp_state_fog.h"
 #include "ge_mp_state_objects.h"
 #include "ge_mp_state_models.h"
+#include "ge_mp_state_music.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
@@ -4420,6 +4421,7 @@ static struct {
     GeMpStateModelsOwner models;
     GeMpStateBgSnapshot background;
     uint64_t core;
+    uint64_t music;
     uint64_t bg;
     uint64_t visibility;
     uint64_t hands[4][2];
@@ -4506,7 +4508,9 @@ static bool runtime_multiplayer_state_begin_stage(void)
     if (!runtime_multiplayer_state_status("prop begin",
             ge_mp_state_props_begin(&multiplayer_state.props, &multiplayer_state.registry)))
         return false;
-    return runtime_multiplayer_state_acquire(GE_MP_CORE_KIND,
+    return runtime_multiplayer_state_acquire(GE_MP_MUSIC_KIND,
+        GE_MP_MUSIC_NAMESPACE, GE_MP_MUSIC_SLOT, &multiplayer_state.music)
+        && runtime_multiplayer_state_acquire(GE_MP_CORE_KIND,
         GE_MP_CORE_CREATION_NAMESPACE, GE_MP_CORE_SLOT, &multiplayer_state.core);
 }
 
@@ -4584,6 +4588,7 @@ static void runtime_multiplayer_state_end_stage(void)
         (void)runtime_multiplayer_state_status("prop end",
             ge_mp_state_props_end(&multiplayer_state.props));
     runtime_multiplayer_state_release(&multiplayer_state.core);
+    runtime_multiplayer_state_release(&multiplayer_state.music);
     for (size_t index = 0U; index < multiplayer_state.registry.count; ++index)
         if (multiplayer_state.registry.entries[index].live) {
             (void)runtime_multiplayer_state_status("live identity after stage end",
@@ -20369,6 +20374,7 @@ start_stage_runtime:
      * authored main/background state and owns subsequent watch, death and
      * mission transitions; the native runtime only mirrors its three CSeq
      * players into the shared libaudio synth. */
+    if (multiplayer.requested) ge_original_multiplayer_music_stage_reset();
     sub_GAME_7F0C11FC(selected_level_id);
     if (original_music != NULL
             && !sync_original_gameplay_music(

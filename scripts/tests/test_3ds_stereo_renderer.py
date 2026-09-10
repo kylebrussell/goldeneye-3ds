@@ -24,8 +24,10 @@ def function(name):
 
 draw = function("renderer_draw")
 assert "fmaxf(1.0f / 160.0f," in draw
-assert "widened[2], eye_cull_margin" in draw
-assert "GE_3DS_STEREO_LAYER_FIRST_PERSON," in draw
+assert "widened[2], cull_margin" in draw
+world = draw[:draw.index("phase_ticks[2] = svcGetSystemTick();")]
+assert "GE_3DS_STEREO_LAYER_FIRST_PERSON" not in world
+assert "renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_FIRST_PERSON);" in draw
 init = function("renderer_init")
 assert init.index('shaderInstanceGetUniformLocation(shader_program.vertexShader, "stereo")') < init.index("stereo_uniform_cache_valid = false;")
 

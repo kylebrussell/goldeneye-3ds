@@ -23,6 +23,7 @@
 #include "ge_dam_preload_queue.h"
 #include "ge_dam_room.h"
 #include "ge_dam_visibility_runtime.h"
+#include "ge_dam_renderer_visibility.h"
 #include "ge_dam_world.h"
 #include "ge_stan_collision.h"
 #include "ge_stan_native.h"
@@ -1529,6 +1530,12 @@ typedef struct RuntimeDamPreview {
     GeDamVisibilityRuntime visibility_runtime;
     GeDamVisibilityRuntimeStatus visibility_status;
     GeOriginalBgVisibilityResult visibility_result;
+    GeDamRendererVisibility renderer_visibility;
+    uint8_t canonical_preload_requests[GE_DAM_PRELOAD_MAX_ROOMS];
+    GeOriginalBondCameraResult renderer_camera;
+    GeOriginalBgVisibilityStatus renderer_visibility_status;
+    float renderer_visibility_slider;
+    bool renderer_visibility_ready;
     bool visibility_ready;
     uint8_t world_room_ids[DAM_WORLD_ROOM_LOAD_CAPACITY];
     size_t world_room_count;
@@ -1585,6 +1592,17 @@ static bool write_visual_probe_tour_result(
             (unsigned int)preview->camera_handoff_status);
     fprintf(stream, "visibility_status=%u\n",
             (unsigned int)preview->visibility_status);
+    fprintf(stream, "renderer_visibility=%u,%u,%lu,%.9g\n",
+        preview->renderer_visibility_ready ? 1U : 0U,
+        (unsigned)preview->renderer_visibility_status,
+        (unsigned long)preview->renderer_visibility.visible.room_count,
+        preview->renderer_visibility_slider);
+    fprintf(stream, "renderer_eye_rooms=");
+    for (size_t room = 0U; room < preview->visibility_runtime.room_count; ++room)
+        if (preview->renderer_visibility.membership[room])
+            fprintf(stream, "%lu:%u,", (unsigned long)room,
+                (unsigned)preview->renderer_visibility.membership[room]);
+    fprintf(stream, "\n");
     fprintf(stream, "original_visibility_status=%u\n",
             (unsigned int)preview->visibility_runtime.last_original_status);
     fprintf(stream, "visibility_rooms=%lu\n",
@@ -2631,6 +2649,8 @@ static bool dam_overlay_segment_matches_published(
 
 static bool dam_visibility_contains_room(const RuntimeDamPreview *preview,
                                          uint32_t room);
+static bool dam_renderer_visibility_contains_room(const RuntimeDamPreview *preview,
+    uint32_t room);
 static bool upload_dam_gpu_world_scene(RuntimeDamPreview *preview,
                                        Vertex *destination);
 static bool dam_gpu_room_prefix_is_current(const RuntimeDamPreview *preview);
@@ -3348,6 +3368,11 @@ static bool write_input_probe_result(
         (unsigned long)objects->preview->visibility_result.portal_count,
         (unsigned long)objects->preview->visibility_result.preload_request_count,
         (unsigned)objects->preview->visibility_result.global_visibility_used);
+    fprintf(stream, "renderer_visibility=%u,%u,%lu,%.9g\n",
+        objects->preview->renderer_visibility_ready ? 1U : 0U,
+        (unsigned)objects->preview->renderer_visibility_status,
+        (unsigned long)objects->preview->renderer_visibility.visible.room_count,
+        objects->preview->renderer_visibility_slider);
     fprintf(stream, "articulated_publication=%llu,%llu,%llu,%llu\n",
         (unsigned long long)objects->articulated_scene_update_count,
         (unsigned long long)objects->articulated_scene_unchanged_count,
@@ -9032,10 +9057,21 @@ static bool refresh_stage_articulated_objects(
                 ++publication->topology_changes;
                 break;
             }
-            input_status = ge_original_stage_model_publication_input(
-                objects->models, entry->definition, part_index, room,
-                objects->preview->original_camera_view_to_world,
-                &publication->inputs[part_index]);
+            /* Eye-only resident props need current renderer matrices without
+             * changing the canonical PROPFLAG_ONSCREEN publication. */
+            const bool renderer_room = objects->preview->renderer_visibility_ready
+                && objects->preview->renderer_visibility.stereo
+                && room < GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS
+                && objects->preview->renderer_visibility.membership[room] != 0U;
+            input_status = renderer_room
+                ? ge_original_stage_model_publication_resident_input(
+                    objects->models, entry->definition, part_index, room,
+                    objects->preview->original_camera_view_to_world,
+                    &publication->inputs[part_index])
+                : ge_original_stage_model_publication_input(
+                    objects->models, entry->definition, part_index, room,
+                    objects->preview->original_camera_view_to_world,
+                    &publication->inputs[part_index]);
             if (input_status
                     == GE_ORIGINAL_STAGE_MODEL_PUBLICATION_NOT_VISIBLE)
                 break;
@@ -9285,7 +9321,7 @@ static bool refresh_stage_windowed_door_shading(
         uint8_t opacity;
         if (entry == NULL || !entry->constructed) return false;
         if (!ge_original_stage_model_publication_glass_opacity(entry->definition, &opacity)
-                || !dam_visibility_contains_room(preview, entry->room)) continue;
+                || !dam_renderer_visibility_contains_room(preview, entry->room)) continue;
         if (range->batch_offset > segment->batch_count
                 || range->batch_count > segment->batch_count - range->batch_offset
                 || range->vertex_offset > segment->vertex_count
@@ -9374,7 +9410,7 @@ static bool refresh_stage_glass_shading(
         /* Residency includes preloaded rooms. Match the draw path's original
          * portal-visible room set before doing camera-dependent vertex work.
          * This does not skip or mutate any original object/gameplay tick. */
-        if (!dam_visibility_contains_room(preview, entry->room)) continue;
+        if (!dam_renderer_visibility_contains_room(preview, entry->room)) continue;
         for (size_t index = 0U; index < range->batch_count; ++index) {
             const size_t batch_index = range->batch_offset + index;
             if (batch_index >= scene->overlay_batch_count) return false;
@@ -11698,6 +11734,16 @@ static bool dam_visibility_contains_room(const RuntimeDamPreview *preview,
     return false;
 }
 
+/* Renderer consumers may use the union; gameplay consumers above retain mono. */
+static bool dam_renderer_visibility_contains_room(const RuntimeDamPreview *preview,
+    uint32_t room)
+{
+    if (preview == NULL || !preview->renderer_visibility_ready)
+        return dam_visibility_contains_room(preview, room);
+    return room < GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS
+        && preview->renderer_visibility.membership[room] != 0U;
+}
+
 /* Uploads the per-eye clip shift for the layer about to be drawn. Mono
  * rendering (eye 0) and a zero slider upload zeros, so every existing draw
  * keeps its exact mono position. */
@@ -12106,7 +12152,7 @@ static bool project_dam_with_original_camera(
         camera_batch_count = 0U;
         for (batch_index = 0U; batch_index < preview->batch_count;
                 ++batch_index) {
-            if (dam_visibility_contains_room(
+            if (dam_renderer_visibility_contains_room(
                     preview, preview->batches[batch_index].room_id)) {
                 camera_batch_count++;
             }
@@ -12135,7 +12181,7 @@ static bool project_dam_with_original_camera(
         camera_batch_count = 0U;
         for (batch_index = 0U; batch_index < preview->batch_count;
                 ++batch_index) {
-            if (dam_visibility_contains_room(
+            if (dam_renderer_visibility_contains_room(
                     preview, preview->batches[batch_index].room_id)) {
                 visible_batches[camera_batch_count] =
                     preview->batches[batch_index];
@@ -12265,6 +12311,42 @@ static int commit_room_stream_geometry(void *context)
     return commit->preview->dynamic_scene_status == GE_DAM_DYNAMIC_SCENE_OK;
 }
 
+/* Evaluate render eyes only. The original room publication and provider
+ * callbacks are never called here. Streaming requests are committed after
+ * both eyes succeed, then protect the union against resident-room eviction. */
+static void update_dam_renderer_visibility(RuntimeDamPreview *preview)
+{
+    GeRendererEyeShift shifts[2] = {{0}};
+    preview->renderer_visibility_ready = false;
+    preview->renderer_visibility_slider = stereo_slider;
+    if (!preview->visibility_ready) return;
+    /* Slider-only refresh starts from the last canonical request publication,
+     * so reducing stereo cannot perpetually lease old eye-only preloads. */
+    memcpy(preview->preload_queue.visibility_requested, preview->canonical_preload_requests,
+        sizeof(preview->canonical_preload_requests));
+    for (size_t eye = 0U; eye < 2U; ++eye)
+        ge_3ds_stereo_pixel_shift(&stereo_config, stereo_slider,
+            eye == 0U ? -1 : 1, GE_3DS_STEREO_LAYER_WORLD,
+            &shifts[eye].constant_px, &shifts[eye].coefficient_px);
+    preview->renderer_visibility_status = ge_dam_renderer_visibility_run(
+        &preview->visibility_runtime, &preview->renderer_camera,
+        preview->original_camera_position, &preview->visibility_providers,
+        preview->preload_status == GE_DAM_PRELOAD_OK ? &preview->preload_queue : NULL,
+        &preview->visibility_result, shifts, &preview->renderer_visibility);
+    preview->renderer_visibility_ready = preview->renderer_visibility_status
+        == GE_ORIGINAL_BG_VISIBILITY_OK;
+    if (preview->renderer_visibility_ready && preview->preload_status == GE_DAM_PRELOAD_OK)
+        for (size_t room = 0U; room < preview->visibility_runtime.room_count; ++room)
+            if (preview->renderer_visibility.stereo && preview->renderer_visibility.preload[room]
+                    && ge_dam_preload_queue_room_state(&preview->preload_queue, (uint8_t)room)
+                        == GE_DAM_PRELOAD_ROOM_UNLOADED)
+                (void)ge_dam_preload_queue_request(&preview->preload_queue, (uint8_t)room);
+}
+
+static bool stream_dam_renderer_camera(RuntimeDamPreview *preview,
+    const GeOriginalBondCameraResult *source_camera, Vertex *destination,
+    bool project_scene, RuntimeStageOrdinaryObjects *objects);
+
 /* Original player camera/visibility publication and queued room streaming.
  * Scene allocation/import failures preserve the last resident geometry and
  * textures; the camera itself can still advance with the original player. */
@@ -12288,7 +12370,6 @@ static bool update_original_dam_camera(
     const GeDamWorldRoom *camera_room;
     const bool previous_ready = preview != NULL
         && preview->original_camera_ready;
-    bool dynamic_projected = false;
     size_t axis;
 
     if (preview == NULL || camera_position == NULL
@@ -12363,6 +12444,7 @@ static bool update_original_dam_camera(
     memcpy(preview->original_camera_viewport_translation,
            camera.viewport_translation,
            sizeof(preview->original_camera_viewport_translation));
+    ge_dam_preload_queue_begin_visibility(&preview->preload_queue);
     preview->visibility_status = preview->preload_status == GE_DAM_PRELOAD_OK
         ? ge_dam_visibility_runtime_run_with_providers(
             &preview->visibility_runtime, &camera, camera_position,
@@ -12372,21 +12454,49 @@ static bool update_original_dam_camera(
             &preview->visibility_result);
     preview->visibility_ready = preview->visibility_status
         == GE_DAM_VISIBILITY_RUNTIME_OK;
+    memcpy(preview->canonical_preload_requests, preview->preload_queue.visibility_requested,
+        sizeof(preview->canonical_preload_requests));
+    preview->renderer_camera = camera;
+    update_dam_renderer_visibility(preview);
+    return stream_dam_renderer_camera(preview, &camera, destination, project_scene, objects);
+}
+
+/* Also used for slider-only visibility/stream changes: no mono republish. */
+static bool stream_dam_renderer_camera(RuntimeDamPreview *preview,
+    const GeOriginalBondCameraResult *source_camera, Vertex *destination,
+    bool project_scene, RuntimeStageOrdinaryObjects *objects)
+{
+    const GeOriginalBondCameraResult camera = *source_camera;
+    const uint8_t room = camera.room;
+    const bool previous_ready = preview->original_camera_ready;
+    bool dynamic_projected = false;
+    if (objects != NULL && objects->guards != NULL) {
+        const bool stereo_rooms = preview->renderer_visibility_ready
+            && preview->renderer_visibility.stereo;
+        const float horizontal_margin = stereo_rooms
+            ? ge_3ds_stereo_max_world_shift_px(&stereo_config, stereo_slider,
+                preview->visibility_runtime.near_distance)
+                * fmaxf(1.0f / 160.0f, stereo_config.cull_margin_per_px) : 0.0f;
+        (void)ge_original_stage_guard_runtime_set_renderer_visibility(
+            objects->guards, stereo_rooms ? preview->renderer_visibility.membership : NULL,
+            stereo_rooms ? preview->visibility_runtime.room_count : 0U, horizontal_margin);
+    }
     visual_probe_record_stream_phase(preview, 3U, room);
     if (preview->visibility_ready
             && preview->dynamic_scene.initialized != 0U) {
-        uint8_t rendered_rooms[GE_ORIGINAL_BG_VISIBILITY_MAX_VISIBLE];
-        size_t rendered_room_count;
-        for (rendered_room_count = 0U;
-                rendered_room_count < preview->visibility_result.room_count;
-                ++rendered_room_count) {
-            rendered_rooms[rendered_room_count] =
-                preview->visibility_result.rooms[rendered_room_count].room;
+        uint8_t protected_rooms[GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS];
+        size_t protected_count = 0U;
+        for (size_t candidate = 0U; candidate < preview->visibility_runtime.room_count; ++candidate) {
+            const bool requested = preview->renderer_visibility_ready
+                ? preview->renderer_visibility.preload[candidate] != 0U
+                : preview->canonical_preload_requests[candidate] != 0U;
+            if (requested || dam_renderer_visibility_contains_room(preview, candidate))
+                protected_rooms[protected_count++] = (uint8_t)candidate;
         }
-        preview->dynamic_scene_status =
-            ge_dam_dynamic_scene_age_visibility(
-                &preview->dynamic_scene, rendered_rooms,
-                preview->visibility_result.room_count);
+        /* Residency includes current authored preloads, but draw membership
+         * remains the portal-visible union. This prevents preload/evict loops. */
+        preview->dynamic_scene_status = ge_dam_dynamic_scene_age_visibility(
+            &preview->dynamic_scene, protected_rooms, protected_count);
     }
     visual_probe_record_stream_phase(preview, 4U, room);
     if (!prepare_dam_gpu_world_projection(preview, &camera)) {
@@ -17394,8 +17504,9 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             float widened[3][4][4];
             /* The authored viewport is 320 px wide. User overrides may
              * widen the union frustum, but must never shrink it below the
-             * actual displacement of either eye. Eye-space overlays use
-             * their own first-person depth settings. */
+             * actual displacement of either eye. Eye-space batches in this
+             * world scene are guards, so share WORLD disparity and bounds;
+             * coordinate space does not imply first-person ownership. */
             const float cull_scale = fmaxf(1.0f / 160.0f,
                 stereo_config.cull_margin_per_px);
             const float cull_margin = eye_count > 1U
@@ -17403,19 +17514,17 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     GE_3DS_STEREO_LAYER_WORLD,
                     dam_preview->visibility_runtime.near_distance) * cull_scale
                 : 0.0f;
-            const float eye_cull_margin = eye_count > 1U
-                ? ge_3ds_stereo_max_shift_px(&stereo_config, stereo_slider,
-                    GE_3DS_STEREO_LAYER_FIRST_PERSON,
-                    dam_preview->visibility_runtime.near_distance) * cull_scale
-                : 0.0f;
             renderer_prepare_room_visibility(&room_visibility,
-                &dam_preview->visibility_result, dam_preview->visibility_ready);
+                dam_preview->renderer_visibility_ready
+                    ? &dam_preview->renderer_visibility.visible
+                    : &dam_preview->visibility_result,
+                dam_preview->visibility_ready);
             renderer_stereo_widen_clip(dam_preview->authored_world_to_clip,
                 widened[0], cull_margin);
             renderer_stereo_widen_clip(dam_preview->runtime_world_to_clip,
                 widened[1], cull_margin);
             renderer_stereo_widen_clip(dam_preview->eye_to_clip,
-                widened[2], eye_cull_margin);
+                widened[2], cull_margin);
             ge_draw_batch_clip_context_init(
                 &clip_contexts[GE_DAM_ROOM_COORDINATE_AUTHORED], widened[0]);
             ge_draw_batch_clip_context_init(
@@ -17462,7 +17571,6 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                             == GE_DAM_ROOM_COORDINATE_EYE) {
                         batch_matrix =
                             &dam_preview->gpu_first_person_projection;
-                        layer = GE_3DS_STEREO_LAYER_FIRST_PERSON;
                     }
                     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform,
                                      batch_matrix);
@@ -17608,10 +17716,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     C3D_FVUnifMtx4x4(
                         GPU_VERTEX_SHADER, projection_uniform,
                         batch_matrix);
-                    renderer_set_stereo_layer(batch->coordinate_space
-                            == GE_DAM_ROOM_COORDINATE_EYE
-                        ? GE_3DS_STEREO_LAYER_FIRST_PERSON
-                        : GE_3DS_STEREO_LAYER_WORLD);
+                    renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_WORLD);
                     coordinate_projection = batch_projection;
                 }
             }
@@ -19421,6 +19526,10 @@ start_stage_runtime:
     uint32_t last_submit_vblank = C3D_FrameCounter(0);
 
     while (aptMainLoop()) {
+        /* One slider sample owns visibility and both eye submissions. */
+        stereo_slider = right_target != NULL && stereo_config.enabled
+            ? osGet3DSliderState() : 0.0f;
+        stereo_active = stereo_slider > 0.0f;
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (controls_gameplay) {
@@ -20517,6 +20626,36 @@ start_stage_runtime:
             }
         }
 
+        if (dam_preview.original_camera_ready
+                && dam_preview.renderer_visibility_slider != stereo_slider) {
+            update_dam_renderer_visibility(&dam_preview);
+            if (stream_dam_renderer_camera(&dam_preview, &dam_preview.renderer_camera,
+                    (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, false,
+                    &stage_ordinary_objects)) {
+                if (refresh_stage_ordinary_object_scenes(&stage_ordinary_objects,
+                        (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET)
+                        && stage_ordinary_objects.scene_ready) {
+                    /* A slider change may recover a guard without a new
+                     * simulation tick. Refresh only its renderer matrices and
+                     * retained overlay; never run chrTick for either eye. */
+                    if (stage_ordinary_objects.guards != NULL)
+                        stage_ordinary_objects.last_guard_matrix_status =
+                            ge_original_stage_guard_runtime_update_matrices(
+                                stage_ordinary_objects.guards, dam_preview.original_camera_view);
+                    (void)refresh_stage_live_overlays(&stage_ordinary_objects,
+                        (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET);
+                }
+                if (dam_preview.gpu_dirty_vertex_count != 0U) {
+                    GSPGPU_FlushDataCache(
+                        (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET
+                            + dam_preview.gpu_dirty_vertex_offset,
+                        renderer_vertex_flush_bytes(dam_preview.gpu_dirty_vertex_count,
+                            DAM_ROOM_VERTEX_COUNT));
+                    dam_preview.gpu_dirty_vertex_count = 0U;
+                }
+            }
+        }
+
         if (texture_cache_ready) {
             const u64 first_person_start = osGetTime();
             const bool first_person_updated = update_first_person_scene(
@@ -20539,11 +20678,7 @@ start_stage_runtime:
             GeOriginalDamMissionExitSnapshot fade_snapshot = {0};
             ge_original_dam_mission_exit_services_snapshot(&fade_snapshot);
             C3D_RenderTarget *const eye_targets[2] = {top_target, right_target};
-            /* The slider is sampled once per submitted frame. Zero keeps the
-             * exact mono path and shows the left image to both eyes. */
-            stereo_slider = osGet3DSliderState();
-            stereo_active = right_target != NULL && stereo_config.enabled
-                && stereo_slider > 0.0f;
+            /* The earlier slider sample also owns renderer room visibility. */
             gfxSet3D(stereo_active);
             C3D_RenderTargetClear(top_target, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
             if (stereo_active)

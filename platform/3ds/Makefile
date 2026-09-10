@@ -316,6 +316,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_multiplayer_results_slice.c \
             ge_original_multiplayer_session_slice.c \
             ge_original_multiplayer_watch_slice.c \
+            ge_original_multiplayer_watch_render_slice.c \
             ge_original_multiplayer_runtime_slice.c \
             ge_original_multiplayer_stage_reset_slice.c \
             ge_original_player_held_items_slice.c \
@@ -1234,6 +1235,12 @@ ge_original_multiplayer_watch_slice.c: \
         $(TOPDIR)/../../src/game/file.c $(TOPDIR)/../../src/game/bondinv.c \
         $(TOPDIR)/../../src/game/gunfire.c
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_watch_slice.py $(TOPDIR)/../.. $@
+ge_original_multiplayer_watch_render_slice.c: \
+        $(TOPDIR)/../../scripts/extract_multiplayer_watch_render_slice.py \
+        $(TOPDIR)/../../scripts/extract_stage_pickup_slice.py \
+        $(TOPDIR)/../../scripts/extract_bond_move_explosion_slice.py \
+        $(TOPDIR)/../../src/game/mpmenu.c $(TOPDIR)/../../src/game/textrelated.c
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_watch_render_slice.py $(TOPDIR)/../.. $@
 ge_original_player_held_items_slice.c: \
         $(TOPDIR)/../../src/game/chrprop.c $(TOPDIR)/../../src/game/bondview2.c \
         $(TOPDIR)/../../scripts/extract_player_held_items_slice.py

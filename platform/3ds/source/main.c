@@ -97,6 +97,7 @@
 #include "ge_original_multiplayer_rules.h"
 #include "ge_original_multiplayer_frontend.h"
 #include "ge_original_multiplayer_results.h"
+#include "ge_original_multiplayer_watch_render.h"
 #include "ge_original_multiplayer_hud.h"
 #include "ge_original_multiplayer_session.h"
 #include "ge_original_multiplayer_runtime.h"
@@ -315,6 +316,10 @@ _Static_assert(sizeof(Vertex) == sizeof(Ge3dsOriginalAutogunBeamVertex),
 #define ORIGINAL_FRONTEND_GUNBARREL_BOND_VERTEX_OFFSET 96U
 #define ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET \
     (ORIGINAL_AMMO_ICON_VERTEX_OFFSET + ORIGINAL_AMMO_ICON_VERTEX_CAPACITY)
+/* Gameplay watch vertices borrow the UI region while the frontend is closed. */
+#define ORIGINAL_MP_WATCH_VERTEX_OFFSET ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET
+_Static_assert(ORIGINAL_HUD_VERTEX_CAPACITY <= ORIGINAL_FRONTEND_MODEL_VERTEX_CAPACITY,
+               "multiplayer watch must fit the shared UI vertex region");
 #define TOTAL_VERTEX_COUNT \
     (ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET \
         + ORIGINAL_FRONTEND_MODEL_VERTEX_CAPACITY)
@@ -4424,6 +4429,7 @@ typedef struct RuntimeMultiplayerMatch {
     double accumulator_seconds;
     uint32_t pending_buttons;
     size_t local_autogun_beam_vertices;
+    size_t local_watch_vertices;
     GeOriginalMultiplayerFrontendEndReason end_reason;
     uint32_t last_slot;
     GeOriginalMultiplayerRuntimeStatus last_status;
@@ -18795,6 +18801,16 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                            + right_ammo_icon_vertex_count,
                        left_ammo_icon_vertex_count);
     }
+    if (multiplayer_view && multiplayer.local_watch_vertices) {
+        /* lvlRender places mp_watch_menu_display after maybe_mp_interface. */
+        C3D_AlphaTest(false, GPU_ALWAYS, 0U);
+        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD,
+            GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
+        C3D_TexBind(0, &original_gameplay_hud_font_texture);
+        configure_original_font_texture_environment(texture_environment);
+        C3D_DrawArrays(GPU_TRIANGLES, ORIGINAL_MP_WATCH_VERTEX_OFFSET,
+            multiplayer.local_watch_vertices);
+    }
     if (fade_overlay.visible) {
         /* Original colour-screen state is a final full-frame RGBA pass. */
         C3D_AlphaTest(false, GPU_ALWAYS, 0U);
@@ -19719,13 +19735,45 @@ static int runtime_multiplayer_view_visibility(void *context, uint32_t slot,
     return 1;
 }
 
+static int runtime_multiplayer_capture_watch(uint32_t slot)
+{
+    static GeOriginalMultiplayerWatchRenderSnapshot snapshot;
+    static Ge3dsOriginalHudDrawList draw;
+    GeOriginalMultiplayerWatchViewport viewport = {
+        .screen_width = 320, .screen_height = 240,
+        .left = multiplayer.count == 2 ? 0 : (int32_t)(slot % 2) * 160,
+        .top = multiplayer.count == 2 ? (int32_t)slot * 120 : (int32_t)(slot / 2) * 120,
+        .width = multiplayer.count == 2 ? 320 : 160, .height = 120,
+        .text_spacing = 0, .overlap_correction = -1,
+    };
+    multiplayer.local_watch_vertices = 0;
+    if (!original_gameplay_hud_font_texture_loaded
+            || ge_original_multiplayer_watch_render_capture(slot, &viewport,
+                &original_gameplay_hud_atlas, &snapshot) != GE_ORIGINAL_MP_WATCH_RENDER_OK
+            || !ge_3ds_original_multiplayer_watch_build_draw_list(
+                &original_gameplay_hud_atlas, &snapshot,
+                (400.0f - viewport.width) * 0.5f - viewport.left,
+                (240.0f - viewport.height) * 0.5f - viewport.top, &draw))
+        return 0;
+    multiplayer.local_watch_vertices = draw.box_vertex_count + draw.glyph_vertex_count;
+    if (multiplayer.local_watch_vertices) {
+        memcpy((Vertex *)vertex_buffer + ORIGINAL_MP_WATCH_VERTEX_OFFSET, draw.vertices,
+            multiplayer.local_watch_vertices * sizeof(Vertex));
+        GSPGPU_FlushDataCache((Vertex *)vertex_buffer + ORIGINAL_MP_WATCH_VERTEX_OFFSET,
+            renderer_vertex_flush_bytes(multiplayer.local_watch_vertices, ORIGINAL_HUD_VERTEX_CAPACITY));
+    }
+    return 1;
+}
+
 static int runtime_multiplayer_view_capture(void *context, uint32_t slot,
     const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
 {
     RuntimeMultiplayerFrame *frame = context;
     RuntimeDamPreview *preview = frame->preview;
-    (void)slot;
     (void)config;
+    /* Source menu layout is captured while this native player is selected.
+     * Later viewport passes and both eye draws only read owned UI vertices. */
+    if (!runtime_multiplayer_capture_watch(slot)) return 0;
     update_dam_renderer_visibility(preview);
     if (!stream_dam_renderer_camera(preview, camera,
             (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, false, frame->objects))

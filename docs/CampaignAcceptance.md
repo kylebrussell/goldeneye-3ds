@@ -127,6 +127,19 @@ file with its private route inputs and remove it after the run. Mode 007 uses
 the existing custom slider values; selecting it does not certify any specific
 slider configuration.
 
+After a controller run, retain its private `goldeneye.sav` bytes and inspect
+that copy with `bash scripts/inspect_campaign_save.sh /path/to/goldeneye.sav 0`.
+The inspector reloads the real provider and its CRC checks with write access
+disabled, then reports Dam 00 Agent completion/time and Facility 00 Agent
+access as JSON. Exit status is 0 when those conditions pass, 1 for a valid
+save without the required progress, and 2 for a missing/corrupt/wrong-folder
+save or invalid argument. Folder IDs are 0–3; the default is 0. The original
+10-bit time is reported as stored, with a flag when it is capped at 1023.
+The probe's `briefing_commits` counter only means the result body invoked its
+provider callbacks: those callbacks cannot return a disk-write failure to
+the caller. This separate reload closes that evidence gap, but still requires
+an isolated starting save and does not establish a physical reboot test.
+
 The unresolved routes must exercise live NPC timing and survival, object
 interaction/destruction, pickups and gadgets, moving vehicles, special room
 triggers, and their actual terminal AI branches. The fixture only proves that

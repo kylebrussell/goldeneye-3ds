@@ -16,6 +16,9 @@ def generate(repo):
     objective=(repo/'src/game/objective_status2.c').read_text()
     init=(repo/'src/game/initactorpropstuff.c').read_text()
     lv=(repo/'src/game/lv.c').read_text()
+    audio=extract_function((repo/'src/game/ejectedcartridges.c').read_text(),
+                           'init_ejected_cartridges')
+    audio_reset=re.search(r'    g_CasingSfxState = NULL;',audio).group(0)
     names=[(glass,n) for n in ('bullet_sparks_reset','bullet_moving_sparks_reset',
         'bullet_sparks_reset_all','bullet_sparks_update','bullet_moving_sparks_update',
         'bullet_sparks_update_all')]
@@ -121,7 +124,7 @@ static Gfx *ge_effect_retire_prop(Gfx *gdl, PropRecord *prop, s32 alpha)
 void ge_original_effect_reset_audio_exact(void)
 {
     /* init_ejected_cartridges, after both stage buffer allocations. */
-    g_CasingSfxState = NULL;
+'''+audio_reset+'''
 }
 void ge_original_effect_pre_world_exact(void)
 {

@@ -29,12 +29,20 @@ __attribute__((weak)) struct Scorch *g_ScorchBuffer;
 __attribute__((weak)) s32 g_NumScorchEntries;
 __attribute__((weak)) s32 g_NumImpactEntries;
 
+static uint64_t effect_buffer_lifetime;
+uint64_t ge_original_effect_buffers_lifetime(void)
+{
+    return effect_buffer_lifetime;
+}
+
 int ge_original_effect_buffers_reset_players(uint32_t player_count,
                                              int32_t stage_id)
 {
     s32 i;
     s32 j;
-    if (player_count < 1 || player_count > 4) return 0;
+    if (player_count < 1 || player_count > 4
+            || effect_buffer_lifetime == UINT64_MAX) return 0;
+    ++effect_buffer_lifetime;
 
     g_NumExplosionEntries = 0;
     g_NumSmokeEntries = 0;

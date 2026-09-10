@@ -22,6 +22,10 @@ typedef struct GeOriginalCovertModemProjectileStats {
 } GeOriginalCovertModemProjectileStats;
 
 void ge_original_covert_modem_projectile_reset(void);
+/* Read-only exact fixed native pool; reset advances its local lifetime. */
+struct Projectile;
+int ge_original_projectile_pool_storage(const struct Projectile **pool,
+    uint32_t *capacity,uint64_t *lifetime);
 
 /* Canonical gunInitProjectileFromPlayer boundary.  Unlike launch(), this
  * stops before generate_player_thrown_object's projectile flags and sound

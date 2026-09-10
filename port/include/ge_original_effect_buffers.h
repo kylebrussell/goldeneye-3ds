@@ -17,6 +17,9 @@ void ge_original_effect_buffers_reset_single_player(void);
 int ge_original_effect_buffers_reset_players(uint32_t player_count,
                                              int32_t stage_id);
 
+/* Observation epoch for every successful allocation-boundary reset. */
+uint64_t ge_original_effect_buffers_lifetime(void);
+
 /* Introspection used by focused host coverage and the 3DS startup audit. */
 size_t ge_original_effect_explosion_capacity(void);
 size_t ge_original_effect_smoke_capacity(void);

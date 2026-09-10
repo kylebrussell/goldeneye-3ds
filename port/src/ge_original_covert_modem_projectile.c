@@ -28,6 +28,8 @@ typedef int PLAYERFLAG;
 Projectile g_Projectiles[GE_ORIGINAL_PROJECTILE_CAPACITY];
 
 static GeOriginalCovertModemProjectileStats ge_projectile_stats;
+static uint64_t ge_projectile_lifetime;
+static int ge_projectile_lifetime_exhausted;
 
 extern s32 D_80048380;
 extern ALBank *g_musicSfxBufferPtr;
@@ -265,6 +267,8 @@ static Projectile *ge_attach_projectile(ObjectRecord *object,
 void ge_original_covert_modem_projectile_reset(void)
 {
     size_t index;
+    if(ge_projectile_lifetime==UINT64_MAX)ge_projectile_lifetime_exhausted=1;
+    else ++ge_projectile_lifetime;
     memset(&ge_projectile_stats, 0, sizeof(ge_projectile_stats));
     memset(g_Projectiles, 0, sizeof(g_Projectiles));
     /* Exact relevant initobjects pool initialization. */
@@ -273,6 +277,15 @@ void ge_original_covert_modem_projectile_reset(void)
         g_Projectiles[index].sounds[0] = NULL;
         g_Projectiles[index].sounds[1] = NULL;
     }
+}
+
+int ge_original_projectile_pool_storage(const struct Projectile **pool,
+    uint32_t *capacity,uint64_t *lifetime)
+{
+    if(!pool || !capacity || !lifetime || !ge_projectile_lifetime
+            || ge_projectile_lifetime_exhausted)return 0;
+    *pool=g_Projectiles;*capacity=GE_ORIGINAL_PROJECTILE_CAPACITY;
+    *lifetime=ge_projectile_lifetime;return 1;
 }
 
 GeOriginalCovertModemProjectileStatus

@@ -16,7 +16,7 @@ DATA        := data
 GAME_SOURCES := ../../src/game ../../src ../../src/libultra/audio ../../src/libultrare/audio ../../src/libultra/gu ../../assets/obseg/text ../../assets/font
 GAME_CFILES := frametiming.c quaternion.c matrixmath.c matrixmath_misc.c math_floor.c math_ceil.c math_unk_05A9E0.c perspective.c mtxutil.c lookatref.c align.c normalize.c rotate.c bondview2.c bondview_r.c prop.c loadobjectmodel.c stan.c stanintersection.c bg.c chrai.c deb_loadallmodels.c joy.c boss.c lv.c blood_animation.c blood_decrypt.c mainbus.c auxbus.c save.c cspgetstate.c cseq.c cspsetseq.c cspsetvol.c cspplay.c cspstop.c event.c copy.c sl.c fontZurichBold.c fontBankGothic.c
 GAME_CFILES += cents2ratio.c csplayer.c filter.c heapalloc.c heapinit.c load.c resample.c seqplayer.c seqpsetbank.c synaddplayer.c synallocfx.c synallocvoice.c syndelete.c synfreevoice.c synsetfxmix.c synsetpan.c synsetpitch.c synsetpriority.c synsetvol.c synstartvoice.c synstartvoiceparam.c synstopvoice.c synthesizer.c drvrNew.c env.c reverb.c
-GAME_CFILES += sins.c title3.c
+GAME_CFILES += sins.c title3.c mp_weapon.c
 SETUP_SOURCES := ../../assets/obseg/setup
 SETUP_CFILES := UsetupdamZ.c
 SOLO_LANGUAGE_NAMES := LdamE LarkE LrunE LsevxE LsevE LsiloE LdestE \
@@ -280,6 +280,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_move_model_tables.c \
             ge_original_animation_table_abi.c \
             ge_original_bond_move_state_slice.c \
+            ge_original_multiplayer_rules_slice.c \
             ge_original_door_collision_slice.c \
             ge_original_door_character_collision_slice.c \
             ge_original_player_gait_model_slice.c \
@@ -445,6 +446,10 @@ ge_original_bond_move_state_slice.o ge_original_bond_move_state.o: CFLAGS += \
     -DVERSION_US -Wno-unused-variable -Wno-unused-parameter \
     -Wno-incompatible-pointer-types -Wno-pointer-to-int-cast \
     -Wno-missing-braces -Wno-comment -Wno-error
+ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.o: CFLAGS += \
+    -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
+    -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
+    -Wno-missing-braces -Wno-incompatible-pointer-types -Wno-error
 ge_original_bond_input_live_state_slice.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DBUGFIX_R0 -Wno-incompatible-pointer-types \
@@ -1092,6 +1097,12 @@ ge_original_animation_table_abi.c: \
         $(TOPDIR)/../../scripts/generate_animation_table_abi.py
 	python3 $(TOPDIR)/../../scripts/generate_animation_table_abi.py \
 		$(TOPDIR)/../../assets/animationtable_data.c $@
+ge_original_multiplayer_rules_slice.c: \
+        $(TOPDIR)/../../src/game/bondview.c $(TOPDIR)/../../src/game/bondview2.c \
+        $(TOPDIR)/../../src/game/mpmenu.c $(TOPDIR)/../../src/game/front.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_rules_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_rules_slice.py \
+		$(TOPDIR)/../.. $@
 ge_original_bond_move_state_slice.c: \
         $(TOPDIR)/../../src/game/bondview.c \
         $(TOPDIR)/../../src/game/bondview2.c \

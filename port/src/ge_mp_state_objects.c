@@ -180,9 +180,9 @@ GeMpStateStatus ge_mp_state_objects_export(const GeMpStateObjectsOwner *o,
             ref(o,providers,out,GE_MP_OBJECT_REF_MODEL,p->model,&v->model);
         }
         /* objFree leaves the old Model pointer, but later construction replaces
-         * it before use. Collision/union storage is selected by source flags. */
-        if(p->state&PROPSTATE_EXT_COLISION_BLOCK)
-            ref(o,providers,out,GE_MP_OBJECT_REF_COLLISION,p->ptr_allocated_collisiondata_block,&v->collision);
+         * it before use. Collision blocks live in MEMPOOL_STAGE: the native
+         * collision update follows every nonnull pointer, without an EXT gate. */
+        ref(o,providers,out,GE_MP_OBJECT_REF_COLLISION,p->ptr_allocated_collisiondata_block,&v->collision);
         if(p->runtime_bitflags&GE_OBJECT_EMBEDDED)
             ref(o,providers,out,GE_MP_OBJECT_REF_EMBEDMENT,p->embedment,&v->embedment);
         else if(p->runtime_bitflags&GE_OBJECT_PROJECTILE)

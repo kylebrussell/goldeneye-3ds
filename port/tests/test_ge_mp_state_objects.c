@@ -27,6 +27,7 @@ void propobjSetDropped(PropRecord *,DROPTYPE);
 AmmoCrateRecord *ammocrateAllocate(void);
 void chrpropFree(PropRecord *);
 void chrpropDetach(PropRecord *);
+void sub_GAME_7F04F244(PropRecord *,rect4f **,s32 *,f32 *,f32 *);
 extern PropRecord g_Props[600];
 struct player *g_CurrentPlayer,*g_playerPointers[4];
 struct player_data *g_playerPerm;
@@ -393,8 +394,44 @@ static void cleanup_identity_validation(void)
     assert(ge_original_prop_state_end(&pool));
     assert(ge_mp_state_props_end(&props)==GE_MP_STATE_OK);
 }
+static GeMpStateStatus without_collision(void *context,GeMpObjectReferenceKind kind,const void *p,uint64_t *id)
+{
+    return kind==GE_MP_OBJECT_REF_COLLISION?GE_MP_STATE_INCOMPLETE:reference(context,kind,p,id);
+}
+static void native_collision_pointer(void)
+{
+    begin(2);PropRecord *p=bind((ObjectRecord *)&weapon,0);
+    weapon.flags=PROPFLAG_00000100;weapon.state=0;
+    memset(&collision,0,sizeof(collision));collision.edges=4;collision.top=17;collision.bottom=-3;
+    weapon.ptr_allocated_collisiondata_block=NULL;
+    export_ok();assert(!output.values[0].collision);
+    rect4f *polygon=NULL;s32 edges=99;f32 top=0,bottom=0;
+    sub_GAME_7F04F244(p,&polygon,&edges,&top,&bottom);assert(edges==0);
+    weapon.ptr_allocated_collisiondata_block=&collision;
+    export_ok();assert(output.values[0].collision==collision_id);
+    sub_GAME_7F04F244(p,&polygon,&edges,&top,&bottom);
+    assert(edges==4 && top==17 && bottom==-3 && polygon==&collision.polygon);
+    /* The exact collision reader does not depend on EXT; the other native
+     * collision updater follows the pointer even while flags/state gate this
+     * query off. Preserve the reference across those future transitions. */
+    weapon.state=PROPSTATE_20;export_ok();assert(output.values[0].collision==collision_id);
+    sub_GAME_7F04F244(p,&polygon,&edges,&top,&bottom);assert(edges==0);
+    weapon.state=0;weapon.flags=0;export_ok();assert(output.values[0].collision==collision_id);
+    sub_GAME_7F04F244(p,&polygon,&edges,&top,&bottom);assert(edges==0);
+    const GeMpStateObjectsProviders missing={NULL,without_collision};
+    assert(ge_mp_state_objects_export(&owner,&missing,&output)==GE_MP_STATE_INCOMPLETE);
+    assert(output.unresolved_kinds==(1U<<GE_MP_OBJECT_REF_COLLISION) && !output.record_count);
+    /* Native permanent free keeps the stage-owned collision allocation. */
+    objFreePermanently((ObjectRecord *)&weapon,TRUE);
+    assert(!weapon.prop && weapon.ptr_allocated_collisiondata_block==&collision);
+    export_ok();assert(output.values[0].collision==collision_id);
+    assert(ge_mp_registry_release(&registry,collision_id)==GE_MP_STATE_OK);
+    assert(ge_mp_state_objects_export(&owner,&providers,&output)==GE_MP_STATE_INCOMPLETE);
+    assert(output.unresolved_kinds==(1U<<GE_MP_OBJECT_REF_COLLISION));
+    end();
+}
 int main(void)
 {
-    native_transitions(2);native_transitions(4);field_and_failure_cases();lifecycle_validation();cleanup_identity_validation();
+    native_transitions(2);native_transitions(4);field_and_failure_cases();lifecycle_validation();cleanup_identity_validation();native_collision_pointer();
     puts("native EA objects: authored armor pickup, 2/4 proximity regen, drop/free/reuse, typed fields and E3 lifetimes passed");return 0;
 }

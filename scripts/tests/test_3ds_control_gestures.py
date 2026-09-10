@@ -31,16 +31,14 @@ harness = r'''
 #include "ge_3ds_controls.h"
 #include "ge_original_input.h"
 #include <ultra64.h>
+#undef MAXFLOAT
+#include <bondconstants.h>
 #include "joy.h"
 #include <assert.h>
 #include <string.h>
 #define GE_PORT_CSTICK_BUTTON_THRESHOLD 0.35f
 #define FLOAT_TEN_B 10.0f
 ''' + move_data + r'''
-enum { CONTROLLER_CONFIG_DOMINO=6, CONTROLLER_CONFIG_GOODHEAD=7,
-    CONTROLLER_CONFIG_PLENTY=4, CONTROLLER_CONFIG_GALORE=5,
-    ITEM_REMOTEMINE=21, ITEM_TANKSHELLS=32, GUNRIGHT=0,
-    WEAPONSTATBITFLAG_DISABLE_CROUCH=1, WATCH_ANIMATION_0x0=0 };
 static struct { int insightaimmode, watch_animation_state; unsigned prev_buttons_pressed; } player;
 #define g_CurrentPlayer (&player)
 static int g_PlayerIsInTank, weapon, scoped, locked, actions_enabled=1;
@@ -143,7 +141,7 @@ with tempfile.TemporaryDirectory(prefix="ge-control-gestures-") as directory:
         "-Wno-unused-parameter", "-ffunction-sections", "-fdata-sections",
         "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
         "-I"+str(repo / "port/include"), "-I"+str(repo / "platform/3ds/include"),
-        "-I"+str(repo / "src"), str(path / "test.c"),
+        "-I"+str(repo / "src"), "-I"+str(repo), "-idirafter", str(repo / "include"), str(path / "test.c"),
         *[str(repo / item) for item in (
             "port/src/ge_services.c", "port/src/ge_libultra.c",
             "port/src/ge_original_input.c", "src/joy.c",

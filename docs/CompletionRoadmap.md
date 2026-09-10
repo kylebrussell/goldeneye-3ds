@@ -44,6 +44,25 @@ model environment-alpha expressions and strict matched-state capture comparison
 tooling are also implemented. See [renderer verification](Verification20260910RendererEyes.md)
 and [material verification](Verification20260910ModelEnvironmentAlpha.md).
 Original N64 matched captures and physical stereo/GPU acceptance remain open.
+## September 10 campaign and controls evidence
+
+- The [campaign acceptance matrix](CampaignAcceptance.md) records all twenty
+  missions and four difficulties: 80 passing objective/result/save/restart
+  fixtures and 703 criterion perturbations. This exposed and repaired invalid
+  result difficulty/timer handling and the unlocked-007 save-time query.
+  Complete player/AI routes remain unverified in each matrix cell.
+- [Controls](ControlsAndTouchscreen.md) now reach the original manual-aim pan
+  threshold and use the canonical previous-weapon chord. A third bottom-screen
+  tab provides captured-release inventory selection through the
+  [tested watch boundary](CanonicalInventory.md), preserving ammo and previous
+  weapon bookkeeping and rejecting stale/blocked requests. The adapter also
+  provides a held-input release gate for resume and mission entry.
+- [Complete native music sequence validation](Verification20260910MusicSequences.md)
+  now covers all 63 authored tracks, repeated output and layered transitions.
+  It exposed native ADPCM address masking and undefined negative envelope
+  scaling, now repaired. Offline corrected PCM has no clipping or sustained
+  alternating stop tail in these cases; full-game speaker listening remains
+  an explicit acceptance check.
 
 ## Required work, in dependency order
 
@@ -54,7 +73,7 @@ Original N64 matched captures and physical stereo/GPU acceptance remain open.
 | Stereo room visibility | Isolated renderer union and dependent residency/shading implemented; complete live doorway/streaming capture and failure/retry acceptance | Doorway-edge and streaming captures of both eyes; unchanged canonical gameplay/AI visibility; slider-zero equivalence |
 | Sustained 60 fps | Profile CPU and GPU on physical New 3DS XL with audible music/SFX and maximum stereo; reduce demonstrated costs, including loading transitions and busy combat | At least 3,600 measured frames per representative route after declared warmup, cold/repeat runs, complete frame/presentation records; loading hitches reported separately |
 | Control ergonomics | Test C-Stick range, sustained aiming, crouch, scoped zoom, remote-mine gestures, handedness, touch capture and saved settings on the device | Playable combat/stealth routes and observed touch accuracy, plus reboot/save checks |
-| Touchscreen | Test readability and gesture comfort; add safe inventory direct-selection only after an explicit canonical selection boundary exists | Read-only information matches the original watch; touch actions preserve authored inventory/weapon semantics |
+| Touchscreen | Test readability and gesture comfort; validate the implemented canonical inventory selection through live gadget/model routes | Read-only information matches the original watch; touch actions preserve authored inventory/weapon semantics |
 | Wireless game state | Replace single-player assumptions with canonical multiplayer player slots, per-player input/camera/weapon/body ownership, spawn/respawn, authored maps/rules and results | Two then four local simulated players complete matches without a network before transport is connected |
 | Wireless synchronization | Choose and implement game-state authority, ordered tick inputs/events, RNG ownership, stable actor IDs, snapshots/state hashes, packet-loss recovery, join/leave and host-loss handling | Deterministic transport simulation with delay/drop/duplication/reordering, then two/four physical devices; player damage, pickups, kills and scores agree |
 | Release | Package a reproducible candidate with asset conversion version, runtime settings and evidence; test sleep/resume, low memory, shutdown and malformed data | Rebuild identity, clean SD install, explicit tested-hardware and feature limitations |

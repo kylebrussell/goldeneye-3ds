@@ -314,3 +314,38 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   watch presentation work are excluded. Compiled defaults and external DSP
   prerequisites are explicit; there was no deployment or new emulator,
   physical, listening, timing or radio acceptance. The earlier package is intact.
+- Frozen `d7e6b7d5` passes the complete host aggregate and forced pinned ARM
+  build. It includes the independently reviewed canonical BG reader and model
+  callback repairs, typed Model state and main lifetimes, and native watch
+  capture and ROM-font presentation. The host run verified all 9,181 copied
+  inputs and a freshly constructed 366-unit native graph, retaining 1,670
+  dependency identities and 52 generated sources. Eight historical aggregate
+  evidence sets remain unchanged. Host closure SHA-256 is
+  `2135553bc3554c0ca6dae889470e745e82e7416c0e63c976df9370e599720f29`;
+  the execution supplement is
+  `4a4f077d0bb1c9ae44e557e6a395eb536f2ab4dc3d0059bc8956625c28363502`.
+  The ARM executable SHA-256 is
+  `3836b23363415a0ed1bbe1528c78ededd28f1acaf2e6cb698ae6954ce4667f87`;
+  its separate audit checks 63 strong native definitions, 595 unchanged private
+  inputs and 383 dependency reports.
+- The frozen Caves fixture completes supplies and combat runs for two/four
+  players, including damage, death, respawn, timed results and all-player TITLE
+  requests. Its bootstrap omits main's stage music initializer and per-frame
+  fade service, and starts the stage timer earlier. Caves music initialization
+  consumes RNG, so these tapes do not establish agreement with main startup or
+  RNG history. The complete combat graph uses its recorded compiler settings;
+  focused two-ABI tests do not establish both ABIs for that whole graph.
+  Corrected startup and independent peer/restart evidence remain pending.
+- A separate source correction accompanies the unchanged `d7e6b7d5` receipts:
+  earlier solo-only music countdown wording was wrong. In original `lv.c`, the
+  multiplayer limit block closes at line 1298. The TITLE branch at line 1354
+  excludes gameplay; the common non-title tail calls `chrpropTick`,
+  `reset_all_music_slots`, then `langTick` at lines 1375–1377. Both port world
+  owners must preserve that order, once per selected simulation pass. Excluding
+  multiplayer from a separate solo hook only prevents duplicate ownership.
+  The correction and affected artifact hashes are retained in
+  `build/integration/music-countdown-scope-correction-d7e6b7d5.json`; sealed
+  reports are preserved verbatim. Hook implementation and positive solo/MP,
+  paused-clock and TITLE regressions remain separate work. No new package was
+  made; all nine acceptance areas remain partial and awards numerical review
+  remains incomplete.

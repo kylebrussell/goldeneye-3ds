@@ -23,6 +23,7 @@ def generate(repo):
         '#include <float.h>\n#include <string.h>\n#include "game/bgfog.h"',
         '#include "game/bondview.h"\n#include "game/player.h"',
         '#include "ge_original_multiplayer_fog.h"',
+        '#include "ge_original_multiplayer_fog_state.h"',
         'extern void viSetZRange(f32 near, f32 far);\nextern void viGetZRange(f32 *zrange);',
         'void fogLoadCurrentEnvironment(EnvironmentRecord *);',
         'void fogLoadFoglessCurrentEnvironment(EnvironmentFoglessRecord *);',
@@ -45,8 +46,18 @@ def generate(repo):
         pieces.append(definition_text(source, pattern))
     pieces += [declaration(source[non_eu:], 'EnvironmentRecord fog_tables[] = {'),
         declaration(source, 'EnvironmentFoglessRecord fog_tables2[] = {')]
+    # Preserve the native function-static lifetime while permitting a checked
+    # read-only view of the Nfd member to which g_NearFogValuesP may point.
+    pieces.append('static EnvironmentRecord ge_fog_transition_environment;')
     for name in FUNCTIONS:
-        pieces.append(function_text(source, name))
+        body = function_text(source, name)
+        if name == 'fogSwitchToSolosky2':
+            transition_declaration = '    static EnvironmentRecord static_envr;'
+            if body.count(transition_declaration) != 1:
+                raise ValueError('fog transition storage extraction drift')
+            body = body.replace(transition_declaration, '').replace(
+                'static_envr', 'ge_fog_transition_environment')
+        pieces.append(body)
     pieces.append(function_text((repo/'src/game/propobj.c').read_text(),
                                'chrobjFogVisRangeRelated'))
     initial = definition_text(source, r'^CurrentEnvironmentRecord g_CurrentEnvironment\s*=')
@@ -94,6 +105,7 @@ void ge_original_multiplayer_fog_snapshot_exact(GeOriginalMultiplayerFogSnapshot
     out->blue = g_CurrentEnvironment.Blue;
 }
 ''']
+    pieces.append('#include "ge_original_multiplayer_fog_state.inc"')
     return '\n\n'.join(pieces) + '\n'
 
 if __name__ == '__main__':

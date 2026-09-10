@@ -114,6 +114,7 @@
 #include "ge_mp_state_bg.h"
 #include "ge_mp_state_effects.h"
 #include "ge_mp_state_visibility.h"
+#include "ge_mp_state_fog.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
@@ -4445,6 +4446,7 @@ static struct {
     GeMpStatePropsOwner props;
     GeMpStatePlayersOwner players;
     GeMpStateEffectsOwner effects;
+    GeMpStateFogOwner fog;
     GeMpStateBgSnapshot background;
     uint64_t core;
     uint64_t bg;
@@ -4563,6 +4565,19 @@ static void runtime_multiplayer_state_end_effects(void)
     if (multiplayer_state.effects.live)
         (void)runtime_multiplayer_state_status("effects end",
             ge_mp_state_effects_end(&multiplayer_state.effects));
+}
+
+static bool runtime_multiplayer_state_begin_fog(void)
+{
+    return runtime_multiplayer_state_status("fog begin",
+        ge_mp_state_fog_begin(&multiplayer_state.fog,&multiplayer_state.registry));
+}
+
+static void runtime_multiplayer_state_end_fog(void)
+{
+    if (multiplayer_state.fog.actor_id)
+        (void)runtime_multiplayer_state_status("fog end",
+            ge_mp_state_fog_end(&multiplayer_state.fog));
 }
 
 static void runtime_multiplayer_state_end_players(void)
@@ -20067,6 +20082,8 @@ start_stage_runtime:
         printf("Native stage fog initialization failed.\n");
         goto cleanup_runtime;
     }
+    if (multiplayer.requested && !runtime_multiplayer_state_begin_fog())
+        goto cleanup_runtime;
     if (visual_probe_tour.enabled) {
         const GeVisualProbeView *view = ge_visual_probe_tour_view_at(
             &visual_probe_tour.tour, 0U, &visual_probe_tour.current_view);
@@ -22138,6 +22155,7 @@ cleanup_runtime:
     free(dam_preview.gpu_batch_run_ends);
     close_dam_world_objects(&dam_objects);
     close_stage_ordinary_objects(&stage_ordinary_objects);
+    runtime_multiplayer_state_end_fog();
     ge_original_multiplayer_fog_close();
     runtime_multiplayer_state_end_visibility();
     ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);

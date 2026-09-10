@@ -82,7 +82,8 @@ LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_mp_state_bg_capture -Wl,-u,ge_mp_state_bg_schema \
            -Wl,-u,ge_mp_state_effects_export -Wl,-u,ge_mp_state_effects_schema \
            -Wl,-u,ge_mp_state_session_capture -Wl,-u,ge_mp_state_session_schema \
-           -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema
+           -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema \
+           -Wl,-u,ge_mp_state_fog_capture -Wl,-u,ge_mp_state_fog_schema
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3
@@ -1354,6 +1355,9 @@ ge_original_multiplayer_fog_slice.c: \
         $(TOPDIR)/../../scripts/extract_stage_environment_tables.py \
         $(TOPDIR)/../../src/game/bgfog.c $(TOPDIR)/../../src/game/propobj.c
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_fog_slice.py $(TOPDIR)/../.. $@
+ge_original_multiplayer_fog_slice.o: \
+        $(TOPDIR)/../../port/include/ge_original_multiplayer_fog_state.h \
+        $(TOPDIR)/../../port/include/ge_original_multiplayer_fog_state.inc
 ge_original_stage_environment_tables.c: \
         $(TOPDIR)/../../src/game/bgfog.c \
         $(TOPDIR)/../../scripts/extract_stage_environment_tables.py

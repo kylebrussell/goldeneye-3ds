@@ -1,4 +1,5 @@
 #include "ge_original_multiplayer_fog.h"
+#include "ge_original_multiplayer_fog_state.h"
 #include <ultra64.h>
 #include "game/bgfog.h"
 #include "game/player.h"
@@ -9,6 +10,7 @@ static int32_t ge_fog_level;
 static uint32_t ge_fog_players;
 static float ge_fog_visibility_scale;
 static uint8_t ge_fog_ready, ge_fog_cinematic;
+static uint64_t ge_fog_lifetime;
 
 float ge_original_multiplayer_fog_visibility_scale(void)
 {
@@ -30,7 +32,11 @@ int ge_original_multiplayer_fog_load(int32_t level_id, int cinematic,
     if (level_id < 0 || level_id > INT32_MAX - 900 || player_count == 0
             || player_count > 4 || getPlayerCount() != (s32)player_count
             || !isfinite(visibility_scale) || visibility_scale <= 0) return 0;
-    if (!ge_fog_ready) ge_original_multiplayer_fog_reset_exact();
+    if (!ge_fog_ready) {
+        if (ge_fog_lifetime == UINT64_MAX) return 0;
+        ge_original_multiplayer_fog_reset_exact();
+        ++ge_fog_lifetime;
+    }
     ge_fog_visibility_scale = visibility_scale;
     fogLoadLevelEnvironment((s32)level_id, cinematic != 0);
     ge_fog_level = level_id;
@@ -49,5 +55,23 @@ int ge_original_multiplayer_fog_snapshot(GeOriginalMultiplayerFogSnapshot *snaps
     snapshot->player_count = ge_fog_players;
     snapshot->cinematic = ge_fog_cinematic;
     snapshot->visibility_scale = ge_fog_visibility_scale;
+    return 1;
+}
+
+uint64_t ge_original_multiplayer_fog_lifetime(void)
+{
+    return ge_fog_ready ? ge_fog_lifetime : 0;
+}
+
+int ge_original_multiplayer_fog_state_read(GeOriginalMultiplayerFogState *out)
+{
+    if (out == NULL) return 0;
+    memset(out, 0, sizeof(*out));
+    if (!ge_fog_ready || getPlayerCount() != (s32)ge_fog_players
+            || !ge_original_multiplayer_fog_state_read_exact(out)) return 0;
+    out->level_id = ge_fog_level;
+    out->player_count = ge_fog_players;
+    out->cinematic = ge_fog_cinematic;
+    out->visibility_scale = ge_fog_visibility_scale;
     return 1;
 }

@@ -8,6 +8,7 @@
 #include "ge_mp_state_bg.h"
 #include "ge_mp_state_effects.h"
 #include "ge_mp_state_visibility.h"
+#include "ge_mp_state_fog.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>

@@ -1601,6 +1601,57 @@ int main(int argc,char **argv)
         free(cached_storage.batches);free(cached_storage.vertices);
         ge_original_model_scene_cache_close(&cache);
     }
+    /* An eye-only room may need a guard's matrices and all model parts while
+     * its canonical gameplay visibility and PropRecord stay offscreen. */
+    {
+        uint8_t renderer_rooms[256]={0};
+        GeOriginalStageGuardSnapshot hidden,rendered;
+        GeOriginalStageGuardScene mono_scene,eye_scene,cached_scene;
+        GeOriginalModelSceneCache eye_cache={0};
+        PropRecord *prop=(PropRecord *)first.prop_record;
+        ChrRecord *chr=(ChrRecord *)first.chr_record;
+        PropRecord saved_prop=*prop;
+        ChrRecord saved_chr=*chr;
+        for(size_t guard=0;guard<ge_original_stage_guard_runtime_count(runtime);++guard) {
+            GeOriginalStageGuardSnapshot state;
+            assert(ge_original_stage_guard_runtime_snapshot(runtime,guard,&state));
+            if(state.visible)renderer_rooms[state.room_id]=1;
+        }
+        renderer_rooms[first.room_id]=4;
+        assert(ge_original_stage_guard_runtime_set_visibility(runtime,0,0,first.room_id));
+        assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        assert(ge_original_stage_guard_runtime_snapshot(runtime,0,&hidden)
+            && !hidden.visible && !hidden.matrices_ready);
+        (void)ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&mono_scene);
+        assert(ge_original_stage_guard_runtime_set_renderer_visibility(
+            runtime,renderer_rooms,sizeof(renderer_rooms),0.25f));
+        assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        assert(ge_original_stage_guard_runtime_snapshot(runtime,0,&rendered)
+            && !rendered.visible && rendered.matrices_ready);
+        assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&eye_scene)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+        assert(eye_scene.published_guard_count>mono_scene.published_guard_count
+            && eye_scene.required_vertex_count>mono_scene.required_vertex_count);
+        assert(ge_original_stage_guard_runtime_build_scene_cached(
+            runtime,&eye_cache,view_to_world,NULL,&cached_scene)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+        assert(cached_scene.published_guard_count==eye_scene.published_guard_count
+            && cached_scene.required_vertex_count==eye_scene.required_vertex_count);
+        ge_original_model_scene_cache_close(&eye_cache);
+        assert(memcmp(prop,&saved_prop,sizeof(saved_prop))==0);
+        assert(memcmp(chr,&saved_chr,sizeof(saved_chr))==0);
+        assert(ge_original_stage_guard_runtime_set_renderer_visibility(runtime,NULL,0,0));
+        assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        assert(ge_original_stage_guard_runtime_snapshot(runtime,0,&hidden)
+            && !hidden.visible && !hidden.matrices_ready);
+        assert(ge_original_stage_guard_runtime_set_visibility(runtime,0,1,first.room_id));
+        assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)
+            ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK);
+        puts("Renderer eye guard: real model matrices/scenes, unchanged canonical prop/chr bytes and mono restore");
+    }
     for(index=0U;index<built.batch_count;++index){
         assert(storage.batches[index].room_id==harness.resident_room);
         assert(storage.batches[index].coordinate_space

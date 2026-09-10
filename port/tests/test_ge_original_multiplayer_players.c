@@ -28,9 +28,14 @@ static void run_roster(uint32_t count)
     const u64 previous_rng = g_randomSeed, previous_chr_rng = g_chrObjRandomSeed;
     const int32_t previous_control = ge_original_bond_input_control_style();
     uint32_t p;
+    PLAYER_ID previous_shuffle[4],life_shuffle[4];
+    memcpy(previous_shuffle,array_PLAYER_IDs,sizeof(previous_shuffle));
     assert(ge_original_multiplayer_players_create(count, count - 1, seed, chr_seed));
     assert(g_randomSeed == expected_rng && random_byte == expected_byte+(s32)count);
     assert(g_chrObjRandomSeed == chr_seed);
+    for(p=0;p<4;++p)assert(array_PLAYER_IDs[p]==(PLAYER_ID)p);
+    shuffle_player_ids();
+    memcpy(life_shuffle,array_PLAYER_IDs,sizeof(life_shuffle));
     assert(getPlayerCount() == (s32)count);
     assert(get_cur_playernum() == (s32)count - 1);
     assert(joyGetControllerCount() == (s8)(count * 2));
@@ -120,9 +125,11 @@ static void run_roster(uint32_t count)
     assert(ge_original_multiplayer_select_local_player());
     init_player_BONDdata();
     assert(g_CurrentPlayer->bondhealth == 1);
+    assert(!memcmp(life_shuffle,array_PLAYER_IDs,sizeof(life_shuffle)));
     assert(first->bondhealth == 0); /* reset of local life cannot reset slot 0 */
     ge_original_multiplayer_players_destroy();
     assert(g_randomSeed == previous_rng && g_chrObjRandomSeed == previous_chr_rng);
+    assert(!memcmp(previous_shuffle,array_PLAYER_IDs,sizeof(previous_shuffle)));
     assert(ge_original_bond_input_control_style() == previous_control);
     assert(ge_original_bond_input_provider()->control_type == previous_control);
     assert(!ge_original_multiplayer_player_count());
@@ -135,13 +142,18 @@ int main(void)
     ge_original_input_set_dual_analog(1);
     /* A match's forced two-pad style cannot overwrite the solo preference. */
     ge_original_bond_input_set_control_style(CONTROLLER_CONFIG_HONEY);
-    randomSetSeed(42); seed = g_randomSeed;
+    randomSetSeed(42);
+    reset_play_data_ptrs();shuffle_player_ids();
+    /* Seed real prior-stage order through the unchanged native producer. */
+    assert(array_PLAYER_IDs[0]!=0 || array_PLAYER_IDs[1]!=1 || array_PLAYER_IDs[2]!=2 || array_PLAYER_IDs[3]!=3);
+    seed = g_randomSeed;
     g_chrObjRandomSeed = UINT64_C(0xa765432189abcdef);
     assert(!ge_original_multiplayer_players_create(1, 0, 0, 0));
     assert(!ge_original_multiplayer_players_create(5, 0, 0, 0));
     assert(!ge_original_multiplayer_players_create(4, 4, 0, 0));
     run_roster(2); assert(g_randomSeed == seed);
     run_roster(4); assert(g_randomSeed == seed);
+    run_roster(2); assert(g_randomSeed == seed);
     run_roster(3); assert(g_randomSeed == seed);
     assert(!ge_original_input_configure_players(0));
     assert(!ge_original_input_configure_players(5));

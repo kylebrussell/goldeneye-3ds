@@ -48,8 +48,9 @@ establish it.
   [tested watch boundary](CanonicalInventory.md), preserving ammo and previous
   weapon bookkeeping and rejecting stale/blocked requests. The adapter also
   provides a held-input release gate for resume and mission entry.
-- [Complete native music sequence validation](Verification20260910MusicSequences.md)
-  now covers all 63 authored tracks, repeated output and layered transitions.
+- [Native music synthesis checks](Verification20260910MusicSequences.md)
+  cover 10-second prefixes of all 63 authored tracks, repeated output and
+  layered transitions.
   It exposed native ADPCM address masking and undefined negative envelope
   scaling, now repaired. Offline corrected PCM has no clipping or sustained
   alternating stop tail in these cases; full-game speaker listening remains

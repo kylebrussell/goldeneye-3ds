@@ -7,7 +7,8 @@
 enum {
     TOUCH_NONE = -1, TOUCH_USE, TOUCH_RELOAD, TOUCH_PREV, TOUCH_NEXT,
     TOUCH_WATCH, TOUCH_AIM, TOUCH_INVERT, TOUCH_SLOWER, TOUCH_FASTER,
-    TOUCH_SHOULDERS, TOUCH_PAGE_TOGGLE, TOUCH_PAGE_PREV, TOUCH_PAGE_NEXT
+    TOUCH_SHOULDERS, TOUCH_TAB_CONTROLS, TOUCH_TAB_OBJECTIVES,
+    TOUCH_TAB_INVENTORY, TOUCH_PAGE_PREV, TOUCH_PAGE_NEXT, TOUCH_ITEM_FIRST
 };
 
 void ge_3ds_controls_init(Ge3dsControls *controls)
@@ -19,6 +20,8 @@ void ge_3ds_controls_init(Ge3dsControls *controls)
     controls->settings.look_deadzone = 0.12f;
     controls->settings.look_sensitivity = 1.0f;
     controls->touch_target = TOUCH_NONE;
+    controls->inventory_request = -1;
+    controls->mission_difficulty = -1;
     controls->panel_dirty = true;
 }
 
@@ -31,6 +34,20 @@ static bool valid_settings(const Ge3dsControlSettings *settings)
         && isfinite(settings->look_sensitivity)
         && settings->look_sensitivity >= 0.25f
         && settings->look_sensitivity <= 2.0f;
+}
+
+void ge_3ds_controls_resume(Ge3dsControls *controls,
+    uint32_t held_physical, bool touch_held)
+{
+    if (controls == NULL) return;
+    controls->suppressed_actions = held_physical;
+    controls->previous_held = 0U;
+    controls->touch_target = TOUCH_NONE;
+    controls->was_touching = touch_held;
+    controls->inventory_request = -1;
+    controls->objectives_refresh_pending = true;
+    controls->inventory_refresh_pending = true;
+    controls->panel_dirty = true;
 }
 
 bool ge_3ds_controls_load(Ge3dsControls *controls, const char *path)
@@ -130,11 +147,17 @@ static float axis(int16_t raw, float deadzone, float sensitivity, bool gameplay)
     return value < 0.0f ? -magnitude : magnitude;
 }
 
-static int touch_target(uint16_t x, uint16_t y, bool objectives_visible)
+static int touch_target(uint16_t x, uint16_t y, const Ge3dsControls *controls)
 {
     if (x >= 320U || y >= 240U) return TOUCH_NONE;
-    if (y < 24U) return TOUCH_PAGE_TOGGLE;
-    if (objectives_visible) {
+    if (y < 24U) return x < 106U ? TOUCH_TAB_CONTROLS
+        : x < 213U ? TOUCH_TAB_OBJECTIVES : TOUCH_TAB_INVENTORY;
+    if (controls->inventory_visible && y >= 40U && y < 200U) {
+        size_t row = (size_t)controls->inventory_page * 5U + (y - 40U) / 32U;
+        return row < controls->inventory_count && controls->inventory[row].selectable
+            ? TOUCH_ITEM_FIRST + (int)row : TOUCH_NONE;
+    }
+    if (controls->objectives_visible || controls->inventory_visible) {
         if (y < 200U) return TOUCH_NONE;
         return x < 106U ? TOUCH_WATCH
             : x < 213U ? TOUCH_PAGE_PREV : TOUCH_PAGE_NEXT;
@@ -174,29 +197,44 @@ GePortInput ge_3ds_controls_sample(Ge3dsControls *controls,
     if (result.move_y == 0.0f && sample->dpad_y != 0)
         result.move_y = sample->dpad_y < 0 ? -1.0f : 1.0f;
     controls->suppressed_shoulders &= sample->held;
-    held = sample->held & ~controls->suppressed_shoulders;
+    controls->suppressed_actions &= sample->held;
+    held = sample->held & ~(controls->suppressed_shoulders | controls->suppressed_actions);
     if (gameplay && controls->settings.swap_shoulders) {
         uint32_t shoulders = held & (GE_PORT_ACTION_FIRE | GE_PORT_ACTION_AIM);
         held &= ~(GE_PORT_ACTION_FIRE | GE_PORT_ACTION_AIM);
         if (shoulders & GE_PORT_ACTION_FIRE) held |= GE_PORT_ACTION_AIM;
         if (shoulders & GE_PORT_ACTION_AIM) held |= GE_PORT_ACTION_FIRE;
     }
-    target = sample->touching ? touch_target(sample->touch_x, sample->touch_y, controls->objectives_visible) : TOUCH_NONE;
+    target = sample->touching ? touch_target(sample->touch_x, sample->touch_y, controls) : TOUCH_NONE;
+    if (gameplay && !sample->touching && controls->was_touching
+            && controls->touch_target >= TOUCH_ITEM_FIRST) {
+        controls->inventory_request = controls->touch_target - TOUCH_ITEM_FIRST;
+    }
+    if (!gameplay) controls->inventory_request = -1;
     if (!gameplay || !sample->touching) controls->touch_target = TOUCH_NONE;
     else if (!controls->was_touching) {
         controls->touch_target = target;
         switch (target) {
-        case TOUCH_PAGE_TOGGLE:
-            controls->objectives_visible = !controls->objectives_visible;
+        case TOUCH_TAB_CONTROLS:
+        case TOUCH_TAB_OBJECTIVES:
+        case TOUCH_TAB_INVENTORY:
+            controls->objectives_visible = target == TOUCH_TAB_OBJECTIVES;
+            controls->inventory_visible = target == TOUCH_TAB_INVENTORY;
             controls->objectives_refresh_pending = controls->objectives_visible;
+            controls->inventory_refresh_pending = controls->inventory_visible;
             controls->panel_dirty = true;
             break;
         case TOUCH_PAGE_PREV:
-            if (controls->objective_page > 0U) controls->objective_page--;
+            if (controls->inventory_visible) {
+                if (controls->inventory_page > 0U) controls->inventory_page--;
+            } else if (controls->objective_page > 0U) controls->objective_page--;
             controls->panel_dirty = true;
             break;
         case TOUCH_PAGE_NEXT:
-            if ((size_t)(controls->objective_page + 1U) * 5U < controls->objective_count)
+            if (controls->inventory_visible) {
+                if ((size_t)(controls->inventory_page + 1U) * 5U < controls->inventory_count)
+                    controls->inventory_page++;
+            } else if ((size_t)(controls->objective_page + 1U) * 5U < controls->objective_count)
                 controls->objective_page++;
             controls->panel_dirty = true;
             break;
@@ -293,14 +331,91 @@ void ge_3ds_controls_set_objectives(Ge3dsControls *controls,
     if (changed && controls->objectives_visible) controls->panel_dirty = true;
 }
 
+bool ge_3ds_controls_inventory_due(Ge3dsControls *controls, uint64_t now_ms)
+{
+    if (controls == NULL || !controls->inventory_visible || controls->was_touching)
+        return false;
+    if (!controls->inventory_refresh_pending
+            && now_ms >= controls->inventory_refresh_ms
+            && now_ms - controls->inventory_refresh_ms < 250U) return false;
+    controls->inventory_refresh_pending = false;
+    controls->inventory_refresh_ms = now_ms;
+    return true;
+}
+
+void ge_3ds_controls_set_inventory(Ge3dsControls *controls,
+    const Ge3dsTouchInventoryItem *items, size_t count)
+{
+    bool changed;
+    size_t index;
+    if (controls == NULL) return;
+    if (items == NULL) count = 0U;
+    if (count > GE_3DS_TOUCH_INVENTORY_MAX) count = GE_3DS_TOUCH_INVENTORY_MAX;
+    changed = count != controls->inventory_count;
+    for (index = 0U; index < count; ++index) {
+        Ge3dsTouchInventoryCache item = {0};
+        objective_copy_text(item.text, items[index].text == NULL ? "Item" : items[index].text);
+        item.selected = items[index].selected;
+        item.selectable = items[index].selectable;
+        if (strcmp(item.text, controls->inventory[index].text) != 0
+                || item.selected != controls->inventory[index].selected
+                || item.selectable != controls->inventory[index].selectable)
+            changed = true;
+        controls->inventory[index] = item;
+    }
+    controls->inventory_count = count;
+    if ((size_t)controls->inventory_page * 5U >= count) controls->inventory_page = 0U;
+    /* Publishing a snapshot expires every captured/released selection, even
+     * when identical text hides changed canonical ownership. */
+    controls->inventory_request = -1;
+    if (controls->touch_target >= TOUCH_ITEM_FIRST) controls->touch_target = TOUCH_NONE;
+    if (changed && controls->inventory_visible) controls->panel_dirty = true;
+}
+
+int ge_3ds_controls_take_inventory_selection(Ge3dsControls *controls)
+{
+    int row;
+    if (controls == NULL) return -1;
+    row = controls->inventory_request;
+    controls->inventory_request = -1;
+    if (row >= 0) controls->inventory_refresh_pending = true;
+    return row;
+}
+
+static void draw_inventory(const Ge3dsControls *controls, FILE *stream)
+{
+    size_t index, first = (size_t)controls->inventory_page * 5U;
+    fprintf(stream, "\x1b[2J\x1b[1;1HCONTROLS  | OBJECTIVES | [INVENTORY]"
+        "\x1b[4;1HPage %u/%u  Release on an item to equip",
+        (unsigned)controls->inventory_page + 1U,
+        (unsigned)(controls->inventory_count == 0U ? 1U : (controls->inventory_count + 4U) / 5U));
+    if (controls->inventory_count == 0U)
+        fprintf(stream, "\x1b[8;1HInventory unavailable.");
+    for (index = first; index < controls->inventory_count && index < first + 5U; ++index) {
+        const Ge3dsTouchInventoryCache *item = &controls->inventory[index];
+        unsigned row = 6U + (unsigned)(index - first) * 4U;
+        fprintf(stream, "\x1b[%u;1H+-------------------------------------+"
+            "\x1b[%u;2H%.33s%s\x1b[%u;2H%s",
+            row, row + 1U, item->text, strlen(item->text) > 33U ? "..." : "",
+            row + 2U, item->selected ? "EQUIPPED"
+                : item->selectable ? "READY" : "UNAVAILABLE");
+    }
+    fprintf(stream, "\x1b[26;1H+------------+------------+------------+"
+        "\x1b[28;1H|   WATCH    | PREV PAGE  | NEXT PAGE  |"
+        "\x1b[30;1H+------------+------------+------------+");
+}
+
 static void draw_objectives(const Ge3dsControls *controls, FILE *stream)
 {
     static const char *statuses[] = { "INCOMPLETE", "COMPLETE", "FAILED", "UNAVAILABLE" };
+    static const char *difficulties[] = { "Agent", "Secret Agent", "00 Agent", "007" };
     size_t index, first = (size_t)controls->objective_page * 5U;
-    fprintf(stream, "\x1b[2J\x1b[1;1H< CONTROLS  /  MISSION OBJECTIVES"
-        "\x1b[3;1HPage %u/%u      Live mission status",
+    fprintf(stream, "\x1b[2J\x1b[1;1HCONTROLS  | [OBJECTIVES] | INVENTORY"
+        "\x1b[3;1HPage %u/%u      %s",
         (unsigned)controls->objective_page + 1U,
-        (unsigned)(controls->objective_count == 0U ? 1U : (controls->objective_count + 4U) / 5U));
+        (unsigned)(controls->objective_count == 0U ? 1U : (controls->objective_count + 4U) / 5U),
+        controls->mission_difficulty >= 0 && controls->mission_difficulty <= 3
+            ? difficulties[controls->mission_difficulty] : "Difficulty unavailable");
     if (controls->objective_count == 0U)
         fprintf(stream, "\x1b[7;1HNo objectives available.");
     for (index = first; index < controls->objective_count && index < first + 5U; ++index) {
@@ -327,16 +442,31 @@ static void draw_objectives(const Ge3dsControls *controls, FILE *stream)
         "\x1b[30;1H+------------+------------+------------+");
 }
 
+void ge_3ds_controls_set_difficulty(Ge3dsControls *controls, int difficulty)
+{
+    if (controls == NULL) return;
+    if (difficulty < 0 || difficulty > 3) difficulty = -1;
+    if (controls->mission_difficulty != difficulty) {
+        controls->mission_difficulty = (int8_t)difficulty;
+        if (controls->objectives_visible) controls->panel_dirty = true;
+    }
+}
+
 void ge_3ds_controls_draw_panel(Ge3dsControls *controls, FILE *stream)
 {
     if (controls == NULL || stream == NULL || !controls->panel_dirty) return;
+    if (controls->inventory_visible) {
+        draw_inventory(controls, stream);
+        controls->panel_dirty = false;
+        return;
+    }
     if (controls->objectives_visible) {
         draw_objectives(controls, stream);
         controls->panel_dirty = false;
         return;
     }
     fprintf(stream,
-        "\x1b[2J\x1b[1;1HFIELD CONTROLS  /  OBJECTIVES >"
+        "\x1b[2J\x1b[1;1H[CONTROLS] | OBJECTIVES | INVENTORY"
         "\x1b[3;1H%s"
         "\x1b[4;1H%s fire / %s aim    B use / Y reload"
         "\x1b[5;1HAim + Circle down: crouch / zoom"

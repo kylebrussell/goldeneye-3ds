@@ -19,7 +19,7 @@ typedef uint32_t u32;
 typedef int GeOriginalMusicRuntime;
 #define KEY_TOUCH 0x100U
 static int controls;
-static struct { bool enabled,result_written,failed; char failure[128]; } frontend_probe;
+static struct { bool enabled,result_written,failed,finished; char failure[128]; } frontend_probe;
 static int pending, order, finished, waited, drained, scanned, resumed;
 static bool sink_active;
 static u32 keys;
@@ -41,7 +41,7 @@ assert(!handle_runtime_resume(&music,&active)); assert(!finished&&!waited&&!drai
 pending=1; keys=KEY_TOUCH|3; sink_active=true; frontend_probe.enabled=true;
 assert(handle_runtime_resume(&music,&active)); assert(active);
 assert(finished==1&&waited==1&&drained==1&&scanned==1&&resumed==1);
-assert(frontend_probe.failed && strstr(frontend_probe.failure,"interrupted"));
+assert(frontend_probe.finished && frontend_probe.failed && strstr(frontend_probe.failure,"interrupted"));
 assert(!handle_runtime_resume(&music,&active)); assert(resumed==1);
 order=0; pending=1; sink_active=false; frontend_probe.result_written=true; frontend_probe.failed=false;
 assert(handle_runtime_resume(NULL,&active)); assert(!active && finished==1 && waited==2 && drained==2);

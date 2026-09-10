@@ -12815,6 +12815,7 @@ static bool handle_runtime_resume(GeOriginalMusicRuntime *music, bool *audio_act
     ge_3ds_controls_resume(&controls, map_actions(held), (held & KEY_TOUCH) != 0);
     if (frontend_probe.enabled && !frontend_probe.result_written) {
         frontend_probe.failed = true;
+        frontend_probe.finished = true;
         (void)snprintf(frontend_probe.failure, sizeof(frontend_probe.failure),
                        "APT suspend/resume interrupted this capture");
     }

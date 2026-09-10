@@ -236,6 +236,35 @@ static void combat_respawn(int count)
     assert(ge_original_multiplayer_score(1,&score)==GE_ORIGINAL_MP_OK && score==-1);
 }
 
+static void respawn_intro_slot_consistency(void)
+{
+    const int32_t slots[] = {0, 7, 3};
+    for (size_t mode = 0; mode < sizeof(slots) / sizeof(slots[0]); ++mode) {
+        PadRecord pad = {0};
+        StandTile stan = {0};
+        int32_t intro[] = {INTROTYPE_SPAWN, 0, slots[mode],
+            INTROTYPE_ITEM, ITEM_FIST, -1, slots[mode],
+            INTROTYPE_AMMO, AMMO_9MM, 12, slots[mode], INTROTYPE_END};
+        setup(2, SCENARIO_NORMAL);
+        pad.stan = &stan;
+        players[1].bonddead = 1;
+        finish_death(1);
+        assert(ge_original_multiplayer_publish_spawns(intro, 12, &pad, 1, slots[mode])
+            == GE_ORIGINAL_MP_OK);
+        g_CurrentSetup.intro = (void *)intro;
+        /* Switching the replay header after publication must not combine
+         * one slot's spawn pads with another slot's item/ammo records. */
+        ge_original_multiplayer_bind_intro_slot(1, 0, (uint32_t)slots[mode] + 1U);
+        assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_INVALID_SETUP);
+        assert(players[1].bonddead && get_cur_playernum() == 0 && equip_count[1] == 0);
+        ge_original_multiplayer_bind_intro_slot(mode == 1U, mode == 2U, (uint32_t)slots[mode]);
+        assert(ge_original_multiplayer_respawn(1, 0x8000) == GE_ORIGINAL_MP_OK);
+        assert(!players[1].bonddead && players[1].ammoheldarr[AMMO_9MM] == 12
+            && get_cur_playernum() == 0);
+    }
+    ge_original_multiplayer_bind_intro_slot(0, 0, 0);
+}
+
 int main(void)
 {
     ge_original_multiplayer_bind_intro_slot(0,0,42);assert(check_ramrom_flags()==0);
@@ -248,7 +277,8 @@ int main(void)
     assert(!ge_original_multiplayer_arena(GE_ORIGINAL_MP_ARENAS,&arena));
     config.level_id=LEVELID_EGYPT;assert(ge_original_multiplayer_validate(&config)==GE_ORIGINAL_MP_INVALID_CONFIG);
     config.level_id=LEVELID_TEMPLE;config.scenario=SCENARIO_2v1;assert(ge_original_multiplayer_validate(&config)==GE_ORIGINAL_MP_INVALID_CONFIG);
-    malformed_setup();end_rules();respawn_revalidation();combat_respawn(2);combat_respawn(4);
+    malformed_setup();end_rules();respawn_revalidation();respawn_intro_slot_consistency();
+    combat_respawn(2);combat_respawn(4);
     setup(4,SCENARIO_2v2);
     g_playerPlayerData[0].kill_counts[2]=3;g_playerPlayerData[1].kill_counts[0]=1;
     assert(ge_original_multiplayer_score(0,&score)==GE_ORIGINAL_MP_OK && score==2);

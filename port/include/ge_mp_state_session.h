@@ -6,7 +6,7 @@
 #include "ge_original_stage_active_props.h"
 #include "ge_original_multiplayer_hud.h"
 
-#define GE_MP_SESSION_SCHEMA_VERSION 2U
+#define GE_MP_SESSION_SCHEMA_VERSION 3U
 #define GE_MP_SESSION_MAX_GAPS 64U
 #define GE_MP_SESSION_SYSTEMS (GE_MP_SYSTEM_SESSION|GE_MP_SYSTEM_RULES|GE_MP_SYSTEM_RESPAWN)
 /* Typed paths and stable field IDs. No pointer or native ABI width is wire state. */
@@ -83,8 +83,16 @@
  X(325,U8,1,hud_prepared,"hud.prepared") \
  X(326,U8,1,hud_captured,"hud.captured") \
  X(327,U8,1,hud_failed,"hud.failed") \
- X(328,U8,1,hud_intro_camera,"hud.intro_camera")
-#define GE_MP_SESSION_FIELD_COUNT 73U
+ X(328,U8,1,hud_intro_camera,"hud.intro_camera") \
+ X(329,I32,1,watch_who_paused,"who_paused") \
+ X(330,I32,1,watch_glow,"chevron_glow") \
+ X(331,I32,1,watch_glow_timer,"chevron_glow_timer") \
+ X(332,I32,1,watch_alternate,"alt_gameover_msg") \
+ X(333,I32,1,watch_alternate_timer,"alt_gameover_msg_timer") \
+ X(334,I32,1,watch_gamemode,"gamemode") \
+ X(335,I32,1,watch_selected_count,"selected_num_players") \
+ X(336,I32,8,watch_favorites,"array_favweapon")
+#define GE_MP_SESSION_FIELD_COUNT 81U
 typedef enum GeMpSessionBoundary {
     GE_MP_SESSION_INITIAL,
     GE_MP_SESSION_WORLD_COMMITTED,
@@ -162,6 +170,8 @@ typedef struct GeMpSessionValues {
     uint32_t active_mismatch,hud_player_count;
     int32_t native_chr_count;
     uint8_t active_bound,active_pending,active_player_count,active_player_mask,active_ordered_present;
+    int32_t watch_who_paused,watch_glow,watch_glow_timer,watch_alternate,watch_alternate_timer;
+    int32_t watch_gamemode,watch_selected_count,watch_favorites[4][2];
     uint64_t hud_tick;
     uint8_t hud_initialized,hud_prepared,hud_captured,hud_failed,hud_intro_camera;
 } GeMpSessionValues;

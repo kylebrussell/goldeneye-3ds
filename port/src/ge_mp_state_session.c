@@ -1,5 +1,6 @@
 #include "ge_mp_state_session.h"
 #include "ge_original_multiplayer_session.h"
+#include "ge_original_multiplayer_watch.h"
 #include "ge_original_multiplayer_rules.h"
 #include "ge_original_stage_setup.h"
 #include <ultra64.h>
@@ -263,7 +264,18 @@ GeMpStateStatus ge_mp_state_session_capture(const GeMpRegistry *registry,
     hud_schedule(schedule,session.count,out);
     /* These are native/wrapper owners, not nullable success defaults. They
      * need separate typed coverage before an aggregate can attest complete. */
-    gap(out,0,0,GE_MP_SESSION_GAP_WATCH_OWNER,GE_MP_STATE_INCOMPLETE);
+    GeOriginalMultiplayerWatchState watch;
+    if(ge_original_multiplayer_watch_snapshot(&watch)) {
+        v->watch_who_paused=watch.who_paused;v->watch_glow=watch.chevron_glow;
+        v->watch_glow_timer=watch.chevron_timer;v->watch_alternate=watch.alternate_message;
+        v->watch_alternate_timer=watch.alternate_timer;v->watch_gamemode=watch.gamemode;
+        v->watch_selected_count=watch.selected_count;
+        for(unsigned i=0;i<4;++i)for(unsigned h=0;h<2;++h)
+            v->watch_favorites[i][h]=watch.favorite_weapon[i][h];
+    } else {
+        gap(out,329,0,GE_MP_SESSION_GAP_WATCH_OWNER,GE_MP_STATE_INCOMPLETE);
+        for(unsigned i=329;i<=336;++i)out->fields[i-256].count=0;
+    }
     gap(out,0,0,GE_MP_SESSION_GAP_GUARD_SCHEDULE_OWNER,GE_MP_STATE_INCOMPLETE);
     gap(out,0,0,GE_MP_SESSION_GAP_RESOURCE_PROVIDERS,GE_MP_STATE_INCOMPLETE);
     gap(out,0,0,GE_MP_SESSION_GAP_MUSIC_TRANSITION_OWNER,GE_MP_STATE_INCOMPLETE);

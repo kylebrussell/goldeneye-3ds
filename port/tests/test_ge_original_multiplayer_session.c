@@ -3,12 +3,14 @@
 #undef main
 #include "ge_original_multiplayer_session.h"
 #include "ge_original_level.h"
+#include "ge_original_multiplayer_watch.h"
 #include "game/mpmenu.h"
 s32 g_pausedFlag;
 s32 speedgraphframes;
-static s32 mission_state,mission_calls;
+extern s32 mission_state;
+extern unsigned fixture_music_intro_plays;
+#define mission_calls fixture_music_intro_plays
 extern s32 g_ClockTimer,g_GlobalTimer,chevron_glow_timer,alt_gameover_msg_timer;
-void set_missionstate(s32 state) {assert(state==0);mission_state=state;++mission_calls;}
 static int32_t paused(void *context) {(void)context;return g_pausedFlag;}
 
 static void start(int count,int mode,int time_limit,int point_limit)
@@ -43,8 +45,9 @@ static GeOriginalMultiplayerSessionState tick(int delta,int elapsed)
     memcpy(g_playerPlayerData,before,sizeof(before));
     assert(ge_original_multiplayer_session_tick(delta,elapsed,&out)==GE_ORIGINAL_MP_SESSION_OK);
     assert(out.decision==reference);
+    if(reference!=GE_ORIGINAL_MP_END_RESULTS)assert(rng==saved_rng);
     assert(memcmp(g_playerPlayerData,expected,sizeof(expected))==0);
-    assert(g_CurrentPlayer==selected && g_playerPerm==perm && player_num==selected_num && rng==saved_rng);
+    assert(g_CurrentPlayer==selected && g_playerPerm==perm && player_num==selected_num);
     return out;
 }
 
@@ -74,7 +77,9 @@ static void point_round(int count)
     assert(alt_gameover_msg_timer==20 && chevron_glow_timer==0);
     for(int i=0;i<count;++i) {
         assert(players[i].mpmenuon && players[i].mpmenumode==MENU_SCORES);
-        assert(!players[i].ptr_text_first_mp_award && !players[i].ptr_text_second_mp_award);
+        const char *text;
+        assert(ge_original_multiplayer_watch_award_text(i,0,&text));
+        assert(ge_original_multiplayer_watch_award_text(i,1,&text));
     }
     /* Lock takes effect on the NEXT canonical timer boundary, not midway
      * through the already-produced frame clock. No invented five-second wait. */
@@ -94,7 +99,7 @@ static void limits(void)
     start(4,SCENARIO_NORMAL,60,1);
     g_playerPlayerData[0].kill_counts[1]=1;
     out=tick(1,59);assert(out.results_causes==(GE_ORIGINAL_MP_SESSION_CAUSE_TIME|GE_ORIGINAL_MP_SESSION_CAUSE_POINT));
-    assert(out.end_reason==GE_ORIGINAL_MP_FRONTEND_END_TIME_LIMIT && mission_calls==1);
+    assert(out.end_reason==GE_ORIGINAL_MP_FRONTEND_END_TIME_LIMIT && mission_calls==2);
     start(4,SCENARIO_YOLT,0,0);
     for(int i=1;i<4;++i){g_playerPlayerData[0].kill_counts[i]=2;players[i].bonddead=1;}
     out=tick(1,20);assert(out.decision==GE_ORIGINAL_MP_END_FREEZE);

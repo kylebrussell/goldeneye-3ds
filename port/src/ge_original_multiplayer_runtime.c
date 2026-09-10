@@ -1,4 +1,5 @@
 #include "ge_original_multiplayer_runtime.h"
+#include "ge_original_multiplayer_watch.h"
 #include "ge_original_bond_input_provider.h"
 #include "ge_original_door_interaction.h"
 #include "ge_original_gameplay_services.h"
@@ -163,6 +164,8 @@ GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_tick(
                 frame->global_timer, frame->global_timer_delta))
             FAIL(GE_ORIGINAL_MP_RUNTIME_MOVE_FAILED);
         ge_original_mp_runtime_watch_clock_exact();
+        if(ge_original_multiplayer_watch_tick()!=GE_ORIGINAL_MP_WATCH_OK)
+            FAIL(GE_ORIGINAL_MP_RUNTIME_WATCH_FAILED);
         if (!frame->produce_camera(frame->context, slot, &config, &camera)
                 || ge_original_multiplayer_views_begin_shooter(frame->views,
                     slot, &config, &camera) != GE_ORIGINAL_MULTIPLAYER_VIEW_OK)

@@ -23,18 +23,20 @@ replacement scoring, death, pause or respawn mechanics.
    red blood, colour fade and world state continue advancing. Point limits
    wait for every dying player's three death gates. YOLT waits until all but
    one player have exhausted two lives and finished those gates.
-4. `RESULTS` applies the exact state-only entry of
-   `mpCalculateAwards(FALSE)`: mission state zero, `pauseAndLockControls`,
-   `g_gameOverFlag=1`, original message/glow timers and each player's
-   `mpmenuon=TRUE`, `MENU_SCORES`, and cleared award-label pointers. Selection
-   is restored after that per-player publication. The already-produced
-   `g_ClockTimer` remains unchanged; the **next** original level timer pass
-   sees the control lock and produces zero clock/delta.
-5. Snapshot results with the existing canonical result snapshot adapter,
-   using `state.end_reason`. Explicit cancellation calls
-   `ge_original_multiplayer_session_abort(&state)`, which uses the same
-   immediate result state as the original multiplayer quit-confirmation
-   path. Repeated terminal calls retain the first published result state.
+4. `RESULTS` executes full original `mpCalculateAwards(FALSE)`: SFX shutdown,
+   native music/mission transitions, pause/control lock, menus, favorite weapons,
+   all metric/tie/award RNG and award text publication. Selection is restored.
+   Each simultaneous source cause executes its own awards call in source order.
+   The already-produced `g_ClockTimer` stays unchanged; the next timer boundary
+   sees the lock and produces zero game clock while `speedgraphframes` advances.
+5. Continue raw-pad and all shuffled player passes. The shared runtime calls
+   `ge_original_multiplayer_watch_tick()` immediately after MoveBond and the
+   native watch timer, before camera/props. It retains exact pause ownership,
+   navigation, death-menu closure, quit confirmation and result progression.
+   `bossSetLoadedStage(LEVELID_TITLE)` occurs only when all players finish.
+6. Snapshot results with the canonical result adapter and `state.end_reason`.
+   Menu-driven quit invokes session abort and full awards once. Repeated later
+   terminal calls preserve the result and do not consume awards RNG again.
 
 All actual `mpCalculateAwards` call sites pass `FALSE`: time limit, point
 limit, YOLT and multiplayer quit. The `TRUE` branch can assign 300 NTSC ticks
@@ -65,19 +67,15 @@ player's controller settings and calls `fileLoadSaveSettingsForSelectedFolder`.
 It is not a replacement for publishing each multiplayer participant's agreed
 controls/options and is not invoked by this adapter.
 
-Cosmetic award calculation and music/SFX presentation remain separate. The
-full `mpCalculateAwards` changes music and selects award labels using extra
-accuracy, movement, weapon and RNG metrics. This bounded state adapter does
-not fabricate those awards or consume their RNG. It preserves the original
-state entry needed to stop the match and publish the existing canonical
-score/kills/deaths/rank snapshot. Multiplayer menu navigation, per-player
-pause/quit agreement and final title-stage exit remain frontend owners;
-the adapter does not silently emulate their input state machines.
+The watch slice owns actual frontend `gamemode`, `selected_num_players`,
+`array_favweapon`, `who_paused`, message/glow state and `g_AwardNames`. Session
+reset publishes MULTI/count without running the solo settings initialization.
+It leaves native prior-menu state intact. The full watch owner and its explicit
+remaining UI boundary are described in [MultiplayerWatch.md](MultiplayerWatch.md).
 
-The existing `lv.c` timer slice owns `g_MpTime`, clock and control-lock
-storage. The existing damage/input slices own stop-play, game-over and paused
-storage. The new generated slice adds previously unretained `g_MpPoint`,
-message/glow fields and exact accessors; there are no duplicate flag owners.
+The existing timer/input/damage owners retain clock/control and pause/stop flags.
+The session slice owns `g_MpPoint` and exact accessors; the watch slice exclusively
+owns its globals, so both generated sources must be regenerated together.
 
 ## Build and validation
 
@@ -91,7 +89,7 @@ Compile it and `ge_original_multiplayer_session.c` with the same original
 ABI/type/setup/AIPARSE/US flags as the multiplayer rules adapter. The session
 fixture links the existing exact rules and damage/inventory fixture closure,
 original `lv.c` timer slice, original control-lock/action-gate functions, and
-the new source extraction. Resource-only mission-state/audio boundaries are
+the new source extraction. Native music-state transitions are retained; audio rendering resources are
 observed without substituting health or death accounting.
 
 `scripts/test_multiplayer_session.sh` passes under ASan/UBSan. It covers actual
@@ -100,6 +98,7 @@ with advancing clocks, immediate result/menu flags, next-frame clock lock,
 normal/time/point/YOLT/token/Golden Gun/team/LTK limits, negative suicide
 scores, zero ticks, simultaneous cause ordering, explicit abort, repeat result
 entry, state-preserving reset, invalid roster/current/timer/stat rejection,
-and player selection/RNG preservation. Each decision and YOLT metadata is
+and player selection preservation. RNG is unchanged for running/freeze ticks;
+full results consume native awards RNG. Each decision and YOLT metadata is
 compared to the existing canonical rules extraction from the same starting
 state. Both native adapter and generated slice pass strict ARM compilation.

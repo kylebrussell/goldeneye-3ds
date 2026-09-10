@@ -2,6 +2,7 @@
  * gameplay producer below is an observing double. The real match fixture must
  * link the retained producers instead of this file. */
 #include "ge_original_multiplayer_runtime.h"
+#include "ge_original_multiplayer_watch.h"
 #include "ge_original_door_interaction.h"
 #include "ge_original_gameplay_services.h"
 #include "ge_original_gun_live.h"
@@ -30,7 +31,7 @@ static int arena_active, held_frontier, reload, object_present;
 PropRecord *g_InteractProp, *g_OnScreenPropList[3], **g_LastOnScreenProp;
 static PropRecord object_prop, door_prop;
 enum Event {EFFECTS, BG_SEMANTICS, WORLD, REGEN, SHUFFLE, VIEWS_BEGIN, HUD_BEGIN, SELECT, FOV, PRE_DEATH, Y_AIM,
-    X_AIM, LOOK, AMMO, SIGHT, MOVE, CAMERA, VIEW, PROPS, ONSCREEN, AUTOAIM,
+    X_AIM, LOOK, AMMO, SIGHT, MOVE, WATCH, CAMERA, VIEW, PROPS, ONSCREEN, AUTOAIM,
     HELD, TEST_DOOR, DOOR, TEST_OBJECT, INTERACT, EXECUTE_OP, RELOAD_RIGHT, RELOAD_LEFT,
     PICKUPS, SYNC, GUN, RENDERER, MATRICES, FLASH, HUD_PREPARE, POST_DEATH,
     CAN_RESPAWN, RESPAWN, HUD_CAPTURE, CAPTURE, FINISH, SERVICES};
@@ -70,6 +71,8 @@ int ge_original_bond_move_live_tick(GeOriginalBondLiveState *s,int32_t clock,int
     assert(getMissiontimer()==mission_before+passed_zero);
     assert(watch_time_0==watch_before+(int)move_ordinal*speedgraphframes);
     ++move_ordinal;g_CurrentPlayer->fovy=20+(float)selected;event(MOVE);return 1;}
+GeOriginalMultiplayerWatchStatus ge_original_multiplayer_watch_tick(void)
+{assert(watch_time_0==watch_before+(int)move_ordinal*speedgraphframes);event(WATCH);return GE_ORIGINAL_MP_WATCH_OK;}
 void chraiUpdateOnscreenPropCount(void) {event(ONSCREEN);}
 void chrpropUpdateAutoaimTarget(void) {event(AUTOAIM);}
 GeOriginalPlayerHeldItemsStatus ge_original_player_held_items_tick(void)
@@ -156,7 +159,7 @@ static void run(uint32_t n,uint32_t display,uint32_t rotation,int activation,int
     expect(&cursor,VIEWS_BEGIN,display);expect(&cursor,HUD_BEGIN,display);
     for(uint32_t ordinal=0;ordinal<n;++ordinal){
         uint32_t slot=(n-1-ordinal+shuffle_rotation)%n;
-        unsigned prefix[]={SELECT,FOV,PRE_DEATH,Y_AIM,X_AIM,LOOK,AMMO,SIGHT,MOVE,CAMERA,
+        unsigned prefix[]={SELECT,FOV,PRE_DEATH,Y_AIM,X_AIM,LOOK,AMMO,SIGHT,MOVE,WATCH,CAMERA,
             VIEW,PROPS,ONSCREEN,AUTOAIM,HELD};
         for(size_t i=0;i<sizeof(prefix)/sizeof(*prefix);++i)expect(&cursor,prefix[i],slot);
         if(activation){

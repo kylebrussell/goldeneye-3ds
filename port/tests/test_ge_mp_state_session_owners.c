@@ -40,7 +40,7 @@ static void owner_capture(unsigned gaps)
     GeOriginalStageActiveProps saved=active;GeOriginalMultiplayerHud old_hud=hud;
     uint64_t rng=g_randomSeed,chr_rng=g_chrObjRandomSeed;
     assert(ge_mp_state_session_capture(&registry,&owner_providers,&schedule,&snapshot)==GE_MP_STATE_INCOMPLETE);
-    assert(snapshot.total_gaps>=4);
+    assert(snapshot.total_gaps>=3);
     if(gaps)assert(snapshot.total_gaps==gaps);
     assert(!memcmp(&saved,&active,sizeof(active)) && !memcmp(&old_hud,&hud,sizeof(hud)));
     assert(rng==g_randomSeed && chr_rng==g_chrObjRandomSeed);
@@ -62,7 +62,7 @@ static void owner_setup(unsigned count,unsigned peer)
     setup_owner=(GeOriginalStageSetupRuntime){.setup=&setup_native,.prop_record_count=1};
     for(unsigned i=0;i<count;++i)prop_ids[i]=acquire(0xE3,i);
     setup_id=acquire(0x21,4);chr_id=acquire(0x21,5);propdefs_id=acquire(0x21,6);ai_id=acquire(0x21,7);
-    compose(count);owner_capture(4);
+    compose(count);owner_capture(3);
     assert(snapshot.values.active_player_count==count && snapshot.values.active_count==1);
     for(unsigned i=0;i<count;++i)assert(snapshot.values.active_players[i]==prop_ids[i]);
     assert(snapshot.values.active_setup==setup_id && snapshot.values.active_chrs==chr_id);
@@ -94,7 +94,7 @@ static void owner_fields(unsigned count)
     active.player_prop=NULL;memset(&hud.players,0xA5,sizeof(hud.players));owner_fingerprint(b);
     assert(!memcmp(a,b,32));active.ordered[0]=old;active.player_prop=&props[0];memset(hud.players,0,sizeof(hud.players));
     GeOriginalStageActivePropInput *saved=active.ordered;active.ordered=(void*)(uintptr_t)0x1234;
-    owner_capture(5);assert(snapshot.values.active_ordered_present==1);active.ordered=saved;
+    owner_capture(4);assert(snapshot.values.active_ordered_present==1);active.ordered=saved;
     const uint16_t refs[]={310,311,313,315,318,320};
     for(unsigned i=0;i<sizeof(refs)/sizeof(refs[0]);++i) {
         missing_field=refs[i];owner_capture(0);assert(!snapshot.fields[missing_field-256].count);
@@ -102,30 +102,30 @@ static void owner_fields(unsigned count)
     }
     missing_field=0;assert(ge_mp_registry_release(&registry,chr_id)==GE_MP_STATE_OK);
     owner_capture(0);assert(snapshot.coverage.unresolved_references);
-    assert(ge_mp_registry_acquire(&registry,ge_mp_registry_key(0x21,255,5),&chr_id)==GE_MP_STATE_OK);owner_capture(4);
+    assert(ge_mp_registry_acquire(&registry,ge_mp_registry_key(0x21,255,5),&chr_id)==GE_MP_STATE_OK);owner_capture(3);
 }
 static void lifecycle(unsigned count)
 {
     g_ClockTimer=0;g_GlobalTimer=1;g_GlobalTimerDelta=0;
     assert(ge_original_stage_active_props_pre_tick_exact(&active)==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(ge_original_stage_active_props_tick_exact(&active)==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
-    owner_capture(4);assert(snapshot.values.active_paused_ticks==1 && !snapshot.values.active_pending);
+    owner_capture(3);assert(snapshot.values.active_paused_ticks==1 && !snapshot.values.active_pending);
     /* Actual HUD begin rejects missing/duplicate frame admission. Capturing
      * this unfinished phase reports a gap, without pretending it committed. */
-    assert(ge_original_multiplayer_hud_begin_frame(&hud,0,count));owner_capture(5);
+    assert(ge_original_multiplayer_hud_begin_frame(&hud,0,count));owner_capture(4);
     assert(snapshot.values.hud_initialized==1 && snapshot.values.hud_player_count==count);
     assert(!ge_original_multiplayer_hud_begin_frame(&hud,1,count));
     memset(&hud,0,sizeof(hud));
     GeOriginalStageActiveProps other={0};void *player_props[4];
     for(unsigned i=0;i<count;++i)player_props[i]=&props[i];
     assert(ge_original_stage_active_props_compose_players(&other,&setup_owner,player_props,count,chrs,count,NULL,0)==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
-    owner_capture(5);assert(!snapshot.fields[299-256].count); /* old owner cannot claim replacement */
+    owner_capture(4);assert(!snapshot.fields[299-256].count); /* old owner cannot claim replacement */
     ge_original_stage_active_props_close(&active);
     GeOriginalStageActivePropsNativeView view;
     assert(ge_original_stage_active_props_native_view(&other,&view) && view.owner==&other);
     assert(!ge_original_stage_active_props_native_view(&active,&view));
     ge_original_stage_active_props_close(&other);assert(!ge_original_stage_active_props_native_view(&other,&view));
-    compose(count);owner_capture(4);assert(!snapshot.values.active_paused_ticks && !snapshot.values.active_ticks);
+    compose(count);owner_capture(3);assert(!snapshot.values.active_paused_ticks && !snapshot.values.active_ticks);
 }
 int main(int argc,char **argv)
 {
@@ -133,7 +133,7 @@ int main(int argc,char **argv)
     if(peer){owner_setup(4,peer);lifecycle(4);owner_close();}
     owner_setup(count,peer);owner_fingerprint(a);owner_fields(count);lifecycle(count);
     owner_close();owner_setup(4,peer);owner_close();owner_setup(count,peer);owner_fingerprint(b);assert(!memcmp(a,b,32));
-    unsigned char bytes[4096];owner_capture(4);FILE *file=fopen(argv[3],"wb");assert(file);
+    unsigned char bytes[4096];owner_capture(3);FILE *file=fopen(argv[3],"wb");assert(file);
     size_t n=payload(bytes);assert(fwrite(bytes,1,n,file)==n && !fclose(file));incomplete_digest();owner_close();
     printf("kind0 owners: %up peer%u, %u typed mutations, native compose/close/replacement + paused admission, HUD partial-frame rejection and history convergence passed\n",count,peer,owner_mutations);
 }

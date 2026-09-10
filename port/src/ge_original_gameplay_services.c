@@ -598,6 +598,8 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *sound_bank, s16 sound_index,
     slot->ticks_remaining = GE_SERVICE_SOUND_LIFETIME_TICKS;
     slot->state.playingState = SOUND_STATE_PLAYING;
     slot->state.state = pending_state;
+    /* Native sndPlaySfx marks each returned root for flag-1 deactivation. */
+    slot->state.unk3e |= 0x1;
     slot->state.pitch_28 = 1.0f;
     slot->state.pitch_2c = 1.0f;
     slot->state.pan = AL_PAN_CENTER;
@@ -677,12 +679,25 @@ void sndDeactivate(ALSoundState *state)
 {
     GeServiceSound *sound = ge_service_sound_from_state(state);
     if (sound == NULL || !sound->allocated) return;
+    sound->state.unk3e &= ~0x10;
     sound->state.playingState = SOUND_STATE_NONE;
     ge_service_sound_dispose(sound);
     if (ge_service_stats.active_sounds > 0U)
         ge_service_stats.active_sounds--;
     ge_service_stats.sound_deactivate_calls++;
 }
+
+/* Native sndDeactivateAllSfxByFlag predicate and loop over the actual
+ * resource owner's slots. This owner delivers audio events immediately. */
+void sndDeactivateAllSfxByFlag(u8 flag)
+{
+    for(size_t i=0;i<GE_SERVICE_SOUND_CAPACITY;++i) {
+        GeServiceSound *sound=&ge_service_sounds[i];
+        if(sound->allocated && (sound->state.unk3e&flag)==flag)
+            sndDeactivate(&sound->state);
+    }
+}
+void sndDeactivateAllSfxByFlag_1(void) { sndDeactivateAllSfxByFlag(1); }
 
 void sndCreatePostEvent(ALSoundState *state, s16 event_type, s32 value)
 {

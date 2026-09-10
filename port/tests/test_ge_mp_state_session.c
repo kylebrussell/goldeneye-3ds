@@ -31,10 +31,13 @@ stagesetup g_CurrentSetup;
 PropRecord *g_ActivePropsHead,*g_ActivePropsTail;
 ChrRecord *g_ChrSlots;
 s32 g_NumChrSlots,g_GlobalTimer;
-s32 getMissiontimer(void){return 600;}
+s32 fixture_mission_timer=600;
+s32 getMissiontimer(void){return fixture_mission_timer;}
+#ifndef GE_MP_WATCH_FIXTURE
 u8 *langGet(s32 id){(void)id;return (u8 *)"fixture";}
+#endif
 void hudmsgBottomShow(char *text){assert(text);}
-void set_missionstate(s32 state){assert(state==0 || state==6);}
+
 static GeMpRegistry registry;
 static GeMpRegistryEntry entries[32];
 static GeMpStatePlayersOwner players_owner;
@@ -98,12 +101,12 @@ static void capture(int full)
     assert(snapshot.coverage.enumerated_systems==GE_MP_SESSION_SYSTEMS);
     assert(snapshot.total_gaps>=1 && snapshot.total_gaps==snapshot.gap_count);
     if(full) {
-        assert(snapshot.total_gaps==6 && !snapshot.coverage.unresolved_references);
+        assert(snapshot.total_gaps==5 && !snapshot.coverage.unresolved_references);
         const GeMpRecordSchema *schema=ge_mp_state_session_schema();
         for(size_t i=0;i<schema->field_count;++i) {
             assert(snapshot.fields[i].id==schema->fields[i].id && snapshot.fields[i].type==schema->fields[i].type);
             assert(snapshot.fields[i].count==((i>=299-256 && i<=321-256 && !schedule.active_props)
-                || (i>=322-256 && !schedule.hud)?0:schema->fields[i].min_count));
+                || (i>=322-256 && i<=328-256 && !schedule.hud)?0:schema->fields[i].min_count));
             assert(ge_mp_state_session_field_path(snapshot.fields[i].id));
         }
         for(size_t i=0;i<snapshot.gap_count;++i)assert(ge_mp_state_session_gap_path(snapshot.gaps[i].reason));
@@ -113,10 +116,11 @@ static void capture(int full)
 }
 /* Diagnostic typed payload only. This is deliberately not a complete native
  * state checkpoint; the public codec must refuse its digest below. */
+static int legacy_projection;
 static size_t payload(unsigned char *bytes)
 {
     const unsigned width[]={0,1,2,4,8,1,2,4,8,4,1,8,4};size_t used=0;
-    for(unsigned i=0;i<GE_MP_SESSION_FIELD_COUNT;++i) {
+    for(unsigned i=0;i<(legacy_projection?73:GE_MP_SESSION_FIELD_COUNT);++i) {
         const GeMpStateField *f=&snapshot.fields[i];
         bytes[used++]=f->id>>8;bytes[used++]=f->id;bytes[used++]=f->type;
         for(int shift=24;shift>=0;shift-=8)bytes[used++]=f->count>>shift;
@@ -186,6 +190,10 @@ static void run_world(unsigned count)
 } while(0)
 static void mutations_and_negative(unsigned count)
 {
+    extern s32 who_paused,chevron_glow,chevron_glow_timer,alt_gameover_msg,alt_gameover_msg_timer,array_favweapon[4][2];
+    MUTATE(who_paused,7);MUTATE(chevron_glow,17);MUTATE(chevron_glow_timer,19);
+    MUTATE(alt_gameover_msg,23);MUTATE(alt_gameover_msg_timer,31);
+    for(unsigned i=0;i<4;++i)for(unsigned h=0;h<2;++h)MUTATE(array_favweapon[i][h],93);
     MUTATE(g_MpPoint,-7);MUTATE(g_stopPlayFlag,3);MUTATE(g_gameOverFlag,300);MUTATE(g_pausedFlag,2);
     MUTATE(scenario,SCENARIO_LTK);MUTATE(mp_weapon_set,13);MUTATE(startpadcount,5);
     for(unsigned i=0;i<2;++i)MUTATE(starting_weapon[i],ITEM_GOLDENGUN);
@@ -208,7 +216,7 @@ static void mutations_and_negative(unsigned count)
     wrong_player_field=0;
     assert(ge_mp_registry_release(&registry,intro_id)==GE_MP_STATE_OK);capture(0);assert(snapshot.coverage.unresolved_references);
     assert(ge_mp_registry_acquire(&registry,ge_mp_registry_key(0x21,255,0),&intro_id)==GE_MP_STATE_OK);capture(1);
-    GeOriginalMultiplayerDeathState saved=death;death.post_valid=0;capture(0);assert(snapshot.total_gaps>6);death=saved;
+    GeOriginalMultiplayerDeathState saved=death;death.post_valid=0;capture(0);assert(snapshot.total_gaps>5);death=saved;
     const GeOriginalMultiplayerDeathState *old=schedule.death;schedule.death=NULL;capture(0);assert(!snapshot.fields[292-256].count);schedule.death=old;
     struct player *p=g_playerPointers[0];g_playerPointers[0]=NULL;capture(0);assert(snapshot.gaps[0].reason==GE_MP_SESSION_GAP_NATIVE_SESSION);g_playerPointers[0]=p;
     ramromfilestructure *owned=ptr_active_demofile;
@@ -217,7 +225,7 @@ static void mutations_and_negative(unsigned count)
     ptr_active_demofile=owned;ge_original_multiplayer_bind_intro_slot(0,0,0);capture(1);
     /* Mutable setup is content-owned. Ref mismatch and lost publication must
      * remain explicit gaps; capture must never call the mutating publisher. */
-    s32 *oldintro=g_CurrentSetup.intro;g_CurrentSetup.intro=NULL;capture(0);assert(snapshot.total_gaps>6);g_CurrentSetup.intro=oldintro;
+    s32 *oldintro=g_CurrentSetup.intro;g_CurrentSetup.intro=NULL;capture(0);assert(snapshot.total_gaps>5);g_CurrentSetup.intro=oldintro;
 }
 static void publication(unsigned count)
 {
@@ -242,7 +250,7 @@ static void publication(unsigned count)
     ge_original_multiplayer_bind_intro_slot(1,0,3);
     assert(ge_original_multiplayer_publish_spawns(alternate_intro,alternate_words,
         fixture_pads,fixture_pad_count,3)==GE_ORIGINAL_MP_OK);
-    capture(0);assert(snapshot.total_gaps==7 && snapshot.values.demo_slot==3 && snapshot.values.demo_selection==3);
+    capture(0);assert(snapshot.total_gaps==6 && snapshot.values.demo_slot==3 && snapshot.values.demo_selection==3);
     assert(snapshot.values.playback==1 && snapshot.values.demo_kind==1 && !snapshot.values.demo);
     for(int weapons=0;weapons<14;++weapons){configure(count,SCENARIO_NORMAL,weapons);capture(1);assert(snapshot.values.weapon_set==weapons);}
     configure(count,SCENARIO_NORMAL,1);
@@ -294,10 +302,10 @@ int main(int argc,char **argv)
     /* Different menu/prior-match paths must converge with a fresh agreed
      * registry namespace, without erasing within-match generations. */
     if(peer){setup(4,peer);run_world(4);terminal(4);teardown();}
-    setup(count,peer);fingerprint(initial,1);run_world(count);
+    setup(count,peer);legacy_projection=1;fingerprint(initial,1);run_world(count);
     capture(1);FILE *file=fopen(argv[3],"wb");assert(file);size_t n=payload(bytes);assert(fwrite(bytes,1,n,file)==n);assert(!fclose(file));
-    mutations_and_negative(count);publication(count);terminal(count);incomplete_digest();teardown();
-    setup(4,peer);teardown();setup(count,peer);fingerprint(again,1);assert(!memcmp(initial,again,32));teardown();
-    printf("kind0: %up peer%u, %u native mutations, authored Caves spawn order, exact death/limits, replay/ref/schedule rejection, repeated session convergence passed\n",count,peer,mutations);
+    legacy_projection=0;mutations_and_negative(count);publication(count);terminal(count);incomplete_digest();teardown();
+    setup(4,peer);teardown();setup(count,peer);legacy_projection=1;fingerprint(again,1);assert(!memcmp(initial,again,32));teardown();
+    printf("kind0: %up peer%u, %u native mutations, authored Caves spawn order, exact death/limits, replay/ref/schedule rejection, prior-domain session convergence and retained watch mutations passed\n",count,peer,mutations);
     return 0;
 }

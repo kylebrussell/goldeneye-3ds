@@ -12,7 +12,8 @@ typedef enum GeOriginalMultiplayerSessionStatus {
     GE_ORIGINAL_MP_SESSION_INVALID_ARGUMENT,
     GE_ORIGINAL_MP_SESSION_INVALID_ROSTER,
     GE_ORIGINAL_MP_SESSION_INVALID_STATS,
-    GE_ORIGINAL_MP_SESSION_NOT_INITIALIZED
+    GE_ORIGINAL_MP_SESSION_NOT_INITIALIZED,
+    GE_ORIGINAL_MP_SESSION_RESOURCE_FAILED
 } GeOriginalMultiplayerSessionStatus;
 
 typedef struct GeOriginalMultiplayerSessionState {
@@ -47,8 +48,9 @@ GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_reset(
 /* Once per world tick, before incrementing elapsed60, chrlvAllChrTick/regen
  * and shuffled player passes. FREEZE sets the original stop flag only: keep
  * ticking deaths, blood/fade and the world. RESULTS uses the exact immediate
- * (gameoverdelay=FALSE) flags/menu-state entry and control lock. Cosmetic
- * award selection, audio and result presentation remain separate owners.
+ * (gameoverdelay=FALSE) full awards, RNG, favorites, audio and control lock.
+ * Keep running all player watch ticks through results; the native menu
+ * requests TITLE only after every player selects MENU_FINISHED.
  * Original limits can invoke more than one terminal action in a tick: the
  * mask preserves all causes; end_reason identifies the FIRST source call
  * (time, then points, then elimination), a reporting convention only. */

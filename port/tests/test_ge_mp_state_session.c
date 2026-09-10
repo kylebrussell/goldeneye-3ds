@@ -28,6 +28,9 @@ extern void increment_num_kills_display_text_in_MP(void);
 s32 g_stopPlayFlag,g_gameOverFlag,g_pausedFlag,g_MpTime,g_ControlsLockedFlag,g_ClockTimer;
 f32 g_GlobalTimerDelta;
 stagesetup g_CurrentSetup;
+PropRecord *g_ActivePropsHead,*g_ActivePropsTail;
+ChrRecord *g_ChrSlots;
+s32 g_NumChrSlots,g_GlobalTimer;
 s32 getMissiontimer(void){return 600;}
 u8 *langGet(s32 id){(void)id;return (u8 *)"fixture";}
 void hudmsgBottomShow(char *text){assert(text);}
@@ -99,7 +102,8 @@ static void capture(int full)
         const GeMpRecordSchema *schema=ge_mp_state_session_schema();
         for(size_t i=0;i<schema->field_count;++i) {
             assert(snapshot.fields[i].id==schema->fields[i].id && snapshot.fields[i].type==schema->fields[i].type);
-            assert(snapshot.fields[i].count==schema->fields[i].min_count);
+            assert(snapshot.fields[i].count==((i>=299-256 && i<=321-256 && !schedule.active_props)
+                || (i>=322-256 && !schedule.hud)?0:schema->fields[i].min_count));
             assert(ge_mp_state_session_field_path(snapshot.fields[i].id));
         }
         for(size_t i=0;i<snapshot.gap_count;++i)assert(ge_mp_state_session_gap_path(snapshot.gaps[i].reason));

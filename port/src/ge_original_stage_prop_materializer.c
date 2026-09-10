@@ -70,6 +70,7 @@ int ge_original_stage_prop_construction_request(
     if (runtime == NULL || request == NULL || runtime->loaded == 0U
             || command_index >= runtime->prop_record_count) return 0;
     record = &runtime->prop_records[command_index];
+    if (record->multiplayer_omitted) return 0;
     service = ge_stage_prop_service(record->type);
     memset(request, 0, sizeof(*request));
     request->runtime = runtime;
@@ -111,6 +112,10 @@ GeOriginalStagePropClassification ge_original_stage_prop_classify(
     uint32_t capability;
     if (record == NULL || providers == NULL) return result;
     result.service = ge_stage_prop_service(record->type);
+    if (record->multiplayer_omitted) {
+        result.blocker = GE_ORIGINAL_STAGE_PROP_CANONICAL_OMITTED;
+        return result;
+    }
     if (result.service == GE_ORIGINAL_STAGE_PROP_SERVICE_CONTROL) {
         result.blocker = GE_ORIGINAL_STAGE_PROP_CONTROL_ONLY;
         return result;
@@ -308,6 +313,9 @@ int ge_original_stage_prop_materialize_ready(
             }
             break;
         }
+        case GE_ORIGINAL_STAGE_PROP_CANONICAL_OMITTED:
+            ++report->canonical_omitted;
+            break;
         case GE_ORIGINAL_STAGE_PROP_CONTROL_ONLY:
             ++report->control_only;
             break;
@@ -339,12 +347,12 @@ size_t ge_original_stage_prop_model_dependencies(
     for (index = 0U; index < runtime->prop_record_count; ++index) {
         const GeOriginalStagePropRecord *record = &runtime->prop_records[index];
         size_t prior;
-        if (ge_stage_prop_service(record->type) != service
+        if (record->multiplayer_omitted || ge_stage_prop_service(record->type) != service
                 || record->model_id < 0) continue;
         for (prior = 0U; prior < index; ++prior) {
             const GeOriginalStagePropRecord *candidate =
                 &runtime->prop_records[prior];
-            if (ge_stage_prop_service(candidate->type) == service
+            if (!candidate->multiplayer_omitted && ge_stage_prop_service(candidate->type) == service
                     && candidate->model_id == record->model_id) break;
         }
         if (prior < index) continue;
@@ -375,6 +383,7 @@ const char *ge_original_stage_prop_blocker_name(
 {
     switch (blocker) {
     case GE_ORIGINAL_STAGE_PROP_READY: return "ready";
+    case GE_ORIGINAL_STAGE_PROP_CANONICAL_OMITTED: return "canonical omitted";
     case GE_ORIGINAL_STAGE_PROP_CONTROL_ONLY: return "control only";
     case GE_ORIGINAL_STAGE_PROP_MISSING_SERVICE: return "missing service";
     case GE_ORIGINAL_STAGE_PROP_MISSING_MODEL: return "missing model";

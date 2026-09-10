@@ -132,3 +132,41 @@ retaining their distinct authored setup files. The fixture validates native
 world/setup loading and player spawn positions; authored arena restrictions
 also depend on the canonical background visibility commands and live object
 construction in the integrated renderer/simulation.
+
+## Multiplayer item and supply selection
+
+`ge_original_stage_multiplayer_setup_prepare` creates an owned mutable view of
+an already loaded multiplayer setup. It applies `weaponAssignToHome`'s original
+0xF0..0xF7 table mapping and previous-weapon-slot semantics for subsequent
+`proplvreset2` ammo crates. It preserves the source definitions and every native
+record index/relation. Token pickups are available only in The Living Daylights;
+weapon-set entries with `allowpickup == 0`, unarmed entries and zero-quantity
+ammo crates are canonical omissions. In particular the Laser's `AMMO_NONE/0`
+entry is omitted before indexing the ammo array.
+
+The runtime owner initializes `GeOriginalStageMultiplayerSetup` to zero, calls
+prepare after source setup/STAN binding, and passes `&prepared.view` to model
+prerequisite scans and `ge_original_stage_prop_materialize_ready`. Publish the
+original `source.setup`. Construction requests carry the selected weapon model,
+item, scale and ammo type/quantity, so a supply constructor does not need a
+mutable `get_multiplayer_ammo` callback. Close the view with
+`ge_original_stage_multiplayer_setup_close` before closing its borrowed source;
+never pass the shallow view to `ge_original_stage_setup_close`.
+
+`scripts/test_multiplayer_supplies.sh ROM` uses the existing Pitem resource
+harness, original item/supply/default-object construction, and native original
+STAN. It constructs Temple's weapons/ammo/armour for 2 and 4 players, all 14
+weapon sets, and Normal/YOLT/TLD/MWTGG scenarios (112 combinations). It verifies
+native item/model/scale, ammo quantities, armour amounts, source immutability,
+canonical omission counts and original `PROPSTATE_RESPAWN` flags, including the
+token and Golden Gun scenario exceptions. Temple's six doors are reported as
+an explicit separate service boundary. Preparation also passes for all 11
+arenas and all weapon sets. The legacy supply callback's `AMMO_NONE/0` and
+invalid `AMMO_NONE/1` branches run under ASan/UBSan. This fixture establishes
+construction and regeneration eligibility; the original per-tick regeneration
+countdown and collection lifecycle require their retained active-prop owner.
+
+The new multiplayer setup object requires the same native original type,
+`GE_PORT_SETUP_DATA`, `AIPARSE` and `VERSION_US` flags as the existing supplies
+object. Focused ARM `-fshort-enums -Wall -Wextra -Werror` compilation passes for
+the selection, supplies and materializer modules.

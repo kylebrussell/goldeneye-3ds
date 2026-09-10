@@ -39,6 +39,13 @@ struct GeOriginalStagePropRecord {
     uint16_t tag_id;
     uint8_t relation_count;
     uint8_t type;
+    /* Optional multiplayer construction sidecar. Source-loaded records remain
+     * zero; selected views preserve the raw canonical stream separately. */
+    uint8_t multiplayer_prepared;
+    uint8_t multiplayer_omitted;
+    int8_t multiplayer_weapon_slot;
+    int16_t multiplayer_ammo_type;
+    int16_t multiplayer_ammo_quantity;
 };
 
 typedef struct GeOriginalStageSetupRuntime {

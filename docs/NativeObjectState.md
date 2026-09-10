@@ -101,8 +101,13 @@ but the aggregate must still perform E3/E5's full list/field validation.
 `model` is consulted only when `prop` exists. Native `objFree` clears
 `model->obj` and leaves the old model address; subsequent supply construction
 replaces it before use. Exporting that obsolete address as a live model would
-invent a dependency on a released resource. The collision pointer is selected
-by `PROPSTATE_EXT_COLISION_BLOCK`. The union uses the original branch order:
+invent a dependency on a released resource. Every non-null collision pointer
+is represented: `sub_GAME_7F04F244` follows pointer + flag 0x100 + !state 0x20,
+without testing `PROPSTATE_EXT_COLISION_BLOCK`; `chrobjCollisionRelated`
+follows any non-null collision pointer. `objInit` allocates these blocks in
+`MEMPOOL_STAGE`, and `objFree` neither frees nor clears them. They remain
+stage-owned references even after prop free, until construction replaces the
+pointer or the containing stage ends. The union uses the original branch order:
 `RUNTIMEBITFLAG_EMBEDDED` selects embedment, otherwise
 `RUNTIMEBITFLAG_HASPROJECTILE` selects projectile. Unselected old union bits
 have no typed pointer interpretation. `dualweapon` remains represented even
@@ -155,6 +160,9 @@ The source free/drop/projectile allocation and ammo-pool allocator bodies run
 against the real observed native Prop pool. Tests verify impact clearing,
 armor pickup accounting, E3 generations, pair unlinking, free inactive fields,
 finite/signed-zero typing, unresolved refs, stage end and missed-end reset.
+The exact `sub_GAME_7F04F244` regression proves that null-to-live collision
+pointer changes with EXT clear affect both native edges/top/bottom and EA's
+typed reference, including collision-query gates and native permanent free.
 The enclosing full scheduler, nonarmor pickup branches, room geometry,
 audio device and model assets are outside this fixture; resource seams are
 explicit and unexercised object/model branches abort. It is not a match or

@@ -59,7 +59,7 @@ for name in ['chrpropDelist','chrpropDisable','chrpropReparent','chrpropDetach',
 for name in ['projectileFree','projectileReset','embedmentFree',
              'objFreeEmbedmentOrProjectile','projectileAllocate','sub_GAME_7F03FDA8',
              'propobjSetDropped','objDetach','objFree','objFreePermanently',
-             'ammocrateAllocate','sub_GAME_7F050DE8']:
+             'ammocrateAllocate','sub_GAME_7F050DE8','sub_GAME_7F04F244']:
     pieces.append(extract_function(prop,name))
 pieces.append(extract_function((repo/'src/game/model.c').read_text(),'clear_model_obj'))
 pieces.append(extract_function((repo/'src/game/bondview2.c').read_text(),'bondviewAddCurrentPlayerArmor'))

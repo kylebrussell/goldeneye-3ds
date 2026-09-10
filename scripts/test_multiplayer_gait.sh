@@ -4,7 +4,8 @@ repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 test_dir=$(mktemp -d /tmp/ge-mp-gait.XXXXXX)
 trap 'rm -rf "${test_dir}"' EXIT
 if [[ $(uname -s) == Darwin ]]; then port_dead_strip=(-Wl,-dead_strip); else port_dead_strip=(-Wl,--gc-sections); fi
-    gait_dir="${test_dir}/player-gait"
+for abi in native short; do
+    gait_dir="${test_dir}/player-gait-${abi}"
     mkdir -p "${gait_dir}"
     python3 "${repo_dir}/scripts/extract_player_gait_model_slice.py" \
         "${repo_dir}/src/game/model.c" \
@@ -22,6 +23,7 @@ if [[ $(uname -s) == Darwin ]]; then port_dead_strip=(-Wl,-dead_strip); else por
         -idirafter "${repo_dir}/include" -idirafter "${repo_dir}/include/PR"
         -idirafter "${repo_dir}/src" -iquote "${repo_dir}"
     )
+    if [[ ${abi} == short ]]; then gait_common+=(-fshort-enums); else gait_common+=(-fno-short-enums); fi
     cc "${gait_common[@]}" -DGE_PORT_MODEL_ROOT_MOTION_SLICE \
         -c "${repo_dir}/port/src/ge_original_model_root_source.c" \
         -o "${gait_dir}/model_root.o"
@@ -72,3 +74,4 @@ if [[ $(uname -s) == Darwin ]]; then port_dead_strip=(-Wl,-dead_strip); else por
         "${repo_dir}/build/3ds-animations/bond/sprinting.entry.bin" \
         "${repo_dir}/build/3ds-animations/bond/idle.entry.bin" \
         "${repo_dir}/build/3ds-animations/bond/animation_entries.bin"
+done

@@ -30,8 +30,11 @@ The adapter owns `GeMpCanonicalSnapshot` and all its borrowed storage. It must:
    actor record for every live registry entry, including actors outside visible
    rooms and any inactive actor that still affects future behavior.
 4. Define stable registry keys for the canonical allocation pools, including
-   free slots. Call acquire/release at native lifetime transitions. Preserve the
-   registry throughout the session; reinitializing it mid-session would destroy
+   free slots. Every defined key needs a kind declaration in the schema, even
+   when that slot is free or unreferenced; an unknown free kind returns
+   `INCOMPLETE` just as an unknown live kind does. Call acquire/release at native
+   lifetime transitions. Preserve the registry throughout the session;
+   reinitializing it mid-session would destroy
    stale-reference protection. The codec cannot infer skipped native lifetime
    events. If an actor is transferred, record the current owner separately;
    never rewrite its creation namespace. A namespace is not a heap address,
@@ -152,7 +155,9 @@ SHA-256 vectors (empty, `abc`, 56-byte padding boundary, million `a`), all scala
 types, forward/null/stale/missing/duplicate references, 20,000 modeled registry
 transitions, generation exhaustion, poisoned struct padding, differing source
 addresses, unaligned values, signed zero, subnormals, invalid floats/bools,
-coverage failures, exact 16 MiB framing limits, maximum record count, ownership
+coverage failures (including undeclared free pool kinds), actual encoding and
+streaming/buffered digest agreement at the exact 16 MiB limit, framing-only
+overflow with maximum record/field counts, maximum record count, ownership
 transfer, retained free-slot generation history, sequence order and atomic output
 failure. An independent Python `struct.pack` oracle constructs the complete
 732-byte fixture and compares the streaming digest against `hashlib.sha256`.

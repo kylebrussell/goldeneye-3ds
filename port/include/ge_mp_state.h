@@ -134,9 +134,10 @@ typedef struct GeMpCoverageReport {
  * Output buffers must not overlap any borrowed input. Typed values provide
  * count * type-width readable bytes. Two-pass validation resolves forward
  * references before writing anything.
- * Every live registry entry requires one record; every supplied record and
- * field requires a complete schema. Non-finite floats, invalid bools, stale
- * IDs, unknown kinds and bounds errors never produce a state digest.
+ * Every registry entry requires a declared kind, including free slots; every
+ * live entry requires one record. Every supplied record and field requires a
+ * complete schema. Non-finite floats, invalid bools, stale IDs, unknown kinds
+ * and bounds errors never produce a state digest.
  * Unknown/missing coverage returns INCOMPLETE; malformed data returns INVALID
  * or STALE. State encoding preserves finite binary32 bits including -0.
  * No native owner, transport finish_tick hook, decode or restore is provided. */

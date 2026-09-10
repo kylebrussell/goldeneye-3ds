@@ -35,6 +35,10 @@ typedef struct GeOriginalFirstPersonPoseState {
     int initialized;
 } GeOriginalFirstPersonPoseState;
 
+/* Select an initialized per-player resource owner without clearing it. */
+void ge_original_first_person_pose_select(
+    GeOriginalFirstPersonPoseState *state);
+
 void ge_original_first_person_pose_bind(GeOriginalFirstPersonPoseState *state);
 
 /* Mirrors the successful original on-demand model handoff: the relocated

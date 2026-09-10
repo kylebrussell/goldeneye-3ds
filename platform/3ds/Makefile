@@ -21,7 +21,7 @@ SETUP_SOURCES := ../../assets/obseg/setup
 SETUP_CFILES := UsetupdamZ.c
 SOLO_LANGUAGE_NAMES := LdamE LarkE LrunE LsevxE LsevE LsiloE LdestE \
                        LsevxbE LsevbE LstatE LarchE LpeteE LdepoE LtraE \
-                       LjunE LarecE LcaveE LcradE LaztE LcrypE LlenE
+                       LjunE LarecE LcaveE LcradE LaztE LcrypE LlenE LmpweaponsE
 SOLO_LANGUAGE_CFILES := $(addprefix $(TOPDIR)/../../assets/obseg/text/,\
                            $(addsuffix .c,$(SOLO_LANGUAGE_NAMES)))
 INCLUDES    := include ../../port/include ../../src ../..
@@ -290,6 +290,8 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_multiplayer_players_slice.c \
             ge_original_multiplayer_rules_slice.c \
             ge_original_multiplayer_regen_slice.c \
+            ge_original_multiplayer_death_slice.c \
+            ge_original_multiplayer_results_slice.c \
             ge_original_door_collision_slice.c \
             ge_original_door_character_collision_slice.c \
             ge_original_player_gait_model_slice.c \
@@ -457,7 +459,10 @@ ge_original_bond_move_state_slice.o ge_original_bond_move_state.o: CFLAGS += \
     -Wno-missing-braces -Wno-comment -Wno-error
 ge_original_multiplayer_players.o ge_original_multiplayer_players_slice.o \
 ge_original_stage_multiplayer_setup.o ge_original_multiplayer_regen.o \
-ge_original_multiplayer_regen_slice.o \
+ge_original_multiplayer_regen_slice.o ge_original_multiplayer_spawn.o \
+ge_original_multiplayer_death.o ge_original_multiplayer_death_slice.o \
+ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
+ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
@@ -1114,6 +1119,17 @@ ge_original_multiplayer_players_slice.c: \
         $(TOPDIR)/../../src/game/unk_092E50.c \
         $(TOPDIR)/../../scripts/extract_multiplayer_players_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_players_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_multiplayer_death_slice.c: \
+        $(TOPDIR)/../../src/game/bondview2.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_death_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_death_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_multiplayer_results_slice.c: \
+        $(TOPDIR)/../../src/game/mpmenu.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_results_slice.py \
+        $(TOPDIR)/../../scripts/extract_multiplayer_regen_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_results_slice.py \
 		$(TOPDIR)/../.. $@
 ge_original_multiplayer_regen_slice.c: \
         $(TOPDIR)/../../src/game/chrprop.c \

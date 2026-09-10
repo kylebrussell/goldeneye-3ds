@@ -1,3 +1,4 @@
+#include "ge_original_multiplayer_players.h"
 #include "ge_mp_state_session.h"
 #include "ge_original_multiplayer_session.h"
 #include "ge_original_multiplayer_watch.h"
@@ -38,6 +39,7 @@ const char *ge_mp_state_session_gap_path(GeMpSessionGapReason reason)
     case GE_MP_SESSION_GAP_RAMROM_OWNER:return "ramrom.replay_record_stream_cursors_and_header_owner";
     case GE_MP_SESSION_GAP_MUSIC_TRANSITION_OWNER:return "mp_music.mission_state_and_transition_rng_owner";
     case GE_MP_SESSION_GAP_RESOURCE_PROVIDERS:return "runtime.player_floor_gun_model_loader_providers";
+    case GE_MP_SESSION_GAP_CONTROL_OWNER:return "players.launch_controls.respawn_selection_owner";
     case GE_MP_SESSION_GAP_BUILD:return "native.US_nonDEBUG_layout";
     default:return NULL;
     }
@@ -275,6 +277,19 @@ GeMpStateStatus ge_mp_state_session_capture(const GeMpRegistry *registry,
     } else {
         gap(out,329,0,GE_MP_SESSION_GAP_WATCH_OWNER,GE_MP_STATE_INCOMPLETE);
         for(unsigned i=329;i<=336;++i)out->fields[i-256].count=0;
+    }
+    GeOriginalMultiplayerControlStorage controls;
+    if(ge_original_multiplayer_players_control_storage(&controls) && controls.count==session.count
+        && controls.explicit_selection<=1) {
+        v->controls_explicit=controls.explicit_selection;
+        for(unsigned i=0;i<4;++i) {
+            v->control_styles[i]=controls.styles[i];
+            if(controls.styles[i]<0 || controls.styles[i]>7)
+                gap(out,338,i,GE_MP_SESSION_GAP_CONTROL_OWNER,GE_MP_STATE_INCOMPLETE);
+        }
+    } else {
+        gap(out,337,0,GE_MP_SESSION_GAP_CONTROL_OWNER,GE_MP_STATE_INCOMPLETE);
+        out->fields[337-256].count=0;out->fields[338-256].count=0;
     }
     gap(out,0,0,GE_MP_SESSION_GAP_GUARD_SCHEDULE_OWNER,GE_MP_STATE_INCOMPLETE);
     gap(out,0,0,GE_MP_SESSION_GAP_RESOURCE_PROVIDERS,GE_MP_STATE_INCOMPLETE);

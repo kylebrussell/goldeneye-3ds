@@ -53,6 +53,9 @@ void ge_original_bond_input_set_fov_y(float fov_y);
  * The provider accessor follows that pointer and retains per-player options. */
 int ge_original_bond_input_bind_roster(struct player *const *players,
     struct player_data *const *permissions, uint32_t count);
+/* Atomic per-slot settings for an already bound roster; does not select a
+ * player or change the persistent single-player option. */
+int ge_original_bond_input_set_roster_control_styles(const int32_t *styles,uint32_t count);
 void ge_original_bond_input_unbind_roster(void);
 void ge_original_bond_input_set_timers(int32_t clock_timer,
     int32_t global_timer, float global_timer_delta);

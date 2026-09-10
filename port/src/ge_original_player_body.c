@@ -54,9 +54,9 @@ uint16_t get_player_mp_char_head(int32_t slot)
 {const GeOriginalPlayerBodyCharacter *c=player_character(slot);return c?(uint16_t)c->head_id:0;}
 uint16_t get_player_mp_char_body(int32_t slot)
 {const GeOriginalPlayerBodyCharacter *c=player_character(slot);return c?(uint16_t)c->body_id:0;}
-uint8_t get_player_mp_char_gender(int32_t slot)
+uint8_t get_player_mp_char_gender(int slot)
 {const GeOriginalPlayerBodyCharacter *c=player_character(slot);return c?c->gender:0;}
-float get_player_mp_char_height(int32_t slot)
+float get_player_mp_char_height(int slot)
 {const GeOriginalPlayerBodyCharacter *c=player_character(slot);return c?c->perspective_height:0.0f;}
 
 extern enum CAMERAMODE g_CameraMode;

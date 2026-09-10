@@ -7,7 +7,7 @@ starts a fresh registry after full teardown; allocation/reuse generations remain
 monotonic within that match. No process address, native padding or local display
 selection is encoded.
 
-Schema version 3 is a real typed export with 81 fields, **not a complete game checkpoint**.
+Schema version 4 is a real typed export with 83 fields, **not a complete game checkpoint**.
 It currently returns `GE_MP_STATE_INCOMPLETE` even when every exported field has
 a value, because the additional native/wrapper owners listed below remain open.
 It never changes `GeMpStateSchema.complete` or manufactures missing identities.
@@ -61,6 +61,7 @@ validated the full native header extent; an unknown pointer is never dereference
 | 299–321 | Actual active-prop counters, count, Chr count, bound/pending/player count/mask, last mismatch, ordered-allocation presence, E3 player refs, setup owner and Chr pool refs, and current native Chr/propdef/AI publication. |
 | 322–328 | Actual HUD tick, player count, initialized/prepared/captured/failed and intro-camera mask. No display snapshot or device-local selection. |
 | 329–336 | Actual watch pause owner, glow/alternate state and timers, frontend mode/count and all four physical favorite-weapon pairs. |
+| 337–338 | Actual player allocation owner's explicit launch-control flag and all four physical control-style words. Active values feed later native respawn initialization; inactive storage retains its actual allocation initialization. |
 
 The new getters in `ge_original_multiplayer_session` and
 `ge_original_multiplayer_rules` borrow the real owners. They maintain no duplicate
@@ -182,6 +183,9 @@ weapon sets, bounded publication changes, owned/external/missing demo bindings,
 missing/stale/wrong player/content identities, partial death guards and roster
 loss, and original freeze → completed death → results, time/point priority and
 abort transitions. Read-only checks retain current player, RNG and death metadata.
+Launch-control tests also change the explicit flag and every active style through
+the actual owner, reject invalid styles atomically, and verify destroy/recreate
+returns to the diagnostic default selection without altering native menu options.
 The public codec rejects an aggregate digest with the sentinel output unchanged.
 The fixture fingerprint is explicitly a typed test payload, never a state hash
 claim. The exporter and both getter owners also compile with strict ARM

@@ -46,7 +46,12 @@ GeMpStateStatus ge_mp_state_fog_begin(GeMpStateFogOwner *owner,GeMpRegistry *reg
 
 GeMpStateStatus ge_mp_state_fog_end(GeMpStateFogOwner *owner)
 {
-    if (!owner || !owner->registry || !owner->actor_id) return GE_MP_STATE_STALE;
+    if (!owner || !owner->registry || !owner->actor_id || !owner->lifetime)
+        return GE_MP_STATE_STALE;
+    /* Native lifetime expiry still needs release, but a malformed identity
+     * must never release another domain's entry in the shared registry. */
+    if ((uint32_t)(owner->actor_id>>32)!=ge_mp_registry_key(GE_MP_FOG_KIND,
+            GE_MP_FOG_NAMESPACE,GE_MP_FOG_SLOT)) return GE_MP_STATE_INVALID;
     GeMpStateStatus status=valid(owner);
     GeMpStateStatus released=ge_mp_registry_release(owner->registry,owner->actor_id);
     if (released!=GE_MP_STATE_OK) status=released;

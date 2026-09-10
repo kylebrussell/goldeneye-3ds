@@ -10,6 +10,7 @@
 #include "ge_mp_state_visibility.h"
 #include "ge_mp_state_fog.h"
 #include "ge_mp_state_objects.h"
+#include "ge_mp_state_models.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
@@ -34,10 +35,18 @@ typedef struct RuntimeStageOrdinaryEntry {
     size_t definition_size,command_index;
     uint8_t type;
 } RuntimeStageOrdinaryEntry;
+typedef struct PhysicalModelProvider {
+    Model models[5];
+    size_t capacity;
+    unsigned active_mask;
+    int fail_slot;
+} PhysicalModelProvider;
 typedef struct RuntimeStageOrdinaryObjects {
     GeOriginalStageGuardRuntime *guards;
     RuntimeStageOrdinaryEntry *entries;
     size_t entry_count;
+    PhysicalModelProvider *models, *guard_models;
+    bool initialized;
 } RuntimeStageOrdinaryObjects;
 AmmoCrateRecord g_AmmoCrates[MAX_AMMO_CRATES];
 static size_t ge_original_stage_guard_runtime_weapon_count(const GeOriginalStageGuardRuntime *r)
@@ -49,6 +58,27 @@ static int ge_original_stage_guard_runtime_player_item_definition(const GeOrigin
     size_t slot,const void **definition,size_t *bytes)
 { assert(r&&slot<30);*definition=&r->items[slot];*bytes=sizeof(r->items[slot]);return 1; }
 #include "main_object_bindings.c"
+
+static size_t ge_original_pitem_model_physical_capacity(const PhysicalModelProvider *p)
+{ return p ? p->capacity : 0; }
+static size_t ge_original_character_model_physical_capacity(const PhysicalModelProvider *p)
+{ return p ? p->capacity : 0; }
+static int physical_model_instance(const PhysicalModelProvider *p, size_t slot,
+    const void **model, size_t *bytes, int *active)
+{
+    assert(p && slot < p->capacity && slot < 5);
+    if ((int)slot == p->fail_slot) return 0;
+    *model = &p->models[slot]; *bytes = sizeof(Model);
+    *active = (p->active_mask >> slot) & 1;
+    return 1;
+}
+static int ge_original_pitem_model_physical_instance(const PhysicalModelProvider *p,
+    size_t slot, const void **model, size_t *bytes, int *active)
+{ return physical_model_instance(p, slot, model, bytes, active); }
+static int ge_original_character_model_physical_instance(const PhysicalModelProvider *p,
+    size_t slot, const void **model, size_t *bytes, int *active)
+{ return physical_model_instance(p, slot, model, bytes, active); }
+#include "main_model_bindings.c"
 
 
 static GeOriginalPropState props;
@@ -85,6 +115,7 @@ static void begin(unsigned count)
 
 static void end(unsigned count)
 {
+    runtime_multiplayer_state_end_models();
     runtime_multiplayer_state_end_objects();
     runtime_multiplayer_state_end_visibility();
     runtime_multiplayer_state_release(&multiplayer_state.bg);
@@ -176,6 +207,66 @@ static void object_bindings(unsigned count)
         assert(ge_mp_registry_resolve(&multiplayer_state.registry,ids[i],NULL)==GE_MP_STATE_STALE);
 }
 
+static void model_bindings(unsigned count)
+{
+    begin(count);
+    PhysicalModelProvider pitem = {.capacity = 3, .active_mask = 1, .fail_slot = -1};
+    PhysicalModelProvider characters = {.capacity = 5, .active_mask = 3, .fail_slot = -1};
+    RuntimeStageOrdinaryObjects objects = {.models = &pitem, .guard_models = &characters,
+        .initialized = true};
+    assert(runtime_multiplayer_state_begin_models(&objects));
+    GeMpStateModelsOwner *owner = &multiplayer_state.models;
+    assert(owner->live && owner->count == 12);
+    uint64_t ids[12]; memcpy(ids, owner->ids, sizeof(ids));
+    for (unsigned i = 0; i < 12; ++i) {
+        const GeMpModelDefinition *d = &owner->definitions[i];
+        unsigned space = i < 4 ? 0 : i < 7 ? 1 : 2;
+        unsigned slot = i < 4 ? i : i < 7 ? i - 4 : i - 7;
+        assert(d->creation_namespace == space && d->slot == slot);
+        assert(d->extent == GE_MP_MODEL_FULL && d->bytes == sizeof(Model));
+        const void *native;
+        if (space == 0) {
+            GeOriginalMultiplayerInventoryStorage storage;
+            assert(ge_original_multiplayer_inventory_storage(slot, &storage));
+            native = &storage.player->model;
+            assert(storage.active_player == (slot < count));
+        } else native = space == 1 ? &pitem.models[slot] : &characters.models[slot];
+        assert(d->model == native);
+        uint64_t id = 0;
+        assert(ge_mp_state_models_actor(owner, native, &id) == GE_MP_STATE_OK && id == ids[i]);
+        assert((uint32_t)(id >> 32) == ge_mp_registry_key(GE_MP_MODELS_KIND, space, slot));
+        assert((uint32_t)id == 1);
+    }
+    /* An inactive slot becoming allocated retains its physical identity. */
+    pitem.active_mask |= 4; characters.active_mask |= 16;
+    uint64_t id = 0;
+    assert(ge_mp_state_models_actor(owner, &pitem.models[2], &id) == GE_MP_STATE_OK && id == ids[6]);
+    end(count);
+    assert(!owner->live && !multiplayer_state.failed);
+    for (unsigned i = 0; i < 12; ++i)
+        assert(ge_mp_registry_resolve(&multiplayer_state.registry, ids[i], NULL) == GE_MP_STATE_STALE);
+    const void *unavailable = NULL; size_t bytes = 0;
+    assert(!ge_original_multiplayer_player_model_storage(0, &unavailable, &bytes));
+}
+
+static void incomplete_model_binding(void)
+{
+    begin(2);
+    PhysicalModelProvider pitem = {.capacity = 3, .fail_slot = 1};
+    PhysicalModelProvider characters = {.capacity = 5, .fail_slot = -1};
+    RuntimeStageOrdinaryObjects objects = {.models = &pitem, .guard_models = &characters,
+        .initialized = true};
+    size_t registry_count = multiplayer_state.registry.count;
+    assert(!runtime_multiplayer_state_begin_models(&objects));
+    assert(!multiplayer_state.models.live && multiplayer_state.failed && multiplayer.failed);
+    assert(multiplayer_state.registry.count == registry_count);
+    end(2);
+    assert(!runtime_multiplayer_state_begin_stage());
+    /* Independent failure scenario: emulate a fresh application process. */
+    memset(&multiplayer_state, 0, sizeof(multiplayer_state));
+    multiplayer.failed = false;
+}
+
 int main(void)
 {
     /* Separate matches start with identical keys/generations even after a
@@ -184,6 +275,10 @@ int main(void)
     repeated_stage(4);
     repeated_stage(2);
     object_bindings(2);
+    model_bindings(2);
+    model_bindings(4);
+    model_bindings(2);
+    incomplete_model_binding();
     object_bindings(4);
     object_bindings(2);
     /* Failure before player creation still retires the live stage owners. */
@@ -198,6 +293,6 @@ int main(void)
     end(2);
     assert(multiplayer_state.failed && multiplayer.failed);
     assert(!runtime_multiplayer_state_begin_stage());
-    puts("main state lifetime: native 2/4/2 history independence, within-match reuse, 56 physical EA definitions, partial loads and fail-closed retirement passed");
+    puts("main state lifetime: native 2/4/2 history independence, within-match reuse, 56 EA definitions, all 12 EC physical slots, partial loads and fail-closed retirement passed");
     return 0;
 }

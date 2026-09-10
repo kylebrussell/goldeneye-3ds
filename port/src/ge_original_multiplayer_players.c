@@ -159,3 +159,16 @@ int ge_original_multiplayer_inventory_storage(uint32_t slot,
     storage->active_player = slot < g_players->count;
     return 1;
 }
+
+int ge_original_multiplayer_player_model_storage(uint32_t slot,
+    const void **model, size_t *bytes)
+{
+    /* The decompiled player spells this native embedded Model as one pointer
+     * plus overlaid scalar fields. Gait uses this same address on both ABIs. */
+    _Static_assert(offsetof(struct player, field_6CC) - offsetof(struct player, model)
+        >= sizeof(Model), "player storage must contain the native full Model");
+    if (!g_players || slot >= 4 || !model || !bytes) return 0;
+    *model = &g_players->players[slot].model;
+    *bytes = sizeof(Model);
+    return 1;
+}

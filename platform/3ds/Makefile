@@ -84,7 +84,8 @@ LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_mp_state_session_capture -Wl,-u,ge_mp_state_session_schema \
            -Wl,-u,ge_mp_state_visibility_capture -Wl,-u,ge_mp_state_visibility_schema \
            -Wl,-u,ge_mp_state_fog_capture -Wl,-u,ge_mp_state_fog_schema \
-           -Wl,-u,ge_mp_state_objects_export -Wl,-u,ge_mp_state_objects_schema
+           -Wl,-u,ge_mp_state_objects_export -Wl,-u,ge_mp_state_objects_schema \
+           -Wl,-u,ge_mp_state_models_export -Wl,-u,ge_mp_state_models_schema
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3
@@ -503,7 +504,7 @@ ge_original_multiplayer_watch.o ge_original_multiplayer_watch_slice.o \
 ge_original_multiplayer_watch_render.o ge_original_multiplayer_watch_render_slice.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
 ge_mp_state_props.o ge_mp_state_guns.o ge_mp_state_players.o ge_mp_state_bg.o \
-ge_mp_state_session.o ge_mp_state_effects.o ge_mp_state_objects.o \
+ge_mp_state_session.o ge_mp_state_effects.o ge_mp_state_objects.o ge_mp_state_models.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
 ge_original_multiplayer_session_slice.o ge_original_multiplayer_stage_reset.o \
 ge_original_player_held_items.o \

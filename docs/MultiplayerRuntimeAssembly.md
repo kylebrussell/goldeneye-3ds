@@ -2,7 +2,7 @@
 
 The 3DS mode selector now hands the Multiplayer choice to the dedicated setup state machine. The copied start request loads the authored multiplayer arena, applies the original scenario and weapon-set preparation, creates distinct player/inventory/hand/gait owners, restores retained native stage-intro globals before spawn, places each player with the original spawn selector, and performs BeginLife after native world/body resources are available.
 
-This is a diagnostic local assembly checkpoint. A complete two/four-player match has not yet been accepted, and this does not enable synchronized UDS gameplay.
+This is a diagnostic local assembly checkpoint. A fresh native CPU graph now completes the Caves two/four-player match through the original title request. Main/GPU execution and repeat-session acceptance remain separate, and this does not enable synchronized UDS gameplay.
 
 ## Local controls and lifecycle
 
@@ -36,6 +36,20 @@ teardown, independent of prior local history. Native 2/4/2 lifecycle tests cover
 loads and deliberately missed free callbacks, with faults preventing restart.
 These ownership bindings do not produce a complete state digest.
 
+EC starts at the same fully constructed stage boundary. Namespace 0 identifies
+the full Model storage overlaid in all four physical player rows, including
+inactive rows; namespace 1 identifies every ordinary Pitem instance slot and
+namespace 2 every character instance slot. Third-person player bodies already
+belong to the character provider, and hand prefixes remain in E4. Main gathers
+the exact native full-Model spans through read-only owner getters, without
+using active allocation order or pointer values as identity. EC ends before
+ordinary model providers, gait resources or players are destroyed. The main
+lifecycle regression exercises all namespaces, inactive capacity, 2/4/2 fresh
+sessions, identity retirement and partial enumeration failure against the real
+EC/E3 registry owners. This binds Model storage only; reference providers,
+RW, topology, matrices, animation caches and allocator metadata remain explicit
+separate work in `NativeModelState.md`.
+
 Native effect initialization now owns the original count-dependent shard storage,
 spark/casing resets and updates. Canonical prop rendering retains explosion/smoke
 retirement, impact bits, monitor controllers, character statistics and native
@@ -44,14 +58,17 @@ producer. Dam’s native lake depth prefix is retained; the eleven multiplayer
 arenas keep their original ordering. Native fog is selected using the actual
 roster before view setup. Focused both-ABI source tests cover these boundaries.
 
-The fresh native host graph now builds directly from the production extraction
-recipe with source/command/header hashes. Actual Temple two/four-player bootstrap passes, and fully populated Caves
-runs 480 frames per roster through native pickup, PP7 selection, ten shots,
-reloads and ten bullet impacts. Native player hits, death/respawn and complete
-results progression remain acceptance work; these advances do not yet
-establish the complete shared-loop contract.
+The fresh native host graph builds directly from the production extraction
+recipe with source/command/header hashes. Actual Temple two/four-player bootstrap
+passes, and fully populated Caves runs a 480-frame pickup, PP7, reload and ten
+background-impact gate. Its separate controller-driven combat gate reaches
+native hits, kill credit, death/fade, respawn, timed awards, all-player results
+completion and the original title request at tick 1808 for both rosters. See
+`MultiplayerNativeAcceptance.md` for exact transitions, source/input boundaries
+and reproduction. Fixed-tape independent peers, both enum ABIs, repeat-session
+history and other arena/scenario acceptance remain ongoing.
 
-Kind0, E8, E9, EA and EB capture/schema entrypoints are force-retained in the ARM link.
+Kind0, E8, E9, EA, EB and EC capture/schema entrypoints are force-retained in the ARM link.
 Unresolved native resource references, unowned transitions and retained
 visibility room-cycle/parser-state initialization still prevent complete state
 attestation. Host model callback tokens must resolve to stable callback roles;
@@ -60,7 +77,7 @@ table registration order is not canonical wire state.
 Known work still required at this checkpoint:
 
 - End-to-end held-item wall/light acceptance. Independent BG parser/query fixes now reject inconsistent vertex mapping, overlapping scene ranges and wrong origins/provenance, while invalid queries leave a valid owner usable. Native and short-enum real-asset geometry and E7 capture tests cover all 32 stage descriptors, but do not by themselves prove a complete match.
-- Exercise actual two/four-player hit, pickup, death, respawn and results progression through the shared loop, including restart after different prior match histories. Producer-order fixtures alone do not satisfy this acceptance.
+- Extend the actual Caves two/four-player completion gate across enum ABIs, independent peers, other arenas/scenarios and restart after different prior match histories. Producer-order fixtures alone do not satisfy this acceptance.
 - Complete all native state export domains and stable-reference lifetime hooks before any protocol finish-tick digest is certified. Core/inventory domain work and the reviewed codec are insufficient as a full-state attestation.
 - Connect the match protocol and UDS transport to the accepted native loop and implement the actual network lobby/start/result flow. The existing pre-start radio probe is not a synchronized match.
 

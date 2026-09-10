@@ -116,6 +116,7 @@
 #include "ge_mp_state_visibility.h"
 #include "ge_mp_state_fog.h"
 #include "ge_mp_state_objects.h"
+#include "ge_mp_state_models.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
@@ -4450,6 +4451,7 @@ static struct {
     GeMpStateEffectsOwner effects;
     GeMpStateFogOwner fog;
     GeMpStateObjectsOwner objects;
+    GeMpStateModelsOwner models;
     GeMpStateBgSnapshot background;
     uint64_t core;
     uint64_t bg;
@@ -4590,6 +4592,13 @@ static void runtime_multiplayer_state_end_objects(void)
             ge_mp_state_objects_end(&multiplayer_state.objects));
 }
 
+static void runtime_multiplayer_state_end_models(void)
+{
+    if (multiplayer_state.models.live)
+        (void)runtime_multiplayer_state_status("models end",
+            ge_mp_state_models_end(&multiplayer_state.models));
+}
+
 static void runtime_multiplayer_state_end_players(void)
 {
     if (multiplayer_state.players.live)
@@ -4678,6 +4687,48 @@ static bool runtime_multiplayer_state_begin_objects(const RuntimeStageOrdinaryOb
     qsort(definitions,count,sizeof(*definitions),runtime_multiplayer_object_key_compare);
     return runtime_multiplayer_state_status("objects begin",
         ge_mp_state_objects_begin(owner,&multiplayer_state.props,definitions,count));
+}
+
+/* EC identifies physical Model storage: namespace 0 is the four player gait
+ * spans, 1 is the ordinary Pitem provider, 2 is the character provider. Full
+ * capacity is represented, including inactive slots. Hand prefixes belong to
+ * E4 and third-person bodies are already in the character provider. */
+static bool runtime_multiplayer_state_begin_models(const RuntimeStageOrdinaryObjects *objects)
+{
+    GeMpStateModelsOwner *owner = &multiplayer_state.models;
+    GeMpModelDefinition *definitions = owner->definitions;
+    size_t count = 0;
+    if (!objects || !objects->initialized || !objects->guard_models || owner->live)
+        return runtime_multiplayer_state_status("model storage", GE_MP_STATE_INVALID);
+    for (uint32_t slot = 0; slot < 4; ++slot) {
+        GeMpModelDefinition *d = &definitions[count++];
+        *d = (GeMpModelDefinition){.creation_namespace = 0,
+            .extent = GE_MP_MODEL_FULL, .slot = (uint16_t)slot};
+        if (!ge_original_multiplayer_player_model_storage(slot, &d->model, &d->bytes))
+            return runtime_multiplayer_state_status("player model storage", GE_MP_STATE_INCOMPLETE);
+    }
+    for (unsigned space = 1; space <= 2; ++space) {
+        size_t capacity = space == 1
+            ? ge_original_pitem_model_physical_capacity(objects->models)
+            : ge_original_character_model_physical_capacity(objects->guard_models);
+        if (capacity > UINT16_MAX || capacity > GE_MP_MODELS_CAPACITY - count)
+            return runtime_multiplayer_state_status("model storage capacity", GE_MP_STATE_CAPACITY);
+        for (size_t slot = 0; slot < capacity; ++slot) {
+            GeMpModelDefinition *d = &definitions[count++];
+            int active;
+            *d = (GeMpModelDefinition){.creation_namespace = (uint8_t)space,
+                .extent = GE_MP_MODEL_FULL, .slot = (uint16_t)slot};
+            int found = space == 1
+                ? ge_original_pitem_model_physical_instance(objects->models, slot,
+                    &d->model, &d->bytes, &active)
+                : ge_original_character_model_physical_instance(objects->guard_models, slot,
+                    &d->model, &d->bytes, &active);
+            if (!found)
+                return runtime_multiplayer_state_status("provider model storage", GE_MP_STATE_INCOMPLETE);
+        }
+    }
+    return runtime_multiplayer_state_status("models begin",
+        ge_mp_state_models_begin(owner, &multiplayer_state.props, definitions, count));
 }
 
 static float dam_intro_room_scale_reciprocal(void *context)
@@ -20415,6 +20466,7 @@ start_stage_runtime:
         if (!runtime_multiplayer_state_status("prop construction", multiplayer_state.props.fault)
                 || stage_ordinary_objects.actor_tick_status != RUNTIME_STAGE_ACTOR_TICK_READY
                 || !runtime_multiplayer_state_begin_objects(&stage_ordinary_objects)
+                || !runtime_multiplayer_state_begin_models(&stage_ordinary_objects)
                 || ge_original_multiplayer_frontend_started(&multiplayer_frontend,
                     multiplayer.request.request_id, 1) != GE_ORIGINAL_MP_FRONTEND_OK) {
             multiplayer.failed = true;
@@ -22229,6 +22281,7 @@ cleanup_runtime:
     free(dam_preview.gpu_batch_bounds);
     free(dam_preview.gpu_batch_run_ends);
     close_dam_world_objects(&dam_objects);
+    runtime_multiplayer_state_end_models();
     runtime_multiplayer_state_end_objects();
     close_stage_ordinary_objects(&stage_ordinary_objects);
     runtime_multiplayer_state_end_fog();

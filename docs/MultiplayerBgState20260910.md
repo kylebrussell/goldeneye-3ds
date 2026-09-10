@@ -6,8 +6,10 @@ background hits and breakable-light calls. It does not serialize native
 addresses, structure padding, or renderer scenes.
 
 The caller acquires the singleton registry identity after successful geometry
-load/bind and releases it before geometry close. A new stage requires a new
-registry generation. `ge_mp_state_bg_init` reserves snapshot storage once;
+load/bind and releases it before geometry close. A new geometry lifetime within
+the same registry advances its generation. A separate canonical match starts
+a fresh registry after clean teardown; protocol session identity distinguishes
+IDs that numerically recur across matches. `ge_mp_state_bg_init` reserves snapshot storage once;
 `ge_mp_state_bg_capture` performs no allocation and requires a quiescent
 canonical boundary and a live matching registry ID. Add its record and
 `ge_mp_state_bg_schema()` to the aggregate codec. Keep the snapshot in place

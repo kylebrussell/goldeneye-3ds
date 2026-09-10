@@ -24,8 +24,14 @@ void fixture_unobserved_free(PropRecord *);
 
 static void begin(unsigned count)
 {
+    /* Main acquires E7 after geometry load, before native prop reset. The
+     * subsequent stage begin must retain this same fresh-session registry. */
+    assert(runtime_multiplayer_state_registry_ready());
+    assert(runtime_multiplayer_state_acquire(GE_MP_BG_KIND, GE_MP_BG_NAMESPACE,
+        GE_MP_BG_SLOT, &multiplayer_state.bg));
     assert(ge_original_prop_state_reset(&props, 16));
     assert(runtime_multiplayer_state_begin_stage());
+    assert(ge_mp_registry_resolve(&multiplayer_state.registry, multiplayer_state.bg, NULL) == GE_MP_STATE_OK);
     if (count) {
         assert(ge_original_multiplayer_players_create(count, 0, 0x12345678, 0x9abcdef0));
         assert(runtime_multiplayer_state_begin_players());
@@ -44,6 +50,7 @@ static void begin(unsigned count)
 
 static void end(unsigned count)
 {
+    runtime_multiplayer_state_release(&multiplayer_state.bg);
     if (count) {
         runtime_multiplayer_state_end_players();
         ge_original_multiplayer_players_destroy();
@@ -54,12 +61,13 @@ static void end(unsigned count)
     runtime_multiplayer_state_end_stage();
 }
 
-static void repeated_stage(unsigned count, uint32_t generation)
+static void repeated_stage(unsigned count)
 {
     uint64_t ids[134];
     size_t used = 0;
     begin(count);
     ids[used++] = multiplayer_state.core;
+    ids[used++] = multiplayer_state.bg;
     for (unsigned slot = 0; slot < 4; ++slot) {
         ids[used++] = multiplayer_state.players.ids[slot];
         for (unsigned hand = 0; hand < 2; ++hand)
@@ -67,29 +75,38 @@ static void repeated_stage(unsigned count, uint32_t generation)
     }
     for (unsigned item = 0; item < GE_MP_INVENTORY_RECORDS; ++item) {
         uint64_t id = multiplayer_state.inventory.ids[item];
-        assert((uint32_t)id == generation);
+        assert((uint32_t)id == 1);
         assert(ge_mp_registry_resolve(&multiplayer_state.registry, id, NULL) == GE_MP_STATE_OK);
     }
     for (size_t index = 0; index < used; ++index)
-        assert((uint32_t)ids[index] == generation);
+        assert((uint32_t)ids[index] == 1);
     /* Partial object construction is retired by arena end, not a made-up free. */
     PropRecord *partial = chrpropAllocate();
     assert(partial);
     partial->type = PROP_TYPE_OBJ;
     partial->obj = NULL;
+    uint64_t before, after;
+    assert(ge_mp_state_props_actor(&multiplayer_state.props, g_Props, &before) == GE_MP_STATE_OK);
     assert(ge_original_prop_state_release(&props, g_Props));
+    PropRecord *reused = chrpropAllocate();
+    assert(reused == g_Props);
+    assert(ge_mp_state_props_actor(&multiplayer_state.props, reused, &after) == GE_MP_STATE_OK);
+    assert((uint32_t)after == (uint32_t)before + 1);
+    assert(ge_mp_registry_resolve(&multiplayer_state.registry, before, NULL) == GE_MP_STATE_STALE);
     end(count);
     assert(!multiplayer_state.failed);
     for (size_t index = 0; index < used; ++index)
         assert(ge_mp_registry_resolve(&multiplayer_state.registry, ids[index], NULL) == GE_MP_STATE_STALE);
-    assert(multiplayer_state.registry.count == 738);
+    assert(multiplayer_state.registry.count == 739);
 }
 
 int main(void)
 {
-    repeated_stage(2, 1);
-    repeated_stage(4, 2);
-    repeated_stage(2, 3);
+    /* Separate matches start with identical keys/generations even after a
+     * different roster or allocation history. Reuse inside each still advances. */
+    repeated_stage(2);
+    repeated_stage(4);
+    repeated_stage(2);
     /* Failure before player creation still retires the live stage owners. */
     begin(0);
     assert(chrpropAllocate());
@@ -102,6 +119,6 @@ int main(void)
     end(2);
     assert(multiplayer_state.failed && multiplayer.failed);
     assert(!runtime_multiplayer_state_begin_stage());
-    puts("main state lifetime: native 2/4/2 reuse, partial loads and fail-closed retirement passed");
+    puts("main state lifetime: native 2/4/2 history independence, within-match reuse, partial loads and fail-closed retirement passed");
     return 0;
 }

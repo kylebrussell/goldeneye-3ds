@@ -4391,8 +4391,9 @@ typedef struct RuntimeMultiplayerMatch {
 static RuntimeMultiplayerMatch multiplayer;
 static GeOriginalMultiplayerFrontend multiplayer_frontend;
 
-/* Keep released keys across stage restarts so physical storage reuse advances
- * generations. These identities alone do not attest complete match state. */
+/* Identities are scoped to one canonical match session. Within that session,
+ * released keys retain generations through allocation and respawn. A new
+ * match starts identically regardless of each peer's prior local history. */
 static struct {
     GeMpRegistry registry;
     GeMpRegistryEntry entries[GE_MP_STATE_MAX_RECORDS];
@@ -4403,6 +4404,7 @@ static struct {
     uint64_t core;
     uint64_t bg;
     uint64_t hands[4][2];
+    bool registry_live;
     bool failed;
 } multiplayer_state;
 
@@ -4441,10 +4443,13 @@ static void runtime_multiplayer_state_release(uint64_t *id)
 static bool runtime_multiplayer_state_registry_ready(void)
 {
     if (multiplayer_state.failed) return false;
-    return multiplayer_state.registry.entries != NULL
-        || runtime_multiplayer_state_status("registry init",
+    if (!multiplayer_state.registry_live) {
+        if (!runtime_multiplayer_state_status("registry init",
             ge_mp_registry_init(&multiplayer_state.registry,
-                multiplayer_state.entries, GE_MP_STATE_MAX_RECORDS));
+                multiplayer_state.entries, GE_MP_STATE_MAX_RECORDS))) return false;
+        multiplayer_state.registry_live = true;
+    }
+    return true;
 }
 
 static bool runtime_multiplayer_state_begin_geometry(const GeOriginalBgGeometry *geometry)
@@ -4513,6 +4518,9 @@ static void runtime_multiplayer_state_end_stage(void)
                 GE_MP_STATE_STALE);
             break;
         }
+    /* All old identities were checked before permitting a fresh session.
+     * A protocol session ID distinguishes numerically reused physical IDs. */
+    multiplayer_state.registry_live = false;
 }
 
 

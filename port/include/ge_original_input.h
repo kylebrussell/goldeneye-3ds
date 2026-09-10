@@ -31,6 +31,8 @@ typedef struct GeOriginalInputPad {
 /* A whole deterministic simulation tick is published at once. Controller p
  * belongs to slot p; controller p + count is its second pad. */
 int ge_original_input_configure_players(uint32_t count);
+uint32_t ge_original_input_configured_player_count(void);
+uint32_t ge_original_input_selected_player(void);
 int ge_original_input_tick_players(const GeOriginalInputSample *samples,
                                   uint32_t count);
 int ge_original_input_select_player(uint32_t slot);

@@ -204,6 +204,16 @@ int ge_original_input_tick_players(const GeOriginalInputSample *samples,
     return 1;
 }
 
+uint32_t ge_original_input_configured_player_count(void)
+{
+    return g_input_count;
+}
+
+uint32_t ge_original_input_selected_player(void)
+{
+    return g_input_player;
+}
+
 int ge_original_input_sample_pads(const GeOriginalInputSample *sample,
                                  GeOriginalInputPad pads[2])
 {

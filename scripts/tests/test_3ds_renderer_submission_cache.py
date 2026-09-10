@@ -59,7 +59,13 @@ assert renderer_draw.count("renderer_apply_material_cached(") == 3
 # Each eye pass starts with both caches invalidated: the other eye's HUD
 # passes changed the GPU state a valid cache would claim to describe.
 assert renderer_draw.count("world_material_cache.valid = false;") == 1
-assert renderer_draw.count("first_person_material_cache.valid = false;") == 1
+assert renderer_draw.count("first_person_material_cache.valid = false;") == 2
+# Each hand owns different texture objects even when decoded materials match.
+# Invalidate inside the hand loop before consulting its owner's texture table.
+hand_loop = renderer_draw[renderer_draw.index("for (unsigned hand = 0U; hand < 2U; ++hand)"):]
+assert hand_loop.index("first_person_material_cache.valid = false;") < hand_loop.index(
+    "if (first_person_material_cache.valid")
+assert "&first_person_scene_textures[hand]" in hand_loop
 assert "qsort(" not in renderer_draw
 assert "C3D_DrawArrays(GPU_TRIANGLES" in renderer_draw
 
@@ -68,7 +74,7 @@ assert "C3D_DrawArrays(GPU_TRIANGLES" in renderer_draw
 # world-batch loop.
 world_loop = renderer_draw.index("for (i = 0U; i < draw_batch_count;)")
 first_person_loop = renderer_draw.index(
-    "for (i = 0U; i < first_person->batch_count;)", world_loop
+    "for (i = 0U; i < hand_scene->batch_count;)", world_loop
 )
 world = renderer_draw[world_loop:first_person_loop]
 reject = world.index("!renderer_room_visible(")

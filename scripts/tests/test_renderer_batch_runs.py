@@ -24,7 +24,7 @@ update = source.split("static bool update_first_person_scene(", 1)[1].split(
     "static void close_first_person_scene(", 1)[0]
 assert update.index("runtime->uv_ready = false;") < update.index("renderer_prepare_batch_runs(")
 assert update.index("if (!runtime->uv_ready) {") < update.index("renderer_prepare_batch_runs(")
-assert "next = first_person->batch_run_ends[i];" in source
+assert "next = hand_scene->batch_run_ends[i];" in source
 
 test = r'''
 #include "ge_dam_room.h"

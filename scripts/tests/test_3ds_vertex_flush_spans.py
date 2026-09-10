@@ -104,6 +104,68 @@ def assert_multiplayer_flush(source: str) -> None:
 
 
 assert_multiplayer_flush(source)
+
+# Both hands must be copied to disjoint storage while their gun producer's
+# data is valid. A post-death scene capture can observe the respawn loadout.
+runtime_source = (repo / "port/src/ge_original_multiplayer_runtime.c").read_text()
+
+
+def assert_hand_publication(source: str, runtime_source: str) -> None:
+    prepare = function_body(source, "runtime_multiplayer_prepare_renderer")
+    hand_loop = statement_body(prepare,
+        r"for\s*\(unsigned hand = 0U; hand < 2U; \+\+hand\)\s*\{", "two hand capture")
+    assert re.search(r"Vertex \*destination = \(Vertex \*\)vertex_buffer \+ FIRST_PERSON_VERTEX_OFFSET"
+        r"\s*\+ hand \* FIRST_PERSON_VERTEX_CAPACITY;", hand_loop)
+    assert re.search(r"update_first_person_scene\(multiplayer.models\[slot\],\s*"
+        r"frame->first_person_scene\[hand\], hand, preview,\s*"
+        r"frame->texture_cache, destination, false\)", hand_loop)
+    assert re.search(r"GSPGPU_FlushDataCache\(destination,\s*"
+        r"frame->first_person_scene\[hand\]->render_vertex_count \* sizeof\(Vertex\)\)", hand_loop)
+    assert "update_first_person_scene(" not in function_body(source, "runtime_multiplayer_view_capture")
+    draw = function_body(source, "renderer_draw")
+    assert "hand_scenes[2] = {first_person, left_hand}" in draw
+    assert re.search(r"FIRST_PERSON_VERTEX_OFFSET \+ hand \* FIRST_PERSON_VERTEX_CAPACITY"
+        r"\s*\+ batch->first_vertex", draw)
+    assert re.search(r"#define FIRST_PERSON_LEFT_VERTEX_OFFSET\s*\\\s*"
+        r"\(FIRST_PERSON_VERTEX_OFFSET \+ FIRST_PERSON_VERTEX_CAPACITY\)", source)
+    assert re.search(r"#define AUTOGUN_BEAM_VERTEX_OFFSET\s*\\\s*"
+        r"\(FIRST_PERSON_LEFT_VERTEX_OFFSET \+ FIRST_PERSON_VERTEX_CAPACITY\)", source)
+    update = function_body(source, "update_first_person_scene")
+    assert update.index("runtime->ready = false;") < update.index("if (models == NULL")
+    tick = function_body(runtime_source, "ge_original_multiplayer_runtime_tick")
+    assert tick.index("ge_original_gun_live_tick()") < tick.index("frame->prepare_local_renderer(")
+    assert tick.index("frame->prepare_local_renderer(") < tick.index("ge_original_multiplayer_death_post_gun(")
+    assert tick.index("frame->prepare_local_renderer(") < tick.index("ge_original_multiplayer_respawn(")
+
+
+assert_hand_publication(source, runtime_source)
+for original, replacement in (
+    ("+ hand * FIRST_PERSON_VERTEX_CAPACITY", "+ 0U * FIRST_PERSON_VERTEX_CAPACITY"),
+    ("frame->first_person_scene[hand], hand, preview", "frame->first_person_scene[0], 0U, preview"),
+    ("hand_scenes[2] = {first_person, left_hand}", "hand_scenes[2] = {first_person, first_person}"),
+    ("(FIRST_PERSON_LEFT_VERTEX_OFFSET + FIRST_PERSON_VERTEX_CAPACITY)",
+     "(FIRST_PERSON_VERTEX_OFFSET + FIRST_PERSON_VERTEX_CAPACITY)"),
+    ("if (runtime != NULL) runtime->ready = false;", "/* stale hand retained */"),
+):
+    changed = source.replace(original, replacement)
+    assert changed != source
+    try:
+        assert_hand_publication(changed, runtime_source)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError(f"hand publication regression not detected: {original}")
+for late_call in ("ge_original_multiplayer_death_post_gun", "ge_original_multiplayer_respawn"):
+    changed = runtime_source.replace("frame->prepare_local_renderer(", "hand_capture_marker(")
+    changed = changed.replace(late_call + "(", "frame->prepare_local_renderer(")
+    changed = changed.replace("hand_capture_marker(", late_call + "(")
+    try:
+        assert_hand_publication(source, changed)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError(f"late hand capture regression not detected: {late_call}")
+
 capture = function_body(source, "runtime_multiplayer_view_capture")
 for original, replacement in (
     ("preview->gpu_dirty_vertex_count != 0U", "1"),
@@ -147,4 +209,4 @@ assert "assert(vertex_count <= vertex_capacity);" in helper
 assert "assert(vertex_capacity <= TOTAL_VERTEX_COUNT);" in helper
 assert "TOTAL_VERTEX_COUNT <= SIZE_MAX / sizeof(Vertex)" in source
 
-print("3DS cache flush spans: full init, 6-vertex sight, independently bounded solo/slider/multiplayer publication")
+print("3DS cache flush spans: full init, 6-vertex sight, bounded solo/slider/multiplayer, independent pre-death dual hands")

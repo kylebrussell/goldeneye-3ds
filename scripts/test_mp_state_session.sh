@@ -7,13 +7,16 @@ python3 "${repo_dir}/scripts/extract_multiplayer_players_slice.py" "${repo_dir}"
 python3 "${repo_dir}/scripts/extract_mp_state_session_fixture.py" "${repo_dir}" "${test_dir}/support.c"
 python3 "${repo_dir}/scripts/extract_multiplayer_session_slice.py" "${repo_dir}" "${test_dir}/session.c"
 python3 "${repo_dir}/scripts/extract_multiplayer_death_slice.py" "${repo_dir}" "${test_dir}/death.c"
+python3 "${repo_dir}/scripts/extract_multiplayer_watch_slice.py" "${repo_dir}" "${test_dir}/watch.c"
+python3 "${repo_dir}/scripts/extract_multiplayer_watch_fixture.py" "${repo_dir}" "${test_dir}/watch-support.c"
 flags=(-std=gnu11 -O1 -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections -fsanitize=address,undefined
 -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA
 -DGE_PORT_MS_INHERITS -DVERSION_US -DPLAYERFLAG=int -fms-extensions -Wno-everything
 -DGE_PORT_BLOOD_DECODE_SLICE
 -I"${repo_dir}" -I"${repo_dir}/port/include" -I"${repo_dir}/src/game"
 -idirafter "${repo_dir}/include" -idirafter "${repo_dir}/include/PR" -idirafter "${repo_dir}/src")
-sources=(port/src/ge_mp_state_session.c port/src/ge_mp_state_players.c port/src/ge_mp_state.c
+sources=(port/src/ge_original_multiplayer_watch.c port/tests/multiplayer_watch_audio_resources.c src/game/music_0D2720.c src/game/frametiming.c
+port/src/ge_mp_state_session.c port/src/ge_mp_state_players.c port/src/ge_mp_state.c
 port/src/ge_original_stage_active_props.c
 port/src/ge_original_multiplayer_hud.c
 port/src/ge_original_multiplayer_players.c port/src/ge_original_multiplayer_rules.c
@@ -29,7 +32,7 @@ for abi in native short; do
     cc "${flags[@]}" "${enum[@]}" -UPLAYERFLAG -DGE_PORT_BOND_INTRO_SPAWN_SLICE -c "${repo_dir}/src/game/bondview_r.c" -o "${test_dir}/spawn-${abi}.o"
     for fixture in session session_owners; do
     cc "${flags[@]}" "${enum[@]}" "${sources[@]}" "${repo_dir}/port/tests/test_ge_mp_state_${fixture}.c" "${test_dir}/players.c" "${test_dir}/support.c" \
-        "${test_dir}/session.c" "${test_dir}/death.c" "${test_dir}/spawn-${abi}.o" "${strip[@]}" -lm -o "${test_dir}/test-${abi}"
+        "${test_dir}/session.c" "${test_dir}/watch.c" "${test_dir}/watch-support.c" "${test_dir}/death.c" "${test_dir}/spawn-${abi}.o" "${strip[@]}" -lm -o "${test_dir}/test-${abi}"
     for count in 2 4; do
         for peer in 0 1; do
             ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \

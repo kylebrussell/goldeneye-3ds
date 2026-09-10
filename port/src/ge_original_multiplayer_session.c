@@ -1,4 +1,5 @@
 #include "ge_original_multiplayer_session.h"
+#include "ge_original_multiplayer_watch.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
@@ -12,7 +13,6 @@
 
 extern s32 g_stopPlayFlag, g_gameOverFlag, g_pausedFlag, g_MpTime, g_MpPoint;
 extern struct mp_stage_playercount mp_player_counts[];
-void ge_original_mp_session_results_exact(void);
 void ge_original_mp_session_decide_exact(s32,s32,s32,s32,uint32_t *,uint32_t *);
 
 static struct player *session_players[4];
@@ -65,6 +65,8 @@ GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_reset(
     if(time_limit60<0 || point_limit<0) return GE_ORIGINAL_MP_SESSION_INVALID_ARGUMENT;
     status=validate(0);
     if(status!=GE_ORIGINAL_MP_SESSION_OK) return status;
+    if(ge_original_multiplayer_watch_bind()!=GE_ORIGINAL_MP_WATCH_OK)
+        return GE_ORIGINAL_MP_SESSION_INVALID_ROSTER;
     lvlSetControlsLockedFlag(0);
     mpwatchUnpauseGame();
     lvlSetMpTime(time_limit60);
@@ -111,8 +113,15 @@ GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_tick(
             :(results&GE_ORIGINAL_MP_SESSION_CAUSE_POINT)
                 ?GE_ORIGINAL_MP_FRONTEND_END_POINT_LIMIT
                 :GE_ORIGINAL_MP_FRONTEND_END_ELIMINATION;
-        ge_original_mp_session_results_exact();
         session.decision=GE_ORIGINAL_MP_END_RESULTS;
+        /* lv.c may execute several terminal calls in this same frame.
+         * Retain each full awards/RNG/resource transition in source order. */
+        for(uint32_t cause=GE_ORIGINAL_MP_SESSION_CAUSE_TIME;
+                cause<=GE_ORIGINAL_MP_SESSION_CAUSE_ELIMINATION;cause<<=1)
+            if((results&cause) && ge_original_multiplayer_watch_awards(0)!=GE_ORIGINAL_MP_WATCH_OK) {
+                ge_original_multiplayer_session_snapshot(state);
+                return GE_ORIGINAL_MP_SESSION_RESOURCE_FAILED;
+            }
     } else session.decision=g_stopPlayFlag?GE_ORIGINAL_MP_END_FREEZE:GE_ORIGINAL_MP_END_RUNNING;
     return ge_original_multiplayer_session_snapshot(state);
 }
@@ -141,10 +150,13 @@ GeOriginalMultiplayerSessionStatus ge_original_multiplayer_session_abort(
     status=validate(1);
     if(status!=GE_ORIGINAL_MP_SESSION_OK)return status;
     if(session.decision!=GE_ORIGINAL_MP_END_RESULTS) {
-        ge_original_mp_session_results_exact();
         session.decision=GE_ORIGINAL_MP_END_RESULTS;
         session.results_causes=GE_ORIGINAL_MP_SESSION_CAUSE_ABORT;
         session.end_reason=GE_ORIGINAL_MP_FRONTEND_END_ABORT;
+        if(ge_original_multiplayer_watch_awards(0)!=GE_ORIGINAL_MP_WATCH_OK) {
+            ge_original_multiplayer_session_snapshot(state);
+            return GE_ORIGINAL_MP_SESSION_RESOURCE_FAILED;
+        }
     }
     return ge_original_multiplayer_session_snapshot(state);
 }

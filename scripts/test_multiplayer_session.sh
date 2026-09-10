@@ -19,6 +19,9 @@ for file,names in (('lv.c',('lvlSetControlsLockedFlag','lvlGetControlsLockedFlag
     text.extend(function_text(source,name) for name in names)
 Path(sys.argv[2]).write_text('\n'.join(text))
 PY
+python3 "${repo_dir}/scripts/extract_multiplayer_watch_slice.py" "${repo_dir}" "${build_dir}/watch.c"
+python3 "${repo_dir}/scripts/extract_multiplayer_watch_fixture.py" "${repo_dir}" "${build_dir}/watch-support.c"
+if [[ $(uname -s) == Darwin ]]; then strip=(-Wl,-dead_strip); else strip=(-Wl,--gc-sections); fi
 cc -std=gnu11 -O1 -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections \
     -fsanitize=address,undefined -D_LANGUAGE_C -DGE_PORT_MS_INHERITS -fms-extensions \
     -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA -DVERSION_US -DPLAYERFLAG=int \
@@ -30,5 +33,9 @@ cc -std=gnu11 -O1 -g -fno-omit-frame-pointer -ffunction-sections -fdata-sections
     "${repo_dir}/port/src/ge_original_multiplayer_session.c" \
     "${repo_dir}/port/src/ge_original_level.c" "${repo_dir}/src/game/lv.c" \
     "${repo_dir}/src/game/mp_weapon.c" "${repo_dir}/port/tests/test_ge_original_multiplayer_session.c" \
-    -lm -o "${build_dir}/test_session"
+    "${build_dir}/watch.c" "${build_dir}/watch-support.c" \
+    "${repo_dir}/port/src/ge_original_multiplayer_watch.c" \
+    "${repo_dir}/port/src/ge_original_multiplayer_players.c" \
+    "${repo_dir}/src/game/music_0D2720.c" "${repo_dir}/port/tests/multiplayer_watch_audio_resources.c" \
+    "${strip[@]}" -lm -o "${build_dir}/test_session"
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 "${build_dir}/test_session"

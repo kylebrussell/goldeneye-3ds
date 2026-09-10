@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Retain canonical match stop/reset and limit action order, without awards/UI."""
+"""Retain canonical match stop/reset and limit action order, with complete awards owned by the watch slice."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -23,35 +23,12 @@ def render(repo):
 extern s32 g_stopPlayFlag, g_gameOverFlag, g_pausedFlag;
 extern s32 g_MpTime; /* lv.c timer slice owns this storage. */
 s32 g_MpPoint = 0xA;
-s32 chevron_glow;
-s32 chevron_glow_timer;
-s32 alt_gameover_msg;
-s32 alt_gameover_msg_timer;
-void set_missionstate(s32 state);
 '''
     for source,names in ((menu,('mpwatchUnpauseGame','mpwatchSetStopPlayFlag','pauseAndLockControls')),
                          (lv,('lvlSetMpTime','lvlSetMpPoint'))):
         for name in names:
             body=function_text(source,name)
             out+='\n/* '+name+' sha256 '+hashlib.sha256(body.encode()).hexdigest()+' */\n'+body+'\n'
-    awards=function_text(menu,'mpCalculateAwards')
-    start=awards.index('    pauseAndLockControls();')
-    end=awards.index('    prev_player_num =',start)
-    out+='''
-/* Exact state-only awards entry. Resource music/SFX and cosmetic award
- * calculation remain owned by the results presentation lifecycle. */
-void ge_original_mp_session_results_exact(void)
-{
-    s32 i, player_count=getPlayerCount(), prev_player_num=get_cur_playernum();
-    const bool gameoverdelay=FALSE;
-'''
-    out+='    '+awards[awards.index('set_missionstate('):awards.index('set_missionstate(')+len('set_missionstate(MISSION_STATE_0);')]+'\n'
-    out+=awards[start:end]
-    # Preserve the actual per-player menu publication prefix and current owner.
-    menu_start=awards.index('        set_cur_player(i);')
-    menu_end=awards.index('        bondinvGetWeaponOfChoice',menu_start)
-    out+='    for (i=0; i<player_count; ++i)\n    {\n'+awards[menu_start:menu_end]+'    }\n    set_cur_player(prev_player_num);\n}\n'
-    out+='/* mpCalculateAwards sha256 '+hashlib.sha256(awards.encode()).hexdigest()+' */\n'
     # Observe each unchanged lv.c terminal action. The source itself has no
     # cause field; retain all causes and their source order explicitly.
     time,_=block(lv,'if ((current_time < g_MpTime) && (sp180 >= g_MpTime))')

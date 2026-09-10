@@ -25,7 +25,8 @@ typedef enum GeOriginalMultiplayerRuntimeStatus {
     GE_ORIGINAL_MP_RUNTIME_GUN_FAILED,
     GE_ORIGINAL_MP_RUNTIME_BODY_FAILED,
     GE_ORIGINAL_MP_RUNTIME_HUD_FAILED,
-    GE_ORIGINAL_MP_RUNTIME_RESPAWN_FAILED
+    GE_ORIGINAL_MP_RUNTIME_RESPAWN_FAILED,
+    GE_ORIGINAL_MP_RUNTIME_WATCH_FAILED
 } GeOriginalMultiplayerRuntimeStatus;
 
 typedef struct GeOriginalMultiplayerRuntimeFrame {

@@ -7,7 +7,7 @@ starts a fresh registry after full teardown; allocation/reuse generations remain
 monotonic within that match. No process address, native padding or local display
 selection is encoded.
 
-Schema version 2 is a real typed export with 73 fields, **not a complete game checkpoint**.
+Schema version 3 is a real typed export with 81 fields, **not a complete game checkpoint**.
 It currently returns `GE_MP_STATE_INCOMPLETE` even when every exported field has
 a value, because the additional native/wrapper owners listed below remain open.
 It never changes `GeMpStateSchema.complete` or manufactures missing identities.
@@ -60,6 +60,7 @@ validated the full native header extent; an unknown pointer is never dereference
 | 289–298 | Caller next committed tick/elapsed/boundary, actual death owner count, E6 roster refs, pre/post tick arrays and masks, and each active live wrapper's `initialized` admission flag. |
 | 299–321 | Actual active-prop counters, count, Chr count, bound/pending/player count/mask, last mismatch, ordered-allocation presence, E3 player refs, setup owner and Chr pool refs, and current native Chr/propdef/AI publication. |
 | 322–328 | Actual HUD tick, player count, initialized/prepared/captured/failed and intro-camera mask. No display snapshot or device-local selection. |
+| 329–336 | Actual watch pause owner, glow/alternate state and timers, frontend mode/count and all four physical favorite-weapon pairs. |
 
 The new getters in `ge_original_multiplayer_session` and
 `ge_original_multiplayer_rules` borrow the real owners. They maintain no duplicate
@@ -86,11 +87,9 @@ shuffle, RNG and input/replay transport state. E1/E2 own inventory, permissions,
 teams, kills/deaths, flag counters and YOLT ranking. E6 owns native player death,
 fade, spawn cursor and per-player menu state. These are not duplicated here.
 
-Four explicit gap paths remain even when the active-prop and HUD owners are
+Three explicit gap paths remain even when the active-prop and HUD owners are
 supplied and valid:
 
-- `mpwatch.who_paused_and_watch_transition_owner`: the retained match slice has
-  no actual `who_paused` owner; it controls who can resume an original pause.
 - `runtime.guards.matrix_muzzleflash_tick_guards`: wrapper guards that admit
   canonical model/muzzle updates require the real guard owner.
 - `runtime.player_floor_gun_model_loader_providers`: current selected provider
@@ -114,8 +113,9 @@ successful whole-world boundary. Failed partial frames must abort, not be
 captured as a commit. View-local snapshots, current display/eye, renderer buffers,
 wall-clock accumulator, pending device buttons, control routing, frontend request
 sequence and diagnostic status/counters are not canonical fields in this record.
-Chevron glow and alternate game-over message state only select original menu
-presentation. The mission music state is separately identified above.
+Chevron glow and alternate game-over message state select native menu
+presentation and are retained verbatim with that owner. The mission music state
+is separately identified above.
 
 ## Active-prop and HUD owner closure
 
@@ -148,35 +148,22 @@ scheduling gap. Its durable display snapshots are excluded because they are
 only read by presentation; the next begin-frame clears them before production.
 Native HUD producers and their queue/content dependencies are separate owners.
 
-### Original watch transition integration still required
+### Retained watch transition owner
 
-Production currently retains `g_pausedFlag`, stop/game-over flags, exact
-`mpwatchUnpauseGame`, `mpwatchSetStopPlayFlag`, `pauseAndLockControls`, and the
-state-only results entry. It does **not** retain `who_paused` or
-`mpwatchMenuTick`. This checkpoint intentionally adds no weak-symbol discovery,
-unused zero shadow or substitute pause transition.
+`ge_original_multiplayer_watch_snapshot` now reads the actual retained menu
+owner. It has no duplicate zero state or weak-symbol discovery. See
+[MultiplayerWatch.md](MultiplayerWatch.md) for the exact source closure, native
+awards RNG/audio transitions, input ordering and result exit boundary.
 
-The exact source closure to integrate later is in `src/game/mpmenu.c`:
-
-- `mpwatchMenuTick`, `mpwatchMenuCanGoRight`, `mpwatchMenuCanGoLeft`,
-  `mpwatchIsPlayerPressingRight`, `mpwatchIsPlayerPressingLeft` and
-  `mpwatchPlayBeep`.
-- Actual `who_paused`, the already-owned pause/stop/game-over globals, and
-  chevron/alternate-message state if the complete menu tick is retained.
-- Canonical current/count/roster/shuffle getters, `speedgraphframes`,
-  `joyGetStickXInRange`, `joyGetButtonsPressedThisFrame`, `getMissiontimer`,
-  player menu/health/life fields (E6) and permanent statistic fields (E2).
-- Native control-lock setter, beep SFX/bank owner, `bossSetLoadedStage`, and the
-  real awards/results transition. Confirmed quit must be paired with the
-  private session adapter's abort/end-cause publication; retaining a native
-  call that changes only game-over flags would leave that adapter inconsistent.
-
-The original first shuffled player decrements the game-over countdown and
-updates menu animation timers. Each player's menu tick can update longest-life
-statistics, pause/resume, close/open menus, or request exit. `who_paused` is set
-when a player actually pauses; `mpwatchUnpauseGame` does not clear it. Its source
-lifetime and later reads must be respected. Resetting it to the device's local
-slot or zero to force peer equality would change or erase native state.
+The original first shuffled player owns global timers. `who_paused` changes
+when a player pauses; `mpwatchUnpauseGame` does not clear it. Glow/message state
+changes only in menu ticks and awards. Favorites are overwritten only for active
+players during awards. These actual fields are exported verbatim, including
+prior-match history. Full kind0 initial bytes therefore need not converge after
+different previous menu histories. Tests preserve that history; the historical
+cross-history comparison explicitly projects fields 256–328 only. It is not a
+whole-native-state digest or permission to zero these fields. Agreeing a native
+starting watch state across network participants remains a protocol boundary.
 
 ## Validation
 
@@ -187,8 +174,9 @@ content identities, animation end-frame input and sound/text sinks are provided
 by the fixture; no replacement scoring, blood or death algorithm is used.
 
 ASan/UBSan run native and short-enum binaries in separate 2/4-player processes.
-They compare typed payload bytes across different local selections and different
-prior-match histories, including a repeated 2→4→2 ownership sequence. Tests
+They compare the prior-domain typed payload projection across different local
+selections and prior-match histories, including a repeated 2→4→2 ownership
+sequence. Watch fields also receive native mutation checks. Tests
 exercise native scalar/array mutations, authored pad order and offsets, all 14
 weapon sets, bounded publication changes, owned/external/missing demo bindings,
 missing/stale/wrong player/content identities, partial death guards and roster

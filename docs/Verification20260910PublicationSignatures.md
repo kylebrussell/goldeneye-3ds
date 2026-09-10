@@ -120,5 +120,39 @@ validation receipt, logs and planned route requests are under
 [measurement report](Verification20260910PerformanceMeasurement.md) for hashes
 and the physical test procedure. The frozen synthetic benchmark is prepared
 under `build/performance-20260910/signature-final/`, with its own exact source
-and executable receipt. Timing remains scheduled through integration; this
-task's result is a verified operation reduction, not a measured FPS gain.
+and executable receipt. Route timing remains scheduled through integration;
+this task does not claim a measured FPS gain.
+
+## Coordinator's quiet host measurement
+
+The integration coordinator ran that frozen executable in a quiet window,
+with other tasks' builds/tests stopped. All 21 paired checksum comparisons
+passed. Every repeat is retained, including the first same-room baseline's
+23.2480 us sample. Times below are process CPU microseconds per complete
+signature-preparation call (`clock()`), on macOS 27 ARM64, at `-O3`.
+
+| Synthetic placement case | Baseline median us (range) | Candidate median us (range) | Median reduction |
+| --- | ---: | ---: | ---: |
+| All 192 inputs in one room | 20.7895 (20.6425–23.2480) | 12.1635 (12.1510–12.4915) | 41.49% |
+| 24 parts per room | 20.9390 (20.8890–21.4450) | 12.5805 (12.5520–12.8975) | 39.92% |
+| Unique room per input | 20.9325 (20.8750–21.5550) | 20.9215 (20.8810–21.0055) | Essentially flat |
+
+Grouped placements improve in every pair. The unique-room control's 0.0110 us
+median difference is too small to support a gain claim. These are seven
+alternating-order pairs per case, 2,000 calls per variant, with one declared
+scratch-allocation warmup. They measure the actual full signature-preparation
+routine, including bank quantization/hashing, rather than only the new helper.
+Inputs remain synthetic; geometry transformation, GPU work, audio, loading and
+presentation are excluded. This demonstrates local host CPU savings, not ARM32
+New 3DS XL frame-time savings or sustained game performance.
+
+Private `signature-final/timing.json` is a read-only copy of integration's
+`build/integration/signature-microbenchmark.json`, SHA-256
+`ad23c23846aaa16711341b9778c5ae5c74055e07eb9ab3fd4ffc7f63925acee1`.
+The executed benchmark SHA-256 is
+`d2f677821ebfc4efcfab219146f990f18fa0d302ac0633cdcb3afa6c419626b4`.
+`measurement-summary.json` retains means, medians, ranges and the original
+provenance digest. Final integrated comparisons must share every renderer,
+native-audio and lifecycle repair, with only placement-prefix reuse changing;
+require unchanged input/assets/cadence, complete tails and separate PCM/live
+gates before attributing an in-game improvement to this change.

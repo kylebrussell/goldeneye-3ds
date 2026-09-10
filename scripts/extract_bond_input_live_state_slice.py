@@ -341,6 +341,12 @@ def main() -> None:
         "#ifndef M_LN2F",
         "#define M_LN2F      0.69813174f",
         "#endif",
+        "/* Preserve the other-hand address without first forming hands[-1]. */",
+        "#if (defined(GE_PORT_FULL_GAMEPLAY_RUNTIME) || defined(GE_PORT_BOND_INPUT_HOST_STATE)) && !defined(__arm__)",
+        "#define GE_PORT_INPUT_OTHER_HAND(hands, hand) ((hands) + (1 - (hand)))",
+        "#else",
+        "#define GE_PORT_INPUT_OTHER_HAND(hands, hand) ((hands - hand) + 1)",
+        "#endif",
         "#define GAUGE_BAR_VERTEX_PAIR_STRIDE (2 * sizeof(struct WatchVertex))",
         "#if defined(GE_PORT_BOND_INPUT_HOST_STATE) && !defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)",
         "f32 watch_transition_time = 0.90909088f;",
@@ -523,7 +529,13 @@ def main() -> None:
         source = (args.repo / relative).read_text()
         sections.append(f"/* Exact bodies from {relative}. */")
         for name in names:
-            sections.extend((find_function(source, name), ""))
+            body = find_function(source, name)
+            if name == "gunTickHandState":
+                original = "(g_CurrentPlayer->hands - hand) + 1"
+                if body.count(original) != 2:
+                    raise ValueError("canonical opposite-hand expressions changed")
+                body = body.replace(original, "GE_PORT_INPUT_OTHER_HAND(g_CurrentPlayer->hands, hand)")
+            sections.extend((body, ""))
             count += 1
 
     glass_source = (args.repo / "src/game/glass2.c").read_text()

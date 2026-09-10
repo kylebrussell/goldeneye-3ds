@@ -216,7 +216,14 @@ def main() -> None:
             source_text = (ROOT / relative).read_text()
             for name in names:
                 expected = canonical_tokens(function_body(source_text, name))
-                actual = canonical_tokens(function_body(generated_text, name))
+                actual_body = function_body(generated_text, name)
+                if name == "gunTickHandState":
+                    assert actual_body.count("GE_PORT_INPUT_OTHER_HAND(g_CurrentPlayer->hands, hand)") == 2
+                    assert "#define GE_PORT_INPUT_OTHER_HAND(hands, hand) ((hands) + (1 - (hand)))" in generated_text
+                    assert "#define GE_PORT_INPUT_OTHER_HAND(hands, hand) ((hands - hand) + 1)" in generated_text
+                    actual_body = actual_body.replace("GE_PORT_INPUT_OTHER_HAND(g_CurrentPlayer->hands, hand)",
+                        "(g_CurrentPlayer->hands - hand) + 1")
+                actual = canonical_tokens(actual_body)
                 assert actual == expected, f"{name} differs from {relative}"
                 checked += 1
         glass_source = (ROOT / "src/game/glass2.c").read_text()

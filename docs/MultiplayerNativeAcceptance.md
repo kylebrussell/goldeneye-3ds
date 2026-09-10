@@ -82,19 +82,21 @@ collision result. Player zero aims using its published camera and ordinary pad
 input; no position, health, inventory, ammo, hand state, score or death flag is
 assigned by the fixture.
 
-The current canonical seed produces this transcript (ticks are zero-based):
+The frozen cold-process Caves tapes, including the corrected native stage music
+initializer, produce this transcript (ticks are zero-based):
 
 | Transition | Two players | Four players |
 | --- | ---: | ---: |
 | Authored PP7 pickup | 84 | 84 |
 | First native player damage | 592 | 592 |
-| Victim death and killer score 1 | 688 | 942 |
-| Controller-triggered native respawn | 1088 | 1254 |
+| Victim death and killer score 1 | 754 | 754 |
+| Controller-triggered native respawn | 1072 | 1154 |
 | Original timed results/awards | 1799 | 1799 |
 | All menus FINISHED, original TITLE request | 1808 | 1808 |
 
-The two-player victim dies from the PP7. In the four-player run, the PP7 uses
-its ten rounds and the original fist dispatch finishes the victim. The test
+Both victims die from the PP7 after eight shots, including a native reload.
+The two-player victim reaches `bonddead=2` during the death frame; the
+four-player victim reaches it on tick 755, following its next canonical pass. The test
 requires exactly one observed death, one respawn with full health, one recorded
 kill, timed results with readable native award text ownership, and the original
 all-player menu completion condition. It verifies reuse of the same native
@@ -112,3 +114,64 @@ This gate covers CPU gameplay through the title request. GPU submission, audio
 hardware, dual-wield presentation, complete exported-state agreement, networking,
 radio behavior and performance remain separate acceptance work. The routing and
 aiming code is test input generation; it does not replace a game subsystem.
+
+## Frozen controller and restart controls
+
+The raw-pad replay driver is:
+
+```sh
+python3 scripts/test_multiplayer_match_replay.py
+```
+
+It builds both native enum widths with explicit compiler flags, then runs two
+independent processes for each cold roster and each complete 2/4/2 stage chain.
+The chain closes actual consumers, destroys the native roster, retires the prop
+pool and reconstructs stage resources between matches. Every reconstruction
+uses the same two RNG seeds and the same roster-specific input tape. During
+replay the adaptive route/aim generator is bypassed; only the tape publishes
+pads. `--record --abis native` is an explicit tape-authoring operation, separate
+from replay acceptance.
+
+The bootstrap retains the production stage music boundary after initial spawn
+and ordinary supply construction, before player body/life initialization:
+`ge_port_start_stage`, the exact music-slot reset, then `sub_GAME_7F0C11FC`.
+The latter performs its original random track selection. Every frame retains
+music fade service after the shared pre-world/shuffle boundary. Audio device
+and sequence output remain platform/resource boundaries.
+
+`controls-identity.json` records source and generated-source hashes, exact
+compiler commands, compiler binary/version/target, compiler header dependencies,
+extractor recipes and local Python imports, archive/fixture identities, asset
+hashes and raw-tape hashes. The builder rejects a dependency or recipe that
+changes during compilation. The driver rejects an asset or replay tape changing
+during execution. These are local evidence receipts, not a negotiated network
+manifest or a complete host-system image identity.
+
+The JSONL witness records an explicit bounded set of native values: both RNG
+streams, mission/watch/player-tick counters, selected slot, music transition
+state/slots, session flags, player position/health/death/menu/hand/ammo/statistics,
+resolved animation offsets, readable awards, authored prop state and active-list
+pool indices. It also records raw pool and player lifetime counters separately.
+There are no raw pointers or padded structure dumps. Independent peers and enum
+widths compare the entire witness. Restart comparisons retain every native value
+and list differences; only the test run label is excluded. Source-backed
+assertions reject any unexplained difference rather than rewriting witnesses
+for equality. These comparisons
+are not a complete exported-state digest.
+
+The restart control exposed a missing stage reset: the original boss calls
+`reset_play_data_ptrs` before constructing viewports. The native roster adapter
+now retains that exact reset, so the initial shuffle is `[0,1,2,3]` on every
+stage; the previous caller context is restored when the roster is destroyed.
+The fixture seeds real prior order with the original shuffle function, and a
+removed-reset negative control fails.
+
+The remaining cold/warm differences are source history. `g_PlayerTickCount`
+continues from 0 to 1800, then 7200, then 9000 in the 2/4/2 chain. Its original
+`>=2` gate leaves both cold two-player body animation references null on tick 0;
+a warm two-player match publishes animation offsets 30588 and 33172 on that
+tick. The cold match publishes those same offsets on tick 1. Raw pool lifetimes
+are 1/2/3, with allocation boundaries 0/29/60 and final counts 29/60/89; player
+storage lifetimes likewise advance 1/2/3. These values remain in the receipts
+and are not rewritten to claim state equality. The gate rejects any other
+witness difference and checks continuity across actual teardown/reconstruction.

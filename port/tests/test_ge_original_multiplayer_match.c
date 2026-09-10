@@ -26,6 +26,7 @@
 extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_port.h"
 #include "ge_dam_world.h"
+#include "ge_dam_sky.h"
 #include "ge_dam_visibility_runtime.h"
 #include "ge_original_bg_geometry.h"
 #include "ge_original_bond_movement.h"
@@ -42,6 +43,8 @@ extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_original_multiplayer_players.h"
 #include "ge_original_multiplayer_runtime.h"
 #include "ge_original_multiplayer_session.h"
+#include "ge_original_music_port.h"
+#include "game/mp_music.h"
 #include "ge_original_multiplayer_spawn.h"
 #include "ge_original_multiplayer_stage_reset.h"
 #include "ge_original_player_body.h"
@@ -103,6 +106,8 @@ typedef struct Match {
     const GeStanNativeTile *route[1024];
     size_t route_count, route_at;
 } Match;
+
+#include "ge_multiplayer_match_controls.inc"
 
 static const GeOriginalBondMovementProviders movement = {
     .collision_types=ge_original_bond_movement_normal_collision_types,
@@ -352,10 +357,12 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     const GeStageAssetDescriptor *stage=ge_stage_asset_multiplayer(supplies?2:0);
     GeStanCollisionSurface surface;size_t size,storage_size;
     GeOriginalBgGeometryReport bg_report;
+    GeOriginalStageEnvironment environment;float cloud_offset=0.0f;
+    assert(ge_original_stage_environment_select_for_player_count(stage->level_id,0,count,&environment));
     GeOriginalCharacterModelStatus model_status;GeOriginalPitemModelStatus item_status;
     GeOriginalStageGuardRuntimeStatus body_status;GeOriginalStageGuardWeaponBindReport weapon_report;
     GeOriginalMultiplayerConfig config={(int32_t)count,SCENARIO_NORMAL,1,stage->level_id,{0,0,1,1}};
-    ge_port_init(&match->port);assert(ge_port_start_stage(&match->port,stage->level_id));
+    ge_port_init(&match->port);
 
     match->collision=asset_bytes(arena,stage->collision_path,&size);
     assert(ge_stan_collision_open(match->collision,size,&surface)==GE_STAN_COLLISION_OK);
@@ -424,6 +431,11 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
         assert(!report.failed && !report.missing_model && !report.missing_service && !report.unsupported_branch);
         assert(report.constructed==match->object_count && report.canonical_omitted==match->prepared.omitted);
     }
+    /* Match the production stage boundary: roster/spawn and ordinary objects
+     * already exist; stage music consumes its native RNG before player bodies. */
+    assert(ge_port_start_stage(&match->port,stage->level_id));
+    ge_original_multiplayer_music_stage_reset();
+    sub_GAME_7F0C11FC(stage->level_id);
     ge_original_pp7_fire_bind_object_hit_ready(match,item_hit_ready);
     ge_original_guard_bullet_hit_bind_players(match,hit_player_count,hit_player);
     GeOriginalAnimationRoot *roots[3];void *frames[3];const char *names[]={"sprinting","bond_eye_walk","idle"};
@@ -461,6 +473,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     int last_item=-1,last_mag=-1,last_reserve=-1,reloads=0,pickup_timer=0;
     PropRecord *picked_prop=NULL;
     unsigned victim_deaths=0,respawns=0,results=0,title=0,executed=0;
+    int32_t elapsed60=0;
     int last_dead=0;float last_health=1.0f;
     struct player *victim_owner=ge_original_multiplayer_player(1);
     PropRecord *victim_prop=victim_owner->prop;
@@ -468,9 +481,11 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     Model *victim_body=victim_owner->bodyModel;
     GeOriginalMultiplayerInventoryStorage victim_storage;
     assert(ge_original_multiplayer_inventory_storage(1,&victim_storage));
+    InputTape tape={0};if(supplies && combat)tape_open(&tape,count);
+    if(supplies && combat)witness_frame(match,-1,0);
     for(unsigned tick=0;tick<tick_count;++tick){
         GeOriginalInputPad pads[4][2]={0};GeOriginalMultiplayerRegenBatch regen;GeOriginalMultiplayerSessionState session;
-        if(supplies){
+        if(supplies && (!tape.file || tape_record)){
             /* Original Honey raw-pad route from the fixed canonical spawn:
              * walk toward the authored PP7, tap inventory, then pulse Z.
              * No position, inventory, ammo, hand state or damage is assigned. */
@@ -503,13 +518,17 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
                 }
             }
         }
-        if(supplies && combat && results && tick%16==0)
+        if(supplies && combat && (!tape.file || tape_record) && results && tick%16==0)
             for(unsigned slot=0;slot<count;++slot)pads[slot][0].buttons=START_BUTTON;
+        tape_frame(&tape,pads);
         assert(ge_port_advance_multiplayer_tick(&match->port,pads,count)==1);
-        assert(ge_original_multiplayer_session_tick(match->port.original_clock_timer,(int32_t)tick,&session)==GE_ORIGINAL_MP_SESSION_OK);
-        assert(ge_original_gun_live_frame_begin());
+        assert(ge_original_multiplayer_session_tick(match->port.original_clock_timer,elapsed60,&session)==GE_ORIGINAL_MP_SESSION_OK);
+        elapsed60+=match->port.original_clock_timer;
         frame.tick=tick;frame.clock_timer=match->port.original_clock_timer;frame.global_timer=match->port.original_global_timer;frame.global_timer_delta=match->port.original_global_timer_delta;
+        if(environment.clouds)ge_dam_sky_tick(&cloud_offset,frame.clock_timer);
         assert(ge_original_multiplayer_runtime_begin_world(&match->active,frame.clock_timer,&regen)==GE_ORIGINAL_MP_RUNTIME_OK);
+        ge_original_music_port_tick();
+        assert(ge_original_gun_live_frame_begin());
         GeOriginalMultiplayerRuntimeStatus status=ge_original_multiplayer_runtime_tick(&frame);
         if(!supplies || status)fprintf(stderr,"native arena %s players %u tick %u slot %u status %d\n",stage->key,count,tick,frame.last_slot,status);
         assert(status==GE_ORIGINAL_MP_RUNTIME_OK);
@@ -564,6 +583,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
         }
         assert(ge_original_gun_live_frame_finalize(NULL));
         ++executed;
+        if(supplies && combat)witness_frame(match,(int)tick,frame.last_slot);
         if(supplies && combat && results){
             GeOriginalBossState boss;ge_original_boss_snapshot(&boss);
             if(boss.requested_stage==LEVELID_TITLE){
@@ -575,6 +595,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
             }
         }
     }
+    tape_close(&tape);
     if(supplies && combat){
         assert(victim_deaths==1 && respawns==1 && results==1 && title==1);
         assert(g_playerPlayerData[0].kill_count==1);
@@ -618,17 +639,35 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     ge_original_stage_multiplayer_setup_close(&match->prepared);ge_original_stage_setup_close(&match->setup);
     for(unsigned index=0;index<3;++index){ge_original_animation_root_destroy(roots[index]);free(frames[index]);}
     ge_original_guard_animation_table_reset();free(entries);free(animation);free(match->stan_storage);free(match->collision);free(match);
+    ++run_number;
 }
 int main(int argc,char **argv)
 {
-    GeAssetPack arena,models,guns,supplies;assert(argc==5 || argc==6 || argc==7);
-    if(argc==7){assert(!strcmp(argv[6],"--combat"));combat=1;}
+    GeAssetPack arena,models,guns,supplies;assert(argc>=5);
+    const char *rosters=NULL;
+    if(argc>=7){assert(!strcmp(argv[6],"--combat"));combat=1;}
+    for(int i=7;i<argc;i+=2){
+        assert(i+1<argc);
+        if(!strcmp(argv[i],"--record-tape")){assert(!tape_directory);tape_record=1;tape_directory=argv[i+1];}
+        else if(!strcmp(argv[i],"--replay-tape")){assert(!tape_directory);tape_directory=argv[i+1];}
+        else if(!strcmp(argv[i],"--rosters"))rosters=argv[i+1];
+        else if(!strcmp(argv[i],"--witness"))witness_path=argv[i+1];
+        else assert(!"unknown acceptance option");
+    }
+    if(witness_path){witness=fopen(witness_path,"w");assert(witness);}
     assert(ge_asset_pack_open(&arena,argv[1])==GE_ASSET_PACK_OK);
     assert(ge_asset_pack_open(&models,argv[2])==GE_ASSET_PACK_OK);
     assert(ge_asset_pack_open(&guns,argv[3])==GE_ASSET_PACK_OK);
-    run(&arena,&models,&guns,argv[4],2,NULL);run(&arena,&models,&guns,argv[4],4,NULL);
+    if(!rosters){run(&arena,&models,&guns,argv[4],2,NULL);run(&arena,&models,&guns,argv[4],4,NULL);}
     if(argc>=6){assert(ge_asset_pack_open(&supplies,argv[5])==GE_ASSET_PACK_OK);
-        run(&arena,&models,&guns,argv[4],2,&supplies);run(&arena,&models,&guns,argv[4],4,&supplies);
+        if(rosters){
+            assert(combat);
+            for(const char *p=rosters;*p;){assert(*p=='2'||*p=='4');unsigned count=(unsigned)(*p++-'0');
+                run(&arena,&models,&guns,argv[4],count,&supplies);
+                if(*p){assert(*p++==',' && *p);}
+            }
+        }else{run(&arena,&models,&guns,argv[4],2,&supplies);run(&arena,&models,&guns,argv[4],4,&supplies);}
         ge_asset_pack_close(&supplies);}
-    ge_asset_pack_close(&guns);ge_asset_pack_close(&models);ge_asset_pack_close(&arena);return 0;
+    ge_asset_pack_close(&guns);ge_asset_pack_close(&models);ge_asset_pack_close(&arena);
+    if(witness)assert(!fclose(witness));return 0;
 }

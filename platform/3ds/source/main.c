@@ -92,6 +92,18 @@
 #include "ge_original_bond_camera.h"
 #include "ge_original_bond_input_provider.h"
 #include "ge_original_bond_live.h"
+#include "ge_original_multiplayer_players.h"
+#include "ge_original_multiplayer_rules.h"
+#include "ge_original_multiplayer_frontend.h"
+#include "ge_original_multiplayer_results.h"
+#include "ge_original_multiplayer_hud.h"
+#include "ge_original_multiplayer_session.h"
+#include "ge_original_multiplayer_runtime.h"
+#include "ge_original_player_held_items.h"
+#include "ge_original_multiplayer_spawn.h"
+#include "ge_original_multiplayer_death.h"
+#include "ge_original_multiplayer_regen.h"
+#include "ge_original_multiplayer_views.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
@@ -4352,6 +4364,46 @@ typedef struct RuntimeDamIntroContext {
     int32_t demo_slot;
 } RuntimeDamIntroContext;
 
+/* The shared world survives every player's viewport. Diagnostic local mode
+ * can select the displayed player; each slot retains its own native
+ * input, hands, gait, spawn/movement publication and canonical camera. */
+typedef struct RuntimeMultiplayerMatch {
+    GeOriginalMultiplayerFrontendStart request;
+    GeOriginalStageMultiplayerSetup prepared;
+    RuntimeDamIntro extra_intro[3];
+    RuntimeFirstPersonModels extra_models[3];
+    RuntimeDamIntro *intro[4];
+    RuntimeFirstPersonModels *models[4];
+    RuntimeDamIntroContext context[4];
+    GeOriginalPlayerSpawnProviders player_providers[4];
+    GeOriginalMultiplayerSpawnProviders spawn_providers[4];
+    GeOriginalMultiplayerSpawnResult spawn[4];
+    GeOriginalPlayerGait *gait[4];
+    GeOriginalMultiplayerDeathState death;
+    GeOriginalMultiplayerViews views;
+    GeOriginalMultiplayerHud hud;
+    GeOriginalBondCameraConfig camera_config[4];
+    GeOriginalBondCameraResult camera[4];
+    uint64_t tick;
+    int32_t elapsed60;
+    double accumulator_seconds;
+    uint32_t pending_buttons;
+    size_t local_autogun_beam_vertices;
+    GeOriginalMultiplayerFrontendEndReason end_reason;
+    uint32_t last_slot;
+    GeOriginalMultiplayerRuntimeStatus last_status;
+    bool frozen;
+    bool ended;
+    uint32_t count;
+    uint32_t local;
+    bool requested;
+    bool running;
+    bool failed;
+} RuntimeMultiplayerMatch;
+static RuntimeMultiplayerMatch multiplayer;
+static GeOriginalMultiplayerFrontend multiplayer_frontend;
+
+
 static stagesetup *dam_intro_load_setup(void *context, int32_t stage_id)
 {
     RuntimeDamIntroContext *intro = context;
@@ -4496,6 +4548,115 @@ static void initialize_original_stage_intro(RuntimeDamCollision *collision,
         ge_original_bond_movement_bind(&movement_providers,
                                        &intro->movement);
     }
+}
+
+static bool runtime_multiplayer_select(uint32_t slot)
+{
+    const GeOriginalBondMovementProviders movement = {
+        .collision_types = ge_original_bond_movement_normal_collision_types,
+        .set_prop_collision = ge_original_bond_movement_set_current_player_collision,
+    };
+    if (slot >= multiplayer.count || !ge_original_multiplayer_select_player(slot))
+        return false;
+    ge_original_player_spawn_select(&multiplayer.player_providers[slot],
+        &multiplayer.intro[slot]->player);
+    ge_original_bond_movement_select(&movement, &multiplayer.intro[slot]->movement);
+    ge_original_first_person_assets_select_loader(&multiplayer.models[slot]->assets,
+        &multiplayer.models[slot]->loader);
+    ge_original_first_person_pose_select(&multiplayer.models[slot]->pose);
+    return multiplayer.gait[slot] == NULL
+        || ge_original_player_gait_select_current_player(multiplayer.gait[slot]);
+}
+
+static int runtime_multiplayer_life_ready(void *context, uint32_t slot)
+{
+    (void)context;
+    return slot < multiplayer.count && multiplayer.models[slot] != NULL
+        && multiplayer.models[slot]->ready
+        && multiplayer.models[slot]->bond_live.initialized;
+}
+
+static bool runtime_multiplayer_place_players(GeAssetPack *pack,
+    RuntimeDamCollision *collision, RuntimeDamIntro *local_intro,
+    RuntimeFirstPersonModels *local_models, GeOriginalPropState *props,
+    const GeOriginalStageSetupRuntime *setup)
+{
+    const GeOriginalMultiplayerConfig *config = &multiplayer.request.selection.config;
+    multiplayer.count = (uint32_t)config->player_count;
+    multiplayer.local = 0U;
+    if (!ge_original_multiplayer_players_create(multiplayer.count, 0U,
+            UINT64_C(0x0073D600), UINT64_C(0x0073D601))
+            || ge_original_multiplayer_configure(config) != GE_ORIGINAL_MP_OK
+            || !ge_original_stage_setup_publish(setup)
+            || ge_original_stage_multiplayer_setup_prepare(setup,
+                config->player_count, config->scenario, config->weapon_set,
+                &multiplayer.prepared) != GE_ORIGINAL_STAGE_SUPPLY_OK)
+        return false;
+    for (uint32_t slot = 0U; slot < multiplayer.count; ++slot) {
+        multiplayer.intro[slot] = slot == 0U ? local_intro
+            : &multiplayer.extra_intro[slot - 1U];
+        multiplayer.models[slot] = slot == 0U ? local_models
+            : &multiplayer.extra_models[slot - 1U];
+        if (slot != 0U) initialize_first_person_models(multiplayer.models[slot], pack);
+        if (!multiplayer.models[slot]->ready
+                || !ge_original_player_body_set_character((int32_t)slot,
+                    multiplayer.request.selection.character_ids[slot])) return false;
+        multiplayer.context[slot] = (RuntimeDamIntroContext){
+            collision, multiplayer.intro[slot], props, setup->setup,
+            config->level_id, 0};
+        multiplayer.player_providers[slot] = (GeOriginalPlayerSpawnProviders){
+            .context = &multiplayer.context[slot],
+            .allocate_prop = dam_intro_allocate_player_prop,
+            .activate_prop = dam_intro_activate_player_prop,
+            .enable_prop = dam_intro_enable_player_prop,
+            .deregister_room = dam_intro_deregister_player_room,
+            .register_room = dam_intro_register_player_room,
+        };
+        multiplayer.spawn_providers[slot] = (GeOriginalMultiplayerSpawnProviders){
+            .stage = setup, .player = &multiplayer.player_providers[slot],
+            .context = &multiplayer.context[slot], .floor_y = dam_intro_floor_y,
+            .life_resources_ready = runtime_multiplayer_life_ready,
+        };
+        if (!runtime_multiplayer_select(slot)
+                || ge_original_multiplayer_spawn_initial(slot,
+                    &multiplayer.spawn_providers[slot],
+                    &multiplayer.intro[slot]->player, &multiplayer.spawn[slot])
+                    != GE_ORIGINAL_MP_SPAWN_OK) return false;
+        multiplayer.intro[slot]->spawn.player_committed = 1;
+    }
+    return runtime_multiplayer_select(multiplayer.local);
+}
+
+static bool runtime_multiplayer_initialize_lives(RuntimeBondAnimations *animations)
+{
+    if (animations == NULL || !animations->loaded) return false;
+    ge_original_player_gait_bind_bond_animations(animations->walking, animations->sprinting);
+    ge_original_bond_intro_bind(NULL, NULL);
+    for (uint32_t slot = 0U; slot < multiplayer.count; ++slot) {
+        RuntimeFirstPersonModels *models = multiplayer.models[slot];
+        GeOriginalPlayerGaitStatus gait_status;
+        if (!runtime_multiplayer_select(slot)
+                || !ge_original_bond_live_initialize_multiplayer(slot,
+                    models->buffers[0], models->buffers[1], &models->bond_live))
+            return false;
+        ge_original_first_person_pose_bind(&models->pose);
+        bind_first_person_loadout(models);
+        if (ge_original_multiplayer_spawn_finalize(&multiplayer.spawn_providers[slot],
+                &multiplayer.spawn[slot]) != GE_ORIGINAL_MP_SPAWN_OK) return false;
+        multiplayer.gait[slot] = ge_original_player_gait_create_current_player(
+            animations->walking, &gait_status);
+        if (multiplayer.gait[slot] == NULL
+                || !ge_original_player_gait_calibrate_current_player_standing(
+                    multiplayer.gait[slot], animations->idle, animations->walking))
+            return false;
+    }
+    ge_original_gun_live_reset();
+    ge_original_gameplay_services_set_exact_gun_dispatch(1);
+    ge_original_gameplay_services_set_exact_held_item_dispatch(1);
+    return ge_original_multiplayer_session_reset(multiplayer.request.time_limit60,
+            multiplayer.request.point_limit) == GE_ORIGINAL_MP_SESSION_OK
+        && ge_original_multiplayer_death_reset(&multiplayer.death)
+        && runtime_multiplayer_select(multiplayer.local);
 }
 
 static void *dam_world_allocate_definition(void *context, uint8_t type,
@@ -4998,13 +5159,15 @@ static int stage_ordinary_object_hit_ready(
 static int32_t stage_ordinary_player_count(void *context)
 {
     (void)context;
-    return 1;
+    const uint32_t count = ge_original_multiplayer_player_count();
+    return count != 0U ? (int32_t)count : 1;
 }
 
 static int32_t stage_ordinary_scenario(void *context)
 {
     (void)context;
-    return 0;
+    return multiplayer.count != 0U
+        ? multiplayer.request.selection.config.scenario : 0;
 }
 
 static void *stage_ordinary_allocate_collision(
@@ -6356,7 +6519,9 @@ static bool initialize_stage_ordinary_objects(
      * hats/weapons use the same recyclable model manager on N64; reserve the
      * matching native instance headroom in the shared Pitem provider. */
     instance_capacity = entry_capacity + objects->door_count
-        + interactive_count + 10U;
+        + interactive_count + 10U
+        + (multiplayer.count != 0U ? GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY : 0U);
+    if (multiplayer.count != 0U) model_capacity += 32U;
     if (model_capacity == 0U || instance_capacity == 0U) {
         objects->initialized = true;
         return true;
@@ -6423,6 +6588,17 @@ static int stage_guard_bullet_hit_actor(
         context, index, prop_record, chr_record);
 }
 
+static size_t stage_player_bullet_hit_count(void *context)
+{
+    (void)context;
+    return ge_original_multiplayer_player_count();
+}
+static void *stage_player_bullet_hit_player(void *context, size_t slot)
+{
+    (void)context;
+    return ge_original_multiplayer_player((uint32_t)slot);
+}
+
 static bool initialize_stage_guard_objects(
     RuntimeStageOrdinaryObjects *objects, GeAssetPack *asset_pack)
 {
@@ -6433,10 +6609,10 @@ static bool initialize_stage_guard_objects(
         return false;
     objects->guard_count = ge_original_stage_setup_prop_type_count(
         objects->setup, PROPDEF_GUARD);
-    if (objects->guard_count == 0U) return true;
+    if (objects->guard_count == 0U && multiplayer.count == 0U) return true;
     objects->guard_models = ge_original_character_model_provider_create(
         asset_pack, ge_original_character_model_dependency_count(),
-        objects->guard_count + 10U, &objects->guard_model_status);
+        objects->guard_count + 10U + multiplayer.count, &objects->guard_model_status);
     if (objects->guard_models == NULL) return false;
     ge_original_character_appearance_begin_stage();
     services.context = objects;
@@ -6483,6 +6659,9 @@ static bool initialize_stage_guard_objects(
     ge_original_guard_bullet_hit_bind_stage_guards(
         objects->guards, stage_guard_bullet_hit_count,
         stage_guard_bullet_hit_actor);
+    if (multiplayer.count != 0U)
+        ge_original_guard_bullet_hit_bind_players(NULL, stage_player_bullet_hit_count,
+            stage_player_bullet_hit_player);
     return true;
 fail:
     ge_original_player_body_unbind(objects->guards);
@@ -6513,7 +6692,7 @@ static bool initialize_stage_interactive_objects(
     if (count == 0U) return true;
     providers.context = objects;
     providers.difficulty = (uint8_t)lvlGetSelectedDifficulty();
-    providers.player_count = 1U;
+    providers.player_count = (uint8_t)stage_ordinary_player_count(objects);
     providers.model_available = stage_ordinary_model_available;
     providers.load_projectile_models = stage_item_load_projectile_models;
     providers.construct_default_object = construct_stage_standard_item;
@@ -6807,13 +6986,13 @@ static bool initialize_stage_active_props(
         &objects->interactive);
     objects->active_prop_count = objects->root_live_count + guard_root_count
         + objects->live_door_count + item_active_count;
-    if (objects->active_prop_count == 0U) {
+    if (objects->active_prop_count == 0U && !multiplayer.requested) {
         objects->actor_tick_status =
             RUNTIME_STAGE_ACTOR_TICK_MISSING_OBJECTS;
         return false;
     }
-    objects->active_prop_inputs = calloc(objects->active_prop_count,
-        sizeof(*objects->active_prop_inputs));
+    objects->active_prop_inputs = calloc(objects->active_prop_count != 0U
+            ? objects->active_prop_count : 1U, sizeof(*objects->active_prop_inputs));
     if (objects->active_prop_inputs == NULL) {
         objects->actor_tick_status =
             RUNTIME_STAGE_ACTOR_TICK_COMPOSE_FAILED;
@@ -6883,15 +7062,29 @@ static bool initialize_stage_active_props(
                 GE_ORIGINAL_STAGE_ACTIVE_PROP_AUTHORED
             };
     }
+    size_t chr_capacity = objects->guard_count;
+    if (multiplayer.count != 0U)
+        chr_pool = ge_original_stage_guard_runtime_chr_pool(objects->guards,
+            &chr_capacity);
     if (input_index != objects->active_prop_count || chr_pool == NULL) {
         objects->actor_tick_status =
             RUNTIME_STAGE_ACTOR_TICK_MISSING_GUARDS;
         return false;
     }
+    if (multiplayer.count != 0U) {
+        void *player_props[4] = {0};
+        for (uint32_t slot = 0U; slot < multiplayer.count; ++slot)
+            player_props[slot] = multiplayer.intro[slot]->player.prop;
+        objects->active_prop_status = ge_original_stage_active_props_compose_players(
+            &objects->active_props, objects->setup, player_props, multiplayer.count,
+            chr_pool, chr_capacity, objects->active_prop_inputs,
+            objects->active_prop_count);
+    } else {
     objects->active_prop_status = ge_original_stage_active_props_compose(
         &objects->active_props, objects->setup, intro->player.prop, chr_pool,
         objects->guard_count, objects->active_prop_inputs,
         objects->active_prop_count);
+    }
     if (objects->active_prop_status != GE_ORIGINAL_STAGE_ACTIVE_PROP_OK) {
         objects->actor_tick_status =
             RUNTIME_STAGE_ACTOR_TICK_COMPOSE_FAILED;
@@ -10762,14 +10955,18 @@ typedef struct RuntimeBlotterPreview {
 } RuntimeBlotterPreview;
 
 static size_t build_original_sight_vertices(Vertex *vertices,
-    GePicaTextureRectangleDraw *draw)
+    GePicaTextureRectangleDraw *draw, const GeOriginalMultiplayerHudSnapshot *captured)
 {
     GeOriginalGunSightSnapshot snapshot;
     uint8_t visible;
     float tl_u, tl_v, tr_u, tr_v, bl_u, bl_v, br_u, br_v;
     size_t index;
     ++gun_sight_frames;
-    if (!ge_original_gun_sight_snapshot(&snapshot)
+    if (captured != NULL) {
+        snapshot = captured->sight;
+        *draw = captured->sight_draw;
+        visible = captured->sight_visible;
+    } else if (!ge_original_gun_sight_snapshot(&snapshot)
             || !ge_original_gun_sight_build_draw(&snapshot, draw, &visible)) {
         ++gun_sight_failures;
         return 0U;
@@ -11050,8 +11247,11 @@ static size_t update_stage_guard_muzzle_flash_vertices(
         GePicaMaterial uv_material;
         const Ge3dsSceneTextureSlot *slot;
         size_t vertex;
-        if(!ge_original_stage_guard_runtime_muzzle_flash(
-                objects->guards,weapon_index,&publication))continue;
+        if (!(multiplayer.running
+                ? ge_original_stage_guard_runtime_muzzle_flash_for_view(
+                    objects->guards, multiplayer.local, weapon_index, &publication)
+                : ge_original_stage_guard_runtime_muzzle_flash(
+                    objects->guards, weapon_index, &publication))) continue;
         if(ge_3ds_scene_textures_ensure_image(preview->texture_cache,
                 &dam_scene_textures,publication.gunfire.image_id)
                     !=GE_3DS_SCENE_TEXTURE_OK)continue;
@@ -12501,6 +12701,21 @@ static bool update_original_dam_camera(
     return stream_dam_renderer_camera(preview, &camera, destination, project_scene, objects);
 }
 
+static int prepare_dam_guard_renderer_visibility(const RuntimeDamPreview *preview,
+    RuntimeStageOrdinaryObjects *objects)
+{
+    if (objects == NULL || objects->guards == NULL) return 0;
+    const bool stereo_rooms = preview->renderer_visibility_ready
+        && preview->renderer_visibility.stereo;
+    const float horizontal_margin = stereo_rooms
+        ? ge_3ds_stereo_max_world_shift_px(&stereo_config, stereo_slider,
+            preview->visibility_runtime.near_distance)
+            * fmaxf(1.0f / 160.0f, stereo_config.cull_margin_per_px) : 0.0f;
+    return ge_original_stage_guard_runtime_set_renderer_visibility(objects->guards,
+        stereo_rooms ? preview->renderer_visibility.membership : NULL,
+        stereo_rooms ? preview->visibility_runtime.room_count : 0U, horizontal_margin);
+}
+
 /* Also used for slider-only visibility/stream changes: no mono republish. */
 static bool stream_dam_renderer_camera(RuntimeDamPreview *preview,
     const GeOriginalBondCameraResult *source_camera, Vertex *destination,
@@ -12510,17 +12725,7 @@ static bool stream_dam_renderer_camera(RuntimeDamPreview *preview,
     const uint8_t room = camera.room;
     const bool previous_ready = preview->original_camera_ready;
     bool dynamic_projected = false;
-    if (objects != NULL && objects->guards != NULL) {
-        const bool stereo_rooms = preview->renderer_visibility_ready
-            && preview->renderer_visibility.stereo;
-        const float horizontal_margin = stereo_rooms
-            ? ge_3ds_stereo_max_world_shift_px(&stereo_config, stereo_slider,
-                preview->visibility_runtime.near_distance)
-                * fmaxf(1.0f / 160.0f, stereo_config.cull_margin_per_px) : 0.0f;
-        (void)ge_original_stage_guard_runtime_set_renderer_visibility(
-            objects->guards, stereo_rooms ? preview->renderer_visibility.membership : NULL,
-            stereo_rooms ? preview->visibility_runtime.room_count : 0U, horizontal_margin);
-    }
+    (void)prepare_dam_guard_renderer_visibility(preview, objects);
     visual_probe_record_stream_phase(preview, 3U, room);
     if (preview->visibility_ready
             && preview->dynamic_scene.initialized != 0U) {
@@ -16123,6 +16328,125 @@ static void write_frontend_probe_result(int32_t final_menu,
         frontend_probe.failed ? "failed" : "complete");
 }
 
+static int multiplayer_arena_unlocked(void *context, int32_t mission)
+{
+    return original_frontend_highest_difficulty(context, mission) >= DIFFICULTY_AGENT;
+}
+
+static bool run_multiplayer_setup(RuntimeOriginalFrontend *runtime)
+{
+    GeOriginalMultiplayerFrontendServices services = {
+        .context = runtime,
+        .stage_unlocked = multiplayer_arena_unlocked,
+        .cradle_completed = original_frontend_cast_cradle_complete(runtime) != 0,
+    };
+    unsigned row = 0U;
+    bool dirty = true;
+    if (multiplayer_frontend.phase == GE_ORIGINAL_MP_FRONTEND_RESULTS) {
+        if (ge_original_multiplayer_frontend_return_to_setup(&multiplayer_frontend)
+                != GE_ORIGINAL_MP_FRONTEND_OK) return false;
+        multiplayer_frontend.services = services;
+    } else if (!ge_original_multiplayer_frontend_init(&multiplayer_frontend, &services))
+        return false;
+    ge_original_input_init();
+    controls_gameplay = false;
+    while (aptMainLoop()) {
+        GeOriginalMultiplayerFrontendSnapshot state;
+        hidScanInput();
+        uint32_t edges = ge_original_multiplayer_frontend_input_edges(
+            &multiplayer_frontend, hidKeysHeld());
+        if (!ge_original_multiplayer_frontend_snapshot(&multiplayer_frontend, &state))
+            return false;
+        const unsigned start_row = 5U + (unsigned)state.selection.config.player_count;
+        if (edges & KEY_B) { ge_original_input_init(); return false; }
+        if (edges & KEY_DUP) { row = row == 0U ? start_row : row - 1U; dirty = true; }
+        if (edges & KEY_DDOWN) { row = row >= start_row ? 0U : row + 1U; dirty = true; }
+        if ((edges & (KEY_DLEFT | KEY_DRIGHT)) && row < start_row) {
+            const int delta = edges & KEY_DLEFT ? -1 : 1;
+            GeOriginalMultiplayerFrontendOption option;
+            int32_t value, player = 0, minimum = 0, maximum = 0;
+            if (row == 0U) { option = GE_ORIGINAL_MP_FRONTEND_PLAYERS; value = state.selection.config.player_count; minimum = 2; maximum = 4; }
+            else if (row == 1U) { option = GE_ORIGINAL_MP_FRONTEND_ARENA; value = state.selection.arena_index; maximum = GE_ORIGINAL_MP_ARENAS - 1; }
+            else if (row == 2U) { option = GE_ORIGINAL_MP_FRONTEND_SCENARIO; value = state.selection.config.scenario; maximum = 7; }
+            else if (row == 3U) { option = GE_ORIGINAL_MP_FRONTEND_WEAPONS; value = state.selection.config.weapon_set; maximum = 13; }
+            else if (row == start_row - 1U) { option = GE_ORIGINAL_MP_FRONTEND_LIMIT; value = state.selection.limit_index; maximum = GE_ORIGINAL_MP_FRONTEND_LIMITS - 1; }
+            else { option = GE_ORIGINAL_MP_FRONTEND_CHARACTER; player = (int32_t)row - 4; value = state.selection.character_ids[player]; maximum = state.character_count - 1; }
+            value += delta;
+            if (value < minimum) value = maximum;
+            if (value > maximum) value = minimum;
+            (void)ge_original_multiplayer_frontend_set(&multiplayer_frontend, option, player, value);
+            dirty = true;
+        }
+        if ((edges & KEY_START) || ((edges & KEY_A) && row == start_row)) {
+            if (ge_original_multiplayer_frontend_request_start(&multiplayer_frontend)
+                    == GE_ORIGINAL_MP_FRONTEND_OK
+                    && ge_original_multiplayer_frontend_take_start(
+                        &multiplayer_frontend, &multiplayer.request)) {
+                multiplayer.requested = true;
+                ge_original_input_init();
+                return true;
+            }
+            dirty = true;
+        }
+        if (dirty) {
+            ge_original_multiplayer_frontend_snapshot(&multiplayer_frontend, &state);
+            consoleClear();
+            printf("Multiplayer\n%s\n\n", GE_ORIGINAL_MP_FRONTEND_LABEL);
+            printf("%c Players: %ld\n", row == 0U ? '>' : ' ', (long)state.selection.config.player_count);
+            printf("%c Arena: %s", row == 1U ? '>' : ' ', original_frontend_text(state.arena_text_id));
+            printf("%c Scenario: %s", row == 2U ? '>' : ' ', original_frontend_text(state.scenario_text_id));
+            printf("%c Weapons: %s", row == 3U ? '>' : ' ', original_frontend_text(state.weapon_text_id));
+            for (int32_t slot = 0; slot < state.selection.config.player_count; ++slot)
+                printf("%c P%ld: %s", row == (unsigned)slot + 4U ? '>' : ' ', (long)slot + 1L,
+                    original_frontend_text(state.characters[slot].text_id));
+            printf("%c Limit: %s", row == start_row - 1U ? '>' : ' ', original_frontend_text(state.limit.text_id));
+            printf("%c Start match\n\nD-pad: choose/change\nA/START: begin   B: back\n", row == start_row ? '>' : ' ');
+            if (state.status != GE_ORIGINAL_MP_FRONTEND_OK)
+                printf("Choice unavailable (%u).\n", (unsigned)state.status);
+            dirty = false;
+        }
+        gspWaitForVBlank();
+    }
+    return false;
+}
+
+/* Scores are captured while native players still own their statistics. The
+ * result UI never runs solo mission progression or recomputes random awards. */
+static bool run_multiplayer_results(void)
+{
+    GeOriginalMultiplayerFrontendResult result;
+    if (multiplayer.failed || multiplayer.end_reason == GE_ORIGINAL_MP_FRONTEND_END_NONE)
+        multiplayer.end_reason = GE_ORIGINAL_MP_FRONTEND_END_ABORT;
+    if (ge_original_multiplayer_results_snapshot(multiplayer.request.request_id,
+            multiplayer.end_reason, &result) != GE_ORIGINAL_MP_RESULTS_OK
+            || ge_original_multiplayer_frontend_finish(&multiplayer_frontend, &result)
+                != GE_ORIGINAL_MP_FRONTEND_OK) {
+        printf("Could not capture multiplayer results.\n");
+        return false;
+    }
+    ge_original_input_init();
+    ge_original_inventory_invalidate();
+    consoleClear();
+    printf("Multiplayer results\n\n");
+    if (multiplayer.failed) printf("Match stopped: runtime %u, slot %lu.\n\n",
+        (unsigned)multiplayer.last_status, (unsigned long)multiplayer.last_slot);
+    else if (result.aborted) printf("Match ended by player.\n\n");
+    for (int32_t slot = 0; slot < result.player_count; ++slot)
+        printf("Player %ld%s\n  Score %ld  Kills %ld  Deaths %ld\n",
+            (long)slot + 1L, result.winner_mask & (1U << slot) ? " - winner" : "",
+            (long)result.scores[slot], (long)result.kills[slot], (long)result.deaths[slot]);
+    printf("\nA: match setup   B: main menu\n");
+    while (aptMainLoop()) {
+        hidScanInput();
+        const uint32_t edges = ge_original_multiplayer_frontend_input_edges(
+            &multiplayer_frontend, hidKeysHeld());
+        if (edges & KEY_A) return true;
+        if (edges & KEY_B) return false;
+        gspWaitForVBlank();
+    }
+    return false;
+}
+
 static bool run_original_frontend(C3D_RenderTarget *top_target,
                                   bool cstick_available,
                                   GeTextureCache *texture_cache,
@@ -16217,6 +16541,13 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         /* Snapshot lines fill only their applicable fields. Clear optional
          * tab/color/value placement state on every page/frame. */
         Ge3dsOriginalFrontendLine lines[GE_ORIGINAL_FRONTEND_MAX_LINES] = {0};
+        if (ge_original_frontend_start_take_multiplayer_request(frontend)) {
+            if (run_multiplayer_setup(runtime)) {
+                *selected_level_id = multiplayer.request.selection.config.level_id;
+                return true;
+            }
+            continue;
+        }
         if (frontend_probe.enabled) {
             Ge3dsFrontendProbeObservation observed = {
                 .menu = frontend->current_menu,
@@ -16267,6 +16598,13 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 frontend, input_edges)
                 || !ge_original_frontend_start_snapshot(
                     frontend, &snapshot)) return false;
+        if (ge_original_frontend_start_take_multiplayer_request(frontend)) {
+            if (run_multiplayer_setup(runtime)) {
+                *selected_level_id = multiplayer.request.selection.config.level_id;
+                return true;
+            }
+            continue;
+        }
         if (frontend_probe.enabled) {
             Ge3dsFrontendProbeObservation observed = {
                 .menu = snapshot.menu,
@@ -17218,20 +17556,40 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         GE_ORIGINAL_CREDITS_VISIBLE_LINE_CAPACITY];
     bool credits_active = false;
     size_t i;
+    GeOriginalMultiplayerHudSnapshot captured_hud;
+    GeOriginalDamMissionExitSnapshot captured_fade = {0};
+    const bool multiplayer_view = multiplayer.running;
+    if (multiplayer_view) {
+        if (multiplayer.tick == 0U || !ge_original_multiplayer_hud_get(
+                &multiplayer.hud, multiplayer.tick - 1U, multiplayer.local, &captured_hud))
+            return;
+        mission_hud = captured_hud.upper;
+        bottom_hud = captured_hud.bottom;
+        gameplay_hud = captured_hud.gameplay;
+        captured_fade.fade_red = captured_hud.fade.red;
+        captured_fade.fade_green = captured_hud.fade.green;
+        captured_fade.fade_blue = captured_hud.fade.blue;
+        captured_fade.fade_fraction = captured_hud.fade.fraction;
+        captured_fade.fade_time = captured_hud.fade.time;
+        captured_fade.fade_time_max = captured_hud.fade.time_max;
+        fade_snapshot = &captured_fade;
+    }
 
     (void)rareware_mesh;
     (void)blotter_preview;
     ge_3ds_original_gameplay_hud_draw_list_reset(&gameplay_hud_draw);
-    autogun_beam_vertex_count = update_stage_autogun_beam_vertices(
-        stage_objects, dam_preview,
-        vertices + AUTOGUN_BEAM_VERTEX_OFFSET);
+    autogun_beam_vertex_count = multiplayer.running
+        ? multiplayer.local_autogun_beam_vertices
+        : update_stage_autogun_beam_vertices(stage_objects, dam_preview,
+            vertices + AUTOGUN_BEAM_VERTEX_OFFSET);
     guard_muzzle_flash_vertex_count=update_stage_guard_muzzle_flash_vertices(
         stage_objects,dam_preview,
         vertices+GUARD_MUZZLE_FLASH_VERTEX_OFFSET);
-    watch_open = ge_original_bond_live_motion_snapshot(&bond_motion)
-        && (bond_motion.watch_animation_state == WATCH_ANIMATION_0x5
-            || bond_motion.watch_animation_state == WATCH_ANIMATION_0xc);
-    watch_objectives_visible = watch_open
+    watch_open = multiplayer_view ? captured_hud.watch_open
+        : ge_original_bond_live_motion_snapshot(&bond_motion)
+            && (bond_motion.watch_animation_state == WATCH_ANIMATION_0x5
+                || bond_motion.watch_animation_state == WATCH_ANIMATION_0xc);
+    watch_objectives_visible = !multiplayer_view && watch_open
         && ge_original_bond_live_watch_objectives_visible();
     if (g_CurrentPlayer != NULL) {
         /* Canonical maybe_mp_interface ordering advances the lower queue
@@ -17298,9 +17656,11 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                         mission_hud_vertex_count,
                         ORIGINAL_HUD_VERTEX_CAPACITY));
             }
-        } else if (!watch_open) {
-            ge_original_bottom_hud_tick();
-            (void)ge_original_bottom_hud_render_snapshot(&bottom_hud);
+        } else if (multiplayer_view || !watch_open) {
+            if (!multiplayer_view) {
+                ge_original_bottom_hud_tick();
+                (void)ge_original_bottom_hud_render_snapshot(&bottom_hud);
+            }
             if (original_gameplay_hud_font_texture_loaded
                     && ge_3ds_original_bottom_hud_build_draw_list(
                         &original_gameplay_hud_atlas, &bottom_hud,
@@ -17317,8 +17677,10 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                         bottom_hud_vertex_count,
                         ORIGINAL_HUD_VERTEX_CAPACITY));
             }
-            ge_original_dam_mission_hud_tick();
-            (void)ge_original_dam_mission_hud_render_snapshot(&mission_hud);
+            if (!multiplayer_view) {
+                ge_original_dam_mission_hud_tick();
+                (void)ge_original_dam_mission_hud_render_snapshot(&mission_hud);
+            }
             if (original_hud_font_texture_loaded
                     && ge_3ds_original_hud_build_draw_list(
                         &original_hud_atlas, &mission_hud, &mission_hud_draw)
@@ -17335,7 +17697,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     ORIGINAL_HUD_VERTEX_CAPACITY));
         }
         }
-        if (!watch_open)
+        if (!multiplayer_view && !watch_open)
             (void)ge_original_gameplay_hud_render_snapshot(&gameplay_hud);
         if (gameplay_hud.ammo_visible) {
             right_ammo_icon = find_original_ammo_icon_texture(
@@ -17400,7 +17762,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                         GE_3DS_ORIGINAL_GAMEPLAY_HUD_FONT_VERTEX_CAPACITY));
                 }
         }
-        if (original_hud_font_texture_loaded
+        if (!multiplayer_view && original_hud_font_texture_loaded
                 && ge_original_campaign_credits_render_tick_exact(
                     0, 240, &credits_snapshot)
                 && credits_snapshot.visible) {
@@ -17437,7 +17799,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             }
         }
     }
-    gun_sight_vertex_count = build_original_sight_vertices(vertices, &gun_sight_draw);
+    gun_sight_vertex_count = build_original_sight_vertices(vertices, &gun_sight_draw,
+        multiplayer_view ? &captured_hud : NULL);
     if (gun_sight_vertex_count != 0U)
         GSPGPU_FlushDataCache(
             vertex_buffer,
@@ -17863,8 +18226,8 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
         C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,projection_uniform,
                          &dam_preview->gpu_first_person_projection);
-        /* Guard flashes share their weapon's world depth despite carrying
-         * already-transformed eye-space vertices. */
+        /* Guard and player weapon flashes use world depth even though their
+         * vertices have already been transformed into eye space. */
         renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_WORLD);
         C3D_CullFace(GPU_CULL_BACK_CCW);
         /* texSelect(..., mode 4, zbuffer 1) is the canonical cloud-surface
@@ -18901,6 +19264,204 @@ static void print_status(const GePortState *port,
     }
 }
 
+typedef struct RuntimeMultiplayerFrame {
+    RuntimeDamPreview *preview;
+    RuntimeStageOrdinaryObjects *objects;
+    RuntimeFirstPersonScene *first_person_scene;
+    GeTextureCache *texture_cache;
+    uint8_t local_portal_controls[GE_DAM_WORLD_MAX_PORTALS];
+} RuntimeMultiplayerFrame;
+
+static int runtime_multiplayer_view_select(void *context, uint32_t slot)
+{
+    (void)context;
+    return runtime_multiplayer_select(slot);
+}
+
+static void runtime_multiplayer_publish_preview(RuntimeDamPreview *preview,
+    const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
+{
+    preview->original_camera_status = GE_ORIGINAL_BOND_CAMERA_OK;
+    preview->original_camera_ready = true;
+    preview->original_camera_room = camera->room;
+    memcpy(preview->original_camera_view, camera->view, sizeof(camera->view));
+    memcpy(preview->original_camera_view_to_world, camera->view_to_world, sizeof(camera->view_to_world));
+    memcpy(preview->original_camera_projection, camera->projection, sizeof(camera->projection));
+    memcpy(preview->original_camera_look_at, camera->look_at, sizeof(camera->look_at));
+    memcpy(preview->original_camera_position, config->camera_position, sizeof(config->camera_position));
+    memcpy(preview->original_camera_look, config->camera_look_direction, sizeof(config->camera_look_direction));
+    memcpy(preview->original_camera_up, config->camera_up, sizeof(config->camera_up));
+    memcpy(preview->original_camera_viewport_scale, camera->viewport_scale, sizeof(camera->viewport_scale));
+    memcpy(preview->original_camera_viewport_translation, camera->viewport_translation, sizeof(camera->viewport_translation));
+    preview->renderer_camera = *camera;
+}
+
+static bool runtime_multiplayer_produce_camera(RuntimeDamPreview *preview, uint32_t slot)
+{
+    const GeOriginalPlayerViewState *player = &multiplayer.intro[slot]->player;
+    GeOriginalBondCameraConfig *config = &multiplayer.camera_config[slot];
+    GeOriginalBondCameraResult *camera = &multiplayer.camera[slot];
+    const float level_scale = preview->stage_assets->level_scale;
+    const float visibility_scale = preview->stage_assets->visibility_scale;
+    float fovy;
+    if (!ge_original_multiplayer_runtime_camera_fovy(&fovy)) return false;
+    const GeDamWorldRoom *room = ge_dam_world_room(&preview->world, (uint8_t)player->room);
+    if (!player->initialized || room == NULL || level_scale <= 0.0f) return false;
+    memset(config, 0, sizeof(*config));
+    memcpy(config->camera_position, player->camera_position, sizeof(config->camera_position));
+    memcpy(config->camera_look_direction, player->camera_look, sizeof(config->camera_look_direction));
+    memcpy(config->camera_up, player->camera_up, sizeof(config->camera_up));
+    for (size_t axis = 0U; axis < 3U; ++axis)
+        config->room_origin[axis] = room->origin[axis] / level_scale;
+    config->room_position_scale = level_scale;
+    config->camera_local_scale = config->visibility_scale = visibility_scale;
+    config->viewport_scale[0] = 640;
+    config->viewport_scale[1] = 480;
+    config->viewport_scale[2] = 511;
+    config->viewport_translation[0] = 800;
+    config->viewport_translation[1] = 480;
+    config->viewport_translation[2] = 511;
+    config->room = (uint8_t)player->room;
+    return ge_original_bond_camera_set_perspective(config, fovy, 4.0f / 3.0f,
+            preview->visibility_runtime.near_distance, preview->visibility_runtime.far_distance)
+                == GE_ORIGINAL_BOND_CAMERA_OK
+        && ge_original_bond_camera_run(config, camera) == GE_ORIGINAL_BOND_CAMERA_OK;
+}
+
+static int runtime_multiplayer_view_visibility(void *context, uint32_t slot,
+    const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
+{
+    RuntimeMultiplayerFrame *frame = context;
+    RuntimeDamPreview *preview = frame->preview;
+    GeOriginalBgVisibilityResult visibility;
+    GeOriginalBgVisibilityProviders providers = {
+        .portal_controls = preview->portal_controls,
+        .portal_control_count = preview->world.portal_count,
+    };
+    if (slot == multiplayer.local) {
+        ge_dam_preload_queue_begin_visibility(&preview->preload_queue);
+        providers.context = &preview->preload_queue;
+        providers.preload_room = ge_dam_preload_queue_request;
+        memcpy(frame->local_portal_controls, preview->portal_controls,
+            preview->world.portal_count);
+    }
+    if (ge_dam_visibility_runtime_run_with_providers(&preview->visibility_runtime,
+            camera, config->camera_position, &providers, &visibility)
+            != GE_DAM_VISIBILITY_RUNTIME_OK) return 0;
+    /* Remote canonical rooms are complete without mutating native renderer
+     * residency or the displayed player's already baked scene. */
+    if (slot == multiplayer.local) {
+        runtime_multiplayer_publish_preview(preview, config, camera);
+        preview->visibility_result = visibility;
+        preview->visibility_status = GE_DAM_VISIBILITY_RUNTIME_OK;
+        preview->visibility_ready = true;
+        memcpy(preview->canonical_preload_requests,
+            preview->preload_queue.visibility_requested, sizeof(preview->canonical_preload_requests));
+        update_dam_renderer_visibility(preview);
+        if (!prepare_dam_guard_renderer_visibility(preview, frame->objects)) return 0;
+    }
+    return 1;
+}
+
+static int runtime_multiplayer_view_capture(void *context, uint32_t slot,
+    const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
+{
+    RuntimeMultiplayerFrame *frame = context;
+    RuntimeDamPreview *preview = frame->preview;
+    (void)config;
+    update_dam_renderer_visibility(preview);
+    if (!stream_dam_renderer_camera(preview, camera,
+            (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, false, frame->objects))
+        return 0;
+    if (!refresh_stage_live_overlays(frame->objects,
+            (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET)) return 0;
+    if (update_first_person_scene(multiplayer.models[slot], frame->first_person_scene,
+            preview, frame->texture_cache, (Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET, false))
+        GSPGPU_FlushDataCache((Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET,
+            frame->first_person_scene->render_vertex_count * sizeof(Vertex));
+    multiplayer.local_autogun_beam_vertices = update_stage_autogun_beam_vertices(
+        frame->objects, preview, (Vertex *)vertex_buffer + AUTOGUN_BEAM_VERTEX_OFFSET);
+    if (preview->gpu_dirty_vertex_count != 0U) {
+        GSPGPU_FlushDataCache((Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET
+                + preview->gpu_dirty_vertex_offset,
+            renderer_vertex_flush_bytes(preview->gpu_dirty_vertex_count, DAM_ROOM_VERTEX_COUNT));
+        preview->gpu_dirty_vertex_count = 0U;
+    }
+    return 1;
+}
+
+static int runtime_multiplayer_view_restore(void *context, uint32_t slot,
+    const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
+{
+    RuntimeMultiplayerFrame *frame = context;
+    const GeOriginalBgVisibilityProviders providers = {
+        .portal_controls = frame->local_portal_controls,
+        .portal_control_count = frame->preview->world.portal_count,
+    };
+    (void)slot;
+    runtime_multiplayer_publish_preview(frame->preview, config, camera);
+    return ge_dam_visibility_runtime_restore_with_providers(&frame->preview->visibility_runtime,
+        camera, config->camera_position, &providers, &frame->preview->visibility_result)
+            == GE_DAM_VISIBILITY_RUNTIME_OK;
+}
+
+static int runtime_multiplayer_camera(void *context, uint32_t slot,
+    GeOriginalBondCameraConfig *config, GeOriginalBondCameraResult *camera)
+{
+    RuntimeMultiplayerFrame *frame = context;
+    if (!runtime_multiplayer_produce_camera(frame->preview, slot)) return 0;
+    *config = multiplayer.camera_config[slot];
+    *camera = multiplayer.camera[slot];
+    return 1;
+}
+
+static int runtime_multiplayer_sync_gun(void *context, uint32_t slot)
+{
+    (void)context;
+    sync_first_person_pose_model(multiplayer.models[slot]);
+    multiplayer.models[slot]->pose_status = GE_ORIGINAL_FIRST_PERSON_POSE_OK;
+    return 1;
+}
+
+static int runtime_multiplayer_prepare_renderer(void *context, uint32_t slot,
+    const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
+{
+    RuntimeMultiplayerFrame *frame = context;
+    (void)slot; (void)config; (void)camera;
+    return prepare_dam_guard_renderer_visibility(frame->preview, frame->objects);
+}
+
+/* Shared production/host runner owns every gameplay operation. These
+ * callbacks only bind native resources and capture the displayed scene. */
+static bool runtime_multiplayer_tick(RuntimeMultiplayerFrame *frame,
+    const GePortState *port)
+{
+    GeOriginalMultiplayerRuntimeFrame native = {
+        .tick = multiplayer.tick, .count = multiplayer.count, .local = multiplayer.local,
+        .clock_timer = port->original_clock_timer, .global_timer = port->original_global_timer,
+        .global_timer_delta = port->original_global_timer_delta,
+        .death = &multiplayer.death, .hud = &multiplayer.hud, .views = &multiplayer.views,
+        .active_props = &frame->objects->active_props, .guards = frame->objects->guards,
+        .view_providers = {
+            .context = frame, .select_player = runtime_multiplayer_view_select,
+            .publish_visibility = runtime_multiplayer_view_visibility,
+            .capture_local = runtime_multiplayer_view_capture,
+            .restore_local_visibility = runtime_multiplayer_view_restore,
+        },
+        .context = frame, .select_player = runtime_multiplayer_view_select,
+        .produce_camera = runtime_multiplayer_camera,
+        .sync_gun_resources = runtime_multiplayer_sync_gun,
+        .prepare_local_renderer = runtime_multiplayer_prepare_renderer,
+    };
+    for (uint32_t slot = 0U; slot < multiplayer.count; ++slot)
+        native.lives[slot] = &multiplayer.models[slot]->bond_live;
+    multiplayer.last_status = ge_original_multiplayer_runtime_tick(&native);
+    multiplayer.last_slot = native.last_slot;
+    if (multiplayer.last_status != GE_ORIGINAL_MP_RUNTIME_OK) return false;
+    ++multiplayer.tick;
+    return true;
+}
+
 static void print_runtime_console_header(
     const GeStageAssetDescriptor *stage_assets, int32_t selected_level_id)
 {
@@ -18972,6 +19533,7 @@ int main(void)
     bool stereo_active = false;
     bool gameplay_stage_ended = false;
     bool run_start_frontend = true;
+    bool reset_start_frontend = true;
     bool next_stage_requested = false;
     void *texture_catalog_data = NULL;
     u64 previous_time;
@@ -19161,7 +19723,7 @@ start_stage_runtime:
         if (!run_original_frontend(
                 top_target, cstick_available, &texture_cache,
                 &original_frontend_runtime, &original_frontend,
-                &original_music, &audio_output, audio_active, true,
+                &original_music, &audio_output, audio_active, reset_start_frontend,
                 &selected_level_id))
             goto cleanup_runtime;
         (void)ge_3ds_audio_bind_secondary(NULL);
@@ -19184,7 +19746,8 @@ start_stage_runtime:
             goto cleanup_runtime;
         }
         run_start_frontend = false;
-        if (selected_level_id != stage_level_id(stage_assets)) {
+        reset_start_frontend = true;
+        if (multiplayer.requested || selected_level_id != stage_level_id(stage_assets)) {
             /* The menu owns stage selection. If a developer stage.cfg chose a
              * different resident scene, discard that bootstrap cleanly and
              * load the frontend's requested authored stage before gameplay. */
@@ -19208,13 +19771,23 @@ start_stage_runtime:
     }
     const uint64_t setup_initial_rng[2] = {g_randomSeed, g_chrObjRandomSeed};
     (void)initialize_dam_prop_state(&dam_objects);
-    ge_original_effect_buffers_reset_single_player();
-    initialize_original_stage_intro(&dam_collision, &dam_intro,
-                                    &dam_objects.props,
-                                    original_stage_setup,
-                                    selected_level_id,
-                                    original_frontend_runtime.ramrom_active
-                                        != 0U);
+    if (multiplayer.requested) {
+        if (!stage_setup_loaded || !runtime_multiplayer_place_players(&asset_pack,
+                &dam_collision, &dam_intro, &first_person_models, &dam_objects.props,
+                &packaged_stage_setup)) {
+            multiplayer.failed = true;
+            printf("Multiplayer player/spawn preparation failed.\n");
+            goto cleanup_runtime;
+        }
+        (void)ge_original_effect_buffers_reset_players(multiplayer.count, selected_level_id);
+    } else {
+        ge_original_effect_buffers_reset_single_player();
+        initialize_original_stage_intro(&dam_collision, &dam_intro,
+                                        &dam_objects.props,
+                                        original_stage_setup,
+                                        selected_level_id,
+                                        original_frontend_runtime.ramrom_active != 0U);
+    }
     if (visual_probe_tour.enabled) {
         const GeVisualProbeView *view = ge_visual_probe_tour_view_at(
             &visual_probe_tour.tour, 0U, &visual_probe_tour.current_view);
@@ -19291,13 +19864,13 @@ start_stage_runtime:
      * the freshly opened slot afterwards so the live end-of-stage body can
      * persist this stage before the report/next-mission frontend runs. */
     ge_original_mission_result_bind(NULL);
-    if (mission_save_provider.ready) {
+    if (mission_save_provider.ready && !multiplayer.requested) {
         GeOriginalMissionResultProviders mission_result_providers;
         ge_3ds_save_provider_make_mission_result_providers(
             &mission_save_provider, &mission_result_providers);
         ge_original_mission_result_bind(&mission_result_providers);
     }
-    if (!ge_original_mission_result_set_current_mission(
+    if (!multiplayer.requested && !ge_original_mission_result_set_current_mission(
             original_frontend.mission)) {
         printf("Unsupported mission result index %ld.\n",
                (long)original_frontend.mission);
@@ -19307,7 +19880,7 @@ start_stage_runtime:
         mission_save_provider.ready ? &mission_save_provider : NULL,
         mission_save_provider.ready
             ? original_watch_persist_settings_fields : NULL);
-    if (first_person_models.ready && dam_intro.spawn.player_committed)
+    if (!multiplayer.requested && first_person_models.ready && dam_intro.spawn.player_committed)
         (void)ge_original_bond_live_initialize(
             first_person_models.buffers[0], first_person_models.buffers[1],
             &first_person_models.bond_live);
@@ -19322,7 +19895,7 @@ start_stage_runtime:
         ge_original_gun_live_reset();
         ge_original_gameplay_services_set_exact_gun_dispatch(1);
     }
-    initialize_current_player_gait(&bond_animations);
+    if (!multiplayer.requested) initialize_current_player_gait(&bond_animations);
     if (dam_stage) {
 #if defined(GE_DAM_STAGE_RUNTIME_LIVE)
         /* The campaign runtime below now owns every authored Dam guard,
@@ -19401,8 +19974,8 @@ start_stage_runtime:
 #endif
         (void)initialize_stage_ordinary_objects(
             &stage_ordinary_objects, &asset_pack,
-            &packaged_stage_setup, &dam_objects.props,
-            &dam_collision, &dam_preview);
+            multiplayer.requested ? &multiplayer.prepared.view : &packaged_stage_setup,
+            &dam_objects.props, &dam_collision, &dam_preview);
     }
 
     (void)ge_port_start_stage(&port, selected_level_id);
@@ -19450,6 +20023,12 @@ start_stage_runtime:
             publish_stage_ordinary_visibility(
                 &stage_ordinary_objects, true);
         }
+        if (multiplayer.requested
+                && (!runtime_multiplayer_initialize_lives(&bond_animations))) {
+            multiplayer.failed = true;
+            printf("Multiplayer life/body initialization failed.\n");
+            goto cleanup_runtime;
+        }
         if (initialize_stage_active_props(
                 &stage_ordinary_objects, &dam_intro)) {
             ge_original_door_interaction_bind(
@@ -19467,6 +20046,17 @@ start_stage_runtime:
             dam_objects.mission_flow_live = false;
             dam_objects.full_props_activated = true;
         }
+    }
+    if (multiplayer.requested) {
+        if (stage_ordinary_objects.actor_tick_status != RUNTIME_STAGE_ACTOR_TICK_READY
+                || ge_original_multiplayer_frontend_started(&multiplayer_frontend,
+                    multiplayer.request.request_id, 1) != GE_ORIGINAL_MP_FRONTEND_OK) {
+            multiplayer.failed = true;
+            goto cleanup_runtime;
+        }
+        multiplayer.running = true;
+        ge_original_stage_guard_runtime_set_local_player_view(stage_ordinary_objects.guards,
+            ge_original_multiplayer_player(multiplayer.local), 1);
     }
     memset(&door_collision_providers, 0, sizeof(door_collision_providers));
     if (stage_ordinary_objects.actor_tick_status
@@ -19531,8 +20121,13 @@ start_stage_runtime:
             && !input_probe.enabled
             && !original_frontend_runtime.ramrom_active;
         ge_original_input_set_dual_analog(dual_analog);
-        ge_original_bond_input_set_control_style(
-            dual_analog ? CONTROLLER_CONFIG_GALORE : CONTROLLER_CONFIG_HONEY);
+        for (uint32_t slot = 0U; slot < (multiplayer.running ? multiplayer.count : 1U); ++slot) {
+            if (multiplayer.running && !runtime_multiplayer_select(slot)) goto cleanup_runtime;
+            ge_original_bond_input_set_control_style(
+                dual_analog ? CONTROLLER_CONFIG_GALORE : CONTROLLER_CONFIG_HONEY);
+        }
+        if (multiplayer.running && !runtime_multiplayer_select(multiplayer.local))
+            goto cleanup_runtime;
         if (!dual_analog && !original_frontend_runtime.ramrom_active
                 && !input_probe.enabled)
             printf("Controls:     single stick (1.1)\n");
@@ -19623,6 +20218,30 @@ start_stage_runtime:
         stereo_active = stereo_slider > 0.0f;
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
+        if (multiplayer.running && (hidKeysHeld() & (KEY_SELECT | KEY_START))
+                == (KEY_SELECT | KEY_START)) {
+            GeOriginalMultiplayerSessionState ended;
+            if (ge_original_multiplayer_session_abort(&ended) != GE_ORIGINAL_MP_SESSION_OK)
+                multiplayer.failed = true;
+            multiplayer.end_reason = GE_ORIGINAL_MP_FRONTEND_END_ABORT;
+            multiplayer.ended = true;
+            break;
+        }
+        if (multiplayer.running && (hidKeysDown() & KEY_SELECT)) {
+            multiplayer.local = (multiplayer.local + 1U) % multiplayer.count;
+            if (!runtime_multiplayer_select(multiplayer.local)) {
+                multiplayer.failed = multiplayer.ended = true;
+                break;
+            }
+            ge_original_stage_guard_runtime_set_local_player_view(
+                stage_ordinary_objects.guards, ge_original_multiplayer_player(multiplayer.local), 1);
+            ge_original_inventory_invalidate();
+            ge_3ds_controls_resume(&controls, map_actions(hidKeysHeld()),
+                (hidKeysHeld() & KEY_TOUCH) != 0U);
+            controls.inventory_refresh_pending = true;
+            memset(&input, 0, sizeof(input));
+            multiplayer.pending_buttons = 0U;
+        }
         if (controls_gameplay) {
             /* Consume the captured snapshot before refreshing. The provider
              * rechecks actual player/item identity and idle gameplay state;
@@ -19635,6 +20254,9 @@ start_stage_runtime:
             if (ge_3ds_controls_objectives_due(&controls, osGetTime()))
                 update_touch_objectives();
             ge_3ds_controls_draw_panel(&controls, stdout);
+            if (multiplayer.running)
+                printf("\x1b[0;0HMultiplayer - Player %lu/%lu\x1b[K\nSELECT: player  SELECT+START: end\x1b[K",
+                    (unsigned long)multiplayer.local + 1UL, (unsigned long)multiplayer.count);
         }
         const uint64_t frame_start_ticks = input_probe.enabled ? svcGetSystemTick() : 0U;
         const uint64_t frame_music_calls_before = fine_profile.music_render_calls;
@@ -19766,7 +20388,29 @@ start_stage_runtime:
             }
         }
 
-        if (original_frontend_runtime.ramrom_active) {
+        if (multiplayer.running) {
+            GeOriginalInputPad pads[GE_ORIGINAL_MP_PLAYERS][2] = {0};
+            /* One committed raw frame always means one original 60 Hz tick.
+             * Keep accrued time while presentation is slower; never enlarge
+             * the canonical delta to catch up. Short button taps survive idle. */
+            multiplayer.accumulator_seconds += elapsed;
+            multiplayer.pending_buttons |= input.pressed;
+            ticks = 0U;
+            if (multiplayer.accumulator_seconds >= 1.0 / 60.0) {
+                input.pressed |= multiplayer.pending_buttons;
+                if (!ge_port_input_sample_pads(&input, pads[multiplayer.local])
+                        || !runtime_multiplayer_select(0U)
+                        || !(ticks = ge_port_advance_multiplayer_tick(&port,
+                            pads, multiplayer.count))) {
+                    multiplayer.failed = multiplayer.ended = true;
+                    break;
+                }
+                multiplayer.pending_buttons = 0U;
+                multiplayer.accumulator_seconds -= 1.0 / 60.0;
+                elapsed_retraces = 1U;
+                ++scheduler_ticks;
+            }
+        } else if (original_frontend_runtime.ramrom_active) {
             elapsed_retraces = original_frontend_runtime.ramrom_block.speed_frames;
             ticks = ge_port_advance_retraces(
                 &port,
@@ -19812,6 +20456,21 @@ start_stage_runtime:
             svcSleepThread(1000000LL);
             continue;
         }
+        if (multiplayer.running) {
+            GeOriginalMultiplayerSessionState session;
+            if (ge_original_multiplayer_session_tick(port.original_clock_timer,
+                    multiplayer.elapsed60, &session) != GE_ORIGINAL_MP_SESSION_OK) {
+                multiplayer.failed = multiplayer.ended = true;
+                break;
+            }
+            multiplayer.frozen = session.stop_play != 0;
+            multiplayer.elapsed60 += port.original_clock_timer;
+            if (session.decision == GE_ORIGINAL_MP_END_RESULTS) {
+                multiplayer.end_reason = session.end_reason;
+                multiplayer.ended = true;
+                break;
+            }
+        }
         {
             const uint64_t frame_begin_start = svcGetSystemTick();
             const bool frame_began = C3D_FrameBegin(0);
@@ -19851,7 +20510,15 @@ start_stage_runtime:
                 GeOriginalDynFrameAudit dyn_frame_audit;
                 bool gun_tick_complete = false;
                 const uint64_t original_tick_profile_start = svcGetSystemTick();
-                if (stage_ordinary_objects.actor_tick_status
+                if (multiplayer.running) {
+                    GeOriginalMultiplayerRegenBatch regen;
+                    multiplayer.last_status = ge_original_multiplayer_runtime_begin_world(
+                        &stage_ordinary_objects.active_props, port.original_clock_timer, &regen);
+                    if (multiplayer.last_status != GE_ORIGINAL_MP_RUNTIME_OK)
+                        multiplayer.failed = multiplayer.ended = true;
+                    if (dam_preview.environment_ready && dam_preview.environment.clouds != 0U)
+                        ge_dam_sky_tick(&dam_cloud_offset, port.original_clock_timer);
+                } else if (stage_ordinary_objects.actor_tick_status
                         == RUNTIME_STAGE_ACTOR_TICK_READY) {
                     /* Exact bossMainloop/lvlManageMpGame boundary: background
                      * mission AI advances before the player-id shuffle and
@@ -19869,7 +20536,7 @@ start_stage_runtime:
                  * lvlViewMoveTick. It remains required in solo play: besides
                  * ordering player props it advances the recorded gameplay
                  * RNG exactly three times per presented simulation pass. */
-                shuffle_player_ids();
+                if (!multiplayer.running) shuffle_player_ids();
                 ge_original_music_port_tick();
                 if (original_music != NULL
                         && !sync_original_gameplay_music(
@@ -19898,6 +20565,19 @@ start_stage_runtime:
                 }
                 const bool dyn_frame_active =
                     ge_original_gun_live_frame_begin() != 0;
+                if (multiplayer.running) {
+                    RuntimeMultiplayerFrame multiplayer_frame = {
+                        .preview = &dam_preview, .objects = &stage_ordinary_objects,
+                        .first_person_scene = &first_person_scene,
+                        .texture_cache = texture_cache_ready ? &texture_cache : NULL,
+                    };
+                    if (multiplayer.failed || !dyn_frame_active
+                            || !runtime_multiplayer_tick(&multiplayer_frame, &port)) {
+                        multiplayer.failed = true;
+                        multiplayer.ended = true;
+                    }
+                    goto finish_original_player_tick;
+                }
                 /* Canonical viewport order updates colour-screen state before
                  * MoveBond and evaluates its exit tail immediately after. */
                 ge_original_dam_mission_exit_services_tick();
@@ -19922,9 +20602,8 @@ start_stage_runtime:
                     gunSetGunAmmoVisible(
                         GUNAMMOREASON_OPTION,
                         cur_player_get_ammo_onscreen_setting());
-                    /* The native port is currently single-player, making
-                     * this the exact live branch of the original
-                     * getPlayerCount/g_playerPerm expression. */
+                    /* This solo path uses the original one-player branch
+                     * of the getPlayerCount/g_playerPerm expression. */
                     gunSetSightVisible(
                         GUNSIGHTREASON_1,
                         cur_player_get_sight_onscreen_control());
@@ -20192,6 +20871,7 @@ start_stage_runtime:
                             osGetTime() - camera_start;
                     }
                 }
+finish_original_player_tick:
                 if (dyn_frame_active)
                     (void)ge_original_gun_live_frame_finalize(
                         &dyn_frame_audit);
@@ -20703,7 +21383,7 @@ start_stage_runtime:
             }
         }
 
-        if (dam_intro.player.initialized
+        if (!multiplayer.running && dam_intro.player.initialized
                 && dam_intro.player.publication_generation
                     != rendered_player_generation) {
             const u64 camera_start = osGetTime();
@@ -20734,7 +21414,7 @@ start_stage_runtime:
             }
         }
 
-        if (dam_preview.original_camera_ready
+        if (!multiplayer.running && dam_preview.original_camera_ready
                 && dam_preview.renderer_visibility_slider != stereo_slider) {
             update_dam_renderer_visibility(&dam_preview);
             if (stream_dam_renderer_camera(&dam_preview, &dam_preview.renderer_camera,
@@ -20764,7 +21444,7 @@ start_stage_runtime:
             }
         }
 
-        if (texture_cache_ready) {
+        if (!multiplayer.running && texture_cache_ready) {
             const u64 first_person_start = osGetTime();
             const bool first_person_updated = update_first_person_scene(
                     &first_person_models, &first_person_scene,
@@ -20784,7 +21464,8 @@ start_stage_runtime:
             const u64 gpu_start = osGetTime();
             uint64_t fine_start;
             GeOriginalDamMissionExitSnapshot fade_snapshot = {0};
-            ge_original_dam_mission_exit_services_snapshot(&fade_snapshot);
+            if (!multiplayer.running)
+                ge_original_dam_mission_exit_services_snapshot(&fade_snapshot);
             C3D_RenderTarget *const eye_targets[2] = {top_target, right_target};
             /* The earlier slider sample also owns renderer room visibility. */
             gfxSet3D(stereo_active);
@@ -20819,6 +21500,7 @@ start_stage_runtime:
             gpu_elapsed_milliseconds = osGetTime() - gpu_start;
             frame_profile.gpu_ms += gpu_elapsed_milliseconds;
         }
+        if (multiplayer.running && multiplayer.ended) break;
         if (stage_transition_pending) {
             /* bossMainloop waits for the final graphics work before consuming
              * g_MainStageNum. Present the completed canonical fade once, then
@@ -21047,7 +21729,21 @@ start_stage_runtime:
 
     controls_gameplay = false;
     ge_original_input_set_full_stick_range(false);
-    if (gameplay_stage_ended
+    if (multiplayer.running && multiplayer.ended) {
+        const bool setup_requested = run_multiplayer_results();
+        multiplayer.running = false;
+        if (setup_requested && run_multiplayer_setup(&original_frontend_runtime)) {
+            selected_level_id = multiplayer.request.selection.config.level_id;
+            next_stage_requested = true;
+        } else {
+            multiplayer.requested = false;
+            selected_level_id = LEVELID_DAM;
+            run_start_frontend = true;
+            reset_start_frontend = false;
+            next_stage_requested = true;
+        }
+    }
+    if (gameplay_stage_ended && !multiplayer.requested
             && !input_probe.enabled && !visual_probe_tour.enabled) {
         GeOriginalMissionResultSnapshot completed_mission = {0};
         ge_original_mission_result_snapshot(&completed_mission);
@@ -21065,6 +21761,27 @@ start_stage_runtime:
     }
 
 cleanup_runtime:
+    if (multiplayer.requested && !next_stage_requested
+            && multiplayer_frontend.phase == GE_ORIGINAL_MP_FRONTEND_LOADING) {
+        (void)ge_original_multiplayer_frontend_started(&multiplayer_frontend,
+            multiplayer.request.request_id, 0);
+        consoleClear();
+        printf("Multiplayer could not load %s.\nActor status: %u\n\nA/B: return to menu\n",
+            stage_assets->key, (unsigned)stage_ordinary_objects.actor_tick_status);
+        while (aptMainLoop()) {
+            hidScanInput();
+            if (ge_original_multiplayer_frontend_input_edges(&multiplayer_frontend,
+                    hidKeysHeld()) & (KEY_A | KEY_B)) {
+                next_stage_requested = true;
+                break;
+            }
+            gspWaitForVBlank();
+        }
+        multiplayer.requested = false;
+        selected_level_id = LEVELID_DAM;
+        run_start_frontend = true;
+        reset_start_frontend = false;
+    }
     controls_gameplay = false;
     ge_original_input_set_full_stick_range(false);
     ge_original_inventory_invalidate();
@@ -21086,6 +21803,7 @@ cleanup_runtime:
         (void)ge_retrace_scheduler_stop(&scheduler);
     }
     ge_original_gameplay_services_bind_audio(NULL, NULL);
+    ge_original_gameplay_services_set_exact_held_item_dispatch(0);
     ge_original_gameplay_services_bind_settings_persistence(NULL, NULL);
     (void)ge_3ds_audio_bind_secondary(NULL);
     ge_original_music_runtime_close(original_music);
@@ -21106,6 +21824,18 @@ cleanup_runtime:
     ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);
     close_dam_world_objects(&dam_objects);
     close_stage_ordinary_objects(&stage_ordinary_objects);
+    if (multiplayer.count != 0U) {
+        ge_original_guard_bullet_hit_bind_players(NULL, NULL, NULL);
+        for (uint32_t slot = 0U; slot < multiplayer.count; ++slot) {
+            ge_original_player_gait_destroy(multiplayer.gait[slot]);
+            multiplayer.gait[slot] = NULL;
+            if (slot != 0U && multiplayer.models[slot] != NULL)
+                close_first_person_models(multiplayer.models[slot]);
+        }
+        ge_original_multiplayer_players_destroy();
+        multiplayer.count = 0U;
+    }
+    ge_original_stage_multiplayer_setup_close(&multiplayer.prepared);
     close_first_person_scene(&first_person_scene);
     close_first_person_models(&first_person_models);
     close_bond_animations(&bond_animations);
@@ -21118,13 +21848,21 @@ cleanup_runtime:
     renderer_ready = false;
 
     if (next_stage_requested) {
-        const GeStageAssetDescriptor *next_stage =
-            ge_stage_asset_descriptor_by_level_id(selected_level_id);
+        const GeStageAssetDescriptor *next_stage = multiplayer.requested
+            ? ge_stage_asset_multiplayer((size_t)multiplayer.request.selection.arena_index)
+            : ge_stage_asset_descriptor_by_level_id(selected_level_id);
         if (next_stage == NULL) {
             printf("Unsupported requested LEVELID %ld.\n",
                    (long)selected_level_id);
             result = 1;
             goto exit_citro3d;
+        }
+        {
+            const GeOriginalMultiplayerFrontendStart request = multiplayer.request;
+            const bool requested = multiplayer.requested;
+            memset(&multiplayer, 0, sizeof(multiplayer));
+            multiplayer.request = request;
+            multiplayer.requested = requested;
         }
         stage_assets = next_stage;
         dam_stage = stage_assets->stage == GE_STAGE_DAM;

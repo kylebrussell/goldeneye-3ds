@@ -186,6 +186,34 @@ int main(void)
         &canonical,bad,&result)==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
     assert(memcmp(&saved,&result,sizeof(result))==0);
     assert(snapshot(after)==length && memcmp(before,after,length)==0);
+    /* The interpreter supports more rooms than the fixed preload queue.
+     * Reject malformed queue counts before either mono publication or the
+     * private eye loop can read beyond the queue's membership array. */
+    {
+        GeDamVisibilityRuntime maximum=runtime;
+        GeDamPreloadQueue bounded;
+        maximum.program=NULL;
+        assert(ge_dam_preload_queue_init(&bounded,GE_DAM_PRELOAD_MAX_ROOMS,
+            GE_DAM_PRELOAD_MAX_ROOMS,NULL,0)==GE_DAM_PRELOAD_OK);
+        for(size_t count=GE_DAM_PRELOAD_MAX_ROOMS;count<=GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS;++count) {
+            maximum.room_count=count; bounded.room_count=count;
+            const GeDamPreloadQueue queue_before=bounded;
+            for(unsigned eye_mode=0;eye_mode<2;++eye_mode) {
+                const GeDamRendererVisibility output_before=result;
+                const GeOriginalBgVisibilityStatus status=ge_dam_renderer_visibility_run(
+                    &maximum,&camera,position,&providers,&bounded,&canonical,
+                    eye_mode ? shifts : zero,&result);
+                if(count==GE_DAM_PRELOAD_MAX_ROOMS)
+                    assert(status==GE_ORIGINAL_BG_VISIBILITY_OK);
+                else {
+                    assert(status==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+                    assert(memcmp(&result,&output_before,sizeof(result))==0);
+                }
+                assert(memcmp(&bounded,&queue_before,sizeof(bounded))==0);
+                assert(snapshot(after)==length && memcmp(before,after,length)==0);
+            }
+        }
+    }
     ge_original_bg_visibility_program_close(runtime.program); runtime.program=NULL;
     /* Authored global DISABLE_ROOM precedes traversal and remains effective
      * even though that room is geometrically eye-visible. */

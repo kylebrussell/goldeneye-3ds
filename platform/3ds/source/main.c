@@ -12492,7 +12492,8 @@ static bool stream_dam_renderer_camera(RuntimeDamPreview *preview,
         for (size_t candidate = 0U; candidate < preview->visibility_runtime.room_count; ++candidate) {
             const bool requested = preview->renderer_visibility_ready
                 ? preview->renderer_visibility.preload[candidate] != 0U
-                : preview->canonical_preload_requests[candidate] != 0U;
+                : candidate < sizeof(preview->canonical_preload_requests)
+                    && preview->canonical_preload_requests[candidate] != 0U;
             if (requested || dam_renderer_visibility_contains_room(preview, candidate))
                 protected_rooms[protected_count++] = (uint8_t)candidate;
         }

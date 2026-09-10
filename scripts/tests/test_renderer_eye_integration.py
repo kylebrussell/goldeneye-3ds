@@ -17,10 +17,13 @@ from extract_dam_guard_chr_scheduler_slice import function_text
 source = (repo / "port/src/ge_original_stage_guard_runtime.c").read_text()
 extract_source = re.sub(r"\bGeOriginalStageGuardRuntimeStatus\s*\n", "GeOriginalStageGuardRuntimeStatus ", source)
 for name, count in (("ge_original_stage_guard_runtime_update_matrices", 1),
-                    ("build_scene_internal", 2), ("collect_scene_inputs", 2)):
+                    ("collect_scene_inputs", 2)):
     body = function_text(extract_source, name)
     assert body.count("runtime_guard_room_draw_visible(") == count, name
     assert "!slot->state.visible" not in body, name
+uncached = function_text(extract_source, "build_scene_internal")
+assert "collect_scene_inputs(" in uncached
+assert "!slot->state.visible" not in uncached
 
 main_source = (repo / "platform/3ds/source/main.c").read_text()
 for name in ("update_stage_guard_visibility", "publish_stage_ordinary_visibility"):
@@ -34,6 +37,7 @@ assert "ge_original_stage_guard_runtime_set_renderer_visibility(" in stream
 assert "stereo_rooms ? preview->renderer_visibility.membership : NULL" in stream
 assert "ge_3ds_stereo_max_world_shift_px(" in stream
 assert "dam_renderer_visibility_contains_room(" in stream
+preload_request = re.search(r"const bool requested\s*=.*?;", stream, re.S).group()
 articulated = function_text(main_source, "refresh_stage_articulated_objects")
 assert "renderer_visibility.stereo" in articulated
 assert "ge_original_stage_model_publication_resident_input(" in articulated
@@ -71,9 +75,15 @@ typedef struct {
     bool visibility_ready,renderer_visibility_ready;
     GeOriginalBgVisibilityResult visibility_result;
     GeDamRendererVisibility renderer_visibility;
+    uint8_t canonical_preload_requests[GE_DAM_PRELOAD_MAX_ROOMS];
+    uint8_t after_preload[2];
 } RuntimeDamPreview;
 ''' + "\n".join(function_text(main_source, name) for name in (
-    "dam_visibility_contains_room", "dam_renderer_visibility_contains_room")) + r'''
+    "dam_visibility_contains_room", "dam_renderer_visibility_contains_room")) + '''
+static bool main_preload_requested(const RuntimeDamPreview *preview,size_t candidate) {
+''' + preload_request + r'''
+    return requested;
+}
 static void consumer_checks(void) {
     RuntimeDamPreview preview={0};
     preview.visibility_ready=true;preview.visibility_result.room_count=1;
@@ -95,6 +105,18 @@ static void consumer_checks(void) {
     for(unsigned room=0;room<=256;++room)
         assert(dam_renderer_visibility_contains_room(&preview,room)
             ==dam_visibility_contains_room(&preview,room));
+    /* Failure fallback has fewer preload slots than the renderer's maximum
+     * room count. Exercise the actual main expression with poisoned adjacent
+     * bytes, then retain the renderer's valid larger membership capacity. */
+    memset(preview.canonical_preload_requests,1,sizeof(preview.canonical_preload_requests));
+    memset(preview.after_preload,0xa5,sizeof(preview.after_preload));
+    before=preview;
+    for(size_t room=0;room<GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS;++room)
+        assert(main_preload_requested(&preview,room)==(room<GE_DAM_PRELOAD_MAX_ROOMS));
+    assert(memcmp(&preview,&before,sizeof(preview))==0);
+    preview.renderer_visibility_ready=true;
+    preview.renderer_visibility.preload[GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS-1]=1;
+    assert(main_preload_requested(&preview,GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS-1));
 }
 static void sphere_checks(void) {
     float view[4][4],center[3]={110,0,-100};identity(view);

@@ -120,7 +120,8 @@ GeOriginalBgVisibilityStatus ge_dam_renderer_visibility_run(
             || canonical == NULL || shifts == NULL || result == NULL
             || runtime->room_count == 0U
             || runtime->room_count > GE_ORIGINAL_BG_VISIBILITY_MAX_ROOMS
-            || (queue != NULL && queue->room_count != runtime->room_count))
+            || (queue != NULL && (queue->room_count != runtime->room_count
+                || queue->room_count > GE_DAM_PRELOAD_MAX_ROOMS)))
         return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
     if (!merge_visibility(&candidate, canonical, 1U, runtime->room_count))
         return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;

@@ -30,9 +30,14 @@ for name in ("update_stage_guard_visibility", "publish_stage_ordinary_visibility
 for name in ("refresh_stage_glass_shading", "refresh_stage_windowed_door_shading"):
     assert "dam_renderer_visibility_contains_room(" in function_text(main_source, name)
 stream = function_text(main_source, "stream_dam_renderer_camera")
-assert "ge_original_stage_guard_runtime_set_renderer_visibility(" in stream
-assert "stereo_rooms ? preview->renderer_visibility.membership : NULL" in stream
-assert "ge_3ds_stereo_max_world_shift_px(" in stream
+guard_visibility = function_text(main_source, "prepare_dam_guard_renderer_visibility")
+assert "ge_original_stage_guard_runtime_set_renderer_visibility(" in guard_visibility
+assert "stereo_rooms ? preview->renderer_visibility.membership : NULL" in guard_visibility
+assert "ge_3ds_stereo_max_world_shift_px(" in guard_visibility
+assert stream.index("prepare_dam_guard_renderer_visibility(") < stream.index("prepare_dam_gpu_world_projection(")
+multiplayer_visibility = function_text(main_source, "runtime_multiplayer_view_visibility")
+assert multiplayer_visibility.index("memcpy(preview->canonical_preload_requests,") < multiplayer_visibility.index("update_dam_renderer_visibility(")
+assert multiplayer_visibility.index("update_dam_renderer_visibility(") < multiplayer_visibility.index("prepare_dam_guard_renderer_visibility(")
 assert "dam_renderer_visibility_contains_room(" in stream
 articulated = function_text(main_source, "refresh_stage_articulated_objects")
 assert "renderer_visibility.stereo" in articulated
@@ -47,6 +52,7 @@ test = r'''
 PropRecord *g_ActivePropsHead;
 static struct player player;
 struct player *g_CurrentPlayer=&player;
+struct player *g_playerPointers[4]={&player,NULL,NULL,NULL};
 s32 g_GlobalTimer=17;
 static unsigned flash_queries;
 static uint32_t captured_random;
@@ -140,6 +146,7 @@ int main(void) {
     uint8_t membership[256]={0};
     identity(runtime.draw_world_to_view);runtime.draw_camera_ready=1;
     player.c_perspfovy=90;player.c_perspaspect=1;player.c_perspnear=1;
+    runtime.draw_vertical_fov=90;runtime.draw_aspect=1;runtime.draw_near=1;
     runtime.count=1;runtime.slots=&slot;runtime.props=props;
     runtime.weapon_count=1;runtime.weapons=&weapon;
     runtime.weapon_models=(void*)&runtime;
@@ -178,6 +185,11 @@ int main(void) {
     slot.state.visible=1;prop.pos.x=110;
     assert(runtime_guard_draw_visible(&runtime,0));
     assert(!runtime_guard_draw_visible_with_margin(&runtime,0,0));
+    /* A later selected player cannot replace the captured viewport's FOV. */
+    player.c_perspfovy=20;
+    assert(runtime_guard_draw_visible(&runtime,0));
+    assert(!runtime_guard_draw_visible_with_margin(&runtime,0,0));
+    player.c_perspfovy=90;
     assert(ge_original_stage_guard_runtime_muzzle_flash(&runtime,0,&flash));
     assert(g_randomSeed==saved_seed);
     prop.pos.x=0;

@@ -298,6 +298,16 @@ int ge_original_stage_guard_runtime_set_visibility(
     GeOriginalStageGuardRuntime *runtime, size_t guard_index,
     int visible, uint8_t room_id);
 
+/* Renderer-only room union and horizontal clip-space expansion. Membership
+ * is copied (nonzero means eligible); neither canonical state.visible nor
+ * prop flags are changed. Pass NULL,0,0 to restore the original mono path.
+ * Positive infinity disables horizontal rejection, retaining near/vertical
+ * checks. Invalid input returns zero without changing the previous override.
+ * Call before update_matrices and scene collection for the selected camera. */
+int ge_original_stage_guard_runtime_set_renderer_visibility(
+    GeOriginalStageGuardRuntime *runtime, const uint8_t *room_membership,
+    size_t room_count, float horizontal_margin_ndc);
+
 /* Runs setup's unchanged weaponAssignToHome construction/equip semantics for
  * authored ASSIGNEDTOCHR collectables whose owner is resident in this guard
  * runtime. Missing owners are canonical no-ops (difficulty/setup variants).
@@ -317,8 +327,10 @@ int ge_original_stage_guard_runtime_weapon_snapshot(
     GeOriginalStageGuardWeaponSnapshot *snapshot);
 size_t ge_original_stage_guard_runtime_muzzle_flash_count(
     const GeOriginalStageGuardRuntime *runtime);
-/* Publishes the unchanged dogfnegx quad for one currently visible authored
- * guard weapon. Returns zero while its canonical Gunfire RW relation is off. */
+/* Publishes the unchanged dogfnegx quad for one renderer-visible authored
+ * guard weapon. Returns zero while its canonical Gunfire RW relation is off.
+ * Additional stereo-only draws use deterministic local random samples; the
+ * existing mono-visible draws retain their two canonical PRNG calls. */
 int ge_original_stage_guard_runtime_muzzle_flash(
     const GeOriginalStageGuardRuntime *runtime, size_t weapon_index,
     GeOriginalGuardMuzzleFlashPublication *publication);

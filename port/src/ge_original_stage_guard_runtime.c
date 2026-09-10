@@ -26,6 +26,7 @@ typedef int PLAYERFLAG;
 extern PropRecord *g_ActivePropsHead;
 extern struct player *g_CurrentPlayer;
 extern struct player *g_playerPointers[4];
+extern s32 g_GlobalTimer;
 extern void chrpropActivateThisFrame(PropRecord *prop);
 extern void chrpropDelist(PropRecord *prop);
 extern void chrpropEnable(PropRecord *prop);
@@ -106,6 +107,10 @@ struct GeOriginalStageGuardRuntime {
     GeOriginalStageGuardSceneWorkspace scene_workspace;
     float draw_world_to_view[4][4];
     uint8_t draw_camera_ready;
+    uint8_t draw_room_membership[256];
+    size_t draw_room_count;
+    float draw_horizontal_margin_ndc;
+    uint8_t draw_visibility_override;
     size_t capacity;
     size_t count;
     GeOriginalStageGuardRuntimeStatus last_status;
@@ -233,9 +238,10 @@ static int runtime_retain_matrices(Model *model,
 static ChrRecord *runtime_live_chr(
     const GeOriginalStageGuardRuntime *runtime,size_t guard_index);
 
-int ge_original_stage_guard_draw_sphere_visible(
+static int runtime_draw_sphere_visible_with_margin(
     const float world_to_view[4][4],float vertical_fov_degrees,
-    float aspect,float near_distance,const float center[3],float radius)
+    float aspect,float near_distance,const float center[3],float radius,
+    float horizontal_margin_ndc)
 {
     float view[3],depth,tan_vertical,tan_horizontal;
     float vertical_normal,horizontal_normal;
@@ -262,15 +268,39 @@ int ge_original_stage_guard_draw_sphere_visible(
             ||tan_vertical<=0.0f||tan_horizontal<=0.0f)return 1;
     vertical_normal=sqrtf(1.0f+tan_vertical*tan_vertical);
     horizontal_normal=sqrtf(1.0f+tan_horizontal*tan_horizontal);
-    if(view[0]-depth*tan_horizontal>radius*horizontal_normal
-            ||-view[0]-depth*tan_horizontal>radius*horizontal_normal
-            ||view[1]-depth*tan_vertical>radius*vertical_normal
+    if(view[1]-depth*tan_vertical>radius*vertical_normal
             ||-view[1]-depth*tan_vertical>radius*vertical_normal)return 0;
+    /* Expand only the horizontal planes. Infinity is the explicit
+     * conservative fallback for an unbounded near-plane eye displacement. */
+    if(horizontal_margin_ndc > 0.0f) {
+        tan_horizontal *= 1.0f + horizontal_margin_ndc;
+        horizontal_normal=sqrtf(1.0f+tan_horizontal*tan_horizontal);
+    }
+    if(isfinite(tan_horizontal) && isfinite(horizontal_normal)
+            && (view[0]-depth*tan_horizontal>radius*horizontal_normal
+                ||-view[0]-depth*tan_horizontal>radius*horizontal_normal))return 0;
     return 1;
 }
 
-static int runtime_guard_draw_visible(
-    const GeOriginalStageGuardRuntime *runtime,size_t guard_index)
+int ge_original_stage_guard_draw_sphere_visible(
+    const float world_to_view[4][4],float vertical_fov_degrees,
+    float aspect,float near_distance,const float center[3],float radius)
+{
+    return runtime_draw_sphere_visible_with_margin(world_to_view,
+        vertical_fov_degrees,aspect,near_distance,center,radius,0.0f);
+}
+
+static int runtime_guard_room_draw_visible(
+    const GeOriginalStageGuardRuntime *runtime,const GeOriginalStageGuardSlot *slot)
+{
+    return runtime->draw_visibility_override
+        ? slot->state.room_id < runtime->draw_room_count
+            && runtime->draw_room_membership[slot->state.room_id] != 0U
+        : slot->state.visible != 0U;
+}
+
+static int runtime_guard_draw_visible_with_margin(
+    const GeOriginalStageGuardRuntime *runtime,size_t guard_index,float margin)
 {
     ChrRecord *chr;
     Model *model;
@@ -283,10 +313,18 @@ static int runtime_guard_draw_visible(
     center[0]=chr->prop->pos.x;center[1]=chr->prop->pos.y;
     center[2]=chr->prop->pos.z;
     radius=model->obj->BoundingVolumeRadius*model->scale;
-    return ge_original_stage_guard_draw_sphere_visible(
+    return runtime_draw_sphere_visible_with_margin(
         runtime->draw_world_to_view,g_CurrentPlayer->c_perspfovy,
         g_CurrentPlayer->c_perspaspect,g_CurrentPlayer->c_perspnear,
-        center,radius);
+        center,radius,margin);
+}
+
+static int runtime_guard_draw_visible(
+    const GeOriginalStageGuardRuntime *runtime,size_t guard_index)
+{
+    return runtime_guard_draw_visible_with_margin(runtime,guard_index,
+        runtime != NULL && runtime->draw_visibility_override
+            ? runtime->draw_horizontal_margin_ndc : 0.0f);
 }
 
 static int runtime_room_resident(const GeOriginalStageGuardRuntime *runtime,
@@ -1305,14 +1343,27 @@ int ge_original_stage_guard_runtime_muzzle_flash(
             ||weapon->model->obj==NULL||weapon->model->render_pos==NULL
             ||weapon->prop==NULL||weapon->owner==NULL
             ||weapon->prop->parent!=weapon->owner->state.prop_record
-            ||!weapon->owner->state.visible
+            ||!runtime_guard_room_draw_visible(runtime,weapon->owner)
             ||!ge_original_pitem_model_instance_gunfire(
                 runtime->weapon_models,weapon->model,0U,&gunfire)
             ||!gunfire.visible
             ||gunfire.matrix_index>=(uint16_t)weapon->model->obj->numMatrices)
         return 0;
-    /* These are the two exact renderer-time random branches in dogfnegx. */
-    scale_random=randomGetNext();angle_random=randomGetNext();
+    /* Preserve the canonical draw's two random calls. An additional stereo
+     * draw (including a mono-room guard recovered only by widened frustum)
+     * cannot advance gameplay RNG. Its visual samples use a local seed. */
+    const size_t owner_index=(size_t)(weapon->owner-runtime->slots);
+    if(weapon->owner->state.visible
+            && (!runtime->draw_visibility_override
+                || runtime_guard_draw_visible_with_margin(runtime,owner_index,0.0f))) {
+        scale_random=randomGetNext();angle_random=randomGetNext();
+    } else {
+        u64 visual_seed=UINT64_C(0x9e3779b97f4a7c15)
+            ^ ((uint64_t)(uint32_t)weapon->owner->state.chr_id << 32)
+            ^ ((uint64_t)(uint32_t)g_GlobalTimer << 1) ^ weapon_index;
+        scale_random=randomGetNextFrom(&visual_seed);
+        angle_random=randomGetNextFrom(&visual_seed);
+    }
     phase=(uint16_t)((angle_random*UINT32_C(1024))&UINT32_C(0xffff));
     return ge_original_guard_muzzle_flash_build(&gunfire,
         weapon->model->render_pos[gunfire.matrix_index].pos.m,
@@ -1591,6 +1642,26 @@ int ge_original_stage_guard_runtime_set_visibility(
     runtime->slots[guard_index].state.room_id=room_id;return 1;
 }
 
+int ge_original_stage_guard_runtime_set_renderer_visibility(
+    GeOriginalStageGuardRuntime *runtime,const uint8_t *room_membership,
+    size_t room_count,float horizontal_margin_ndc)
+{
+    if(runtime==NULL || room_count>sizeof(runtime->draw_room_membership)
+            || (room_membership==NULL) != (room_count==0U)
+            || isnan(horizontal_margin_ndc) || horizontal_margin_ndc<0.0f
+            || (room_membership==NULL && horizontal_margin_ndc!=0.0f))return 0;
+    /* Input may point into this runtime's copied mask. Copy before clearing
+     * the unused tail, so reinstalling that mask remains well-defined. */
+    if(room_count!=0U)
+        memmove(runtime->draw_room_membership,room_membership,room_count);
+    memset(runtime->draw_room_membership+room_count,0,
+        sizeof(runtime->draw_room_membership)-room_count);
+    runtime->draw_room_count=room_count;
+    runtime->draw_horizontal_margin_ndc=horizontal_margin_ndc;
+    runtime->draw_visibility_override=room_membership!=NULL;
+    return 1;
+}
+
 static void runtime_clear_attachment_matrices(
     GeOriginalStageGuardRuntime *runtime, GeOriginalStageGuardSlot *slot)
 {
@@ -1755,7 +1826,7 @@ ge_original_stage_guard_runtime_update_matrices(
             runtime_clear_attachment_matrices(runtime,slot);
             continue;
         }
-        if(!slot->state.visible
+        if(!runtime_guard_room_draw_visible(runtime,slot)
                 ||!runtime_room_resident(runtime,slot->state.room_id)){
             if (runtime_retain_culled_guard(runtime, index)
                     != GE_ORIGINAL_STAGE_GUARD_RUNTIME_OK)
@@ -2150,7 +2221,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
         GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];
         size_t attachment;
         if(runtime_live_chr(runtime,guard_index)==NULL
-                ||!slot->state.visible
+                ||!runtime_guard_room_draw_visible(runtime,slot)
                 ||!runtime_room_resident(runtime,slot->state.room_id))continue;
         ++*resident_count;
         if(!slot->state.matrices_ready)continue;
@@ -2239,7 +2310,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
         GeOriginalStageGuardSlot *slot=&runtime->slots[guard_index];Model *model;
         size_t parts,part_index,attachment;
         if(runtime_live_chr(runtime,guard_index)==NULL
-                ||!slot->state.visible||!slot->state.matrices_ready
+                ||!runtime_guard_room_draw_visible(runtime,slot)||!slot->state.matrices_ready
                 ||!runtime_room_resident(runtime,slot->state.room_id))continue;
         model=slot->pair.model_instance;
         if(!ge_original_character_model_instance_scene_parts(

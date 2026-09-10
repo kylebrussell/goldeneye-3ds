@@ -120,3 +120,40 @@ prove its cross-device determinism with gameplay fixtures, wire frontend setup
 and camera ownership, then perform coordinator-managed emulator/radio matches.
 Physical radio loss, lid suspend, peer/host exit, repeated matches, incompatibility,
 sustained frame cost, and subjective playability require actual consoles.
+
+## UDS adapter handoff
+
+`Ge3dsMultiplayerTransport` owns an existing connected `Ge3dsWireless` binding.
+Zero-initialize its storage, then call `ge_3ds_multiplayer_transport_begin` with
+full `GeMpConfig`, the admitted local slot and monotonic time. The adapter checks
+host node 1/slot 0, local node/role, the lobby session, node IDs 1–16 and exact
+live UDS membership before taking ownership. Failed admission leaves the lobby
+connected and its receive queue untouched. The exact roster must already be
+agreed; the adapter does not turn transient lobby readiness into a match setup.
+
+The `wireless.match_owner` pointer prevents the presence receiver and readiness
+mutations from consuming match traffic. Keep the owning transport alive until
+`ge_3ds_multiplayer_transport_end`, which leaves that network but preserves the
+outer UDS service lifecycle. An old detached object cannot close a new owner's
+session. Call `ge_3ds_wireless_exit` later to release the service as usual.
+
+Each adapter poll checks real transport membership and evaluates the protocol
+deadline **before** draining at most eight full-size UDS datagrams. A queued
+PREPARE/EXECUTE after a long pause cannot renew an expired match. Poll before
+consuming a frame after resume; never take a previously queued frame without
+updating monotonic time. Old lobby and oversized packets are consumed/rejected.
+The real UDS source node is passed to the portable decoder. Full queues retry
+at the protocol cadence; fatal errors and fixed-roster changes freeze execution.
+The caller should show the terminal reason and end the session at a safe
+frontend boundary. Membership changes do not silently convert a four-player
+match into a three-player match.
+
+The same test script includes ASan/UBSan UDS service doubles for exclusive queue
+handoff, eight-datagram limits, old/oversized packets, queue-full throttle,
+transport failures, host/peer loss, new-node rejection, stale-owner cleanup,
+long-pause rejection, and actual adapter routing of two/four-peer protocol test
+sessions. `test_local_wireless.sh` also verifies that the real old lobby poll
+refuses to drain an owned queue. Core and both UDS source modules compile with
+`-Wall -Wextra -Werror` against the installed devkitARM/libctru headers. These
+are adapter/module checks; they do not substitute for a full application build
+or radio matches. No emulator instance or physical device was used.

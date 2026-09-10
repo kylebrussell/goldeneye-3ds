@@ -37,6 +37,7 @@ void ge_3ds_wireless_leave(Ge3dsWireless *wireless)
     wireless->connected = 0;
     wireless->host = 0;
     wireless->send_pending = 0;
+    wireless->match_owner = NULL;
     wireless->network_count = 0;
 }
 
@@ -143,7 +144,7 @@ Result ge_3ds_wireless_join(Ge3dsWireless *wireless, size_t network_index)
 
 void ge_3ds_wireless_ready(Ge3dsWireless *wireless, int ready)
 {
-    if (wireless == NULL || !wireless->connected) return;
+    if (wireless == NULL || !wireless->connected || wireless->match_owner) return;
     wireless->lobby.local.ready = ready != 0;
     wireless->send_pending = 1;
 }
@@ -156,7 +157,8 @@ Result ge_3ds_wireless_poll(Ge3dsWireless *wireless, uint64_t now_ms)
     uint8_t packet[UDS_DATAFRAME_MAXSIZE];
     Result result;
     unsigned i;
-    if (wireless == NULL || !wireless->connected) return GE_UDS_INVALID;
+    if (wireless == NULL || !wireless->connected || wireless->match_owner)
+        return GE_UDS_INVALID;
     result = udsGetConnectionStatus(&status);
     if (R_FAILED(result)) goto failed;
     if (status.cur_NetworkNodeID != wireless->lobby.local_node
@@ -195,4 +197,3 @@ failed:
     ge_3ds_wireless_leave(wireless);
     return wireless->last_result = result;
 }
-

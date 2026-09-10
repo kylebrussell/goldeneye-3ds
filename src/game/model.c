@@ -2725,8 +2725,8 @@ void modelSetAnimEndFrame(Model *model, f32 endframe) {
 void modelSetAnimFlipFunction(Model *model, void *callback) {
 #if defined(GE_PORT_MODEL_ANIMATION_CLOCK_SLICE) && \
     UINTPTR_MAX > UINT32_MAX
-    ge_port_model_set_anim_flip_function(model, callback);
-    model->animflipfunc = callback != NULL;
+    ge_port_model_set_anim_flip_function(model,
+                                         (GeOriginalModelFlipCallback)callback);
 #else
     model->animflipfunc = callback;
 #endif

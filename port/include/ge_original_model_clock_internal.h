@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <bondtypes.h>
 #include "game/model.h"
+#include "ge_original_player_gait.h"
 #include "game/math_floor.h"
 #include "game/math_ceil.h"
 
@@ -23,7 +24,8 @@ extern coord3d D_80036254;
 extern u32 g_ModelAnimMergingEnabled;
 
 #if UINTPTR_MAX > UINT32_MAX
-void ge_port_model_set_anim_flip_function(Model *model, void *callback);
+void ge_port_model_set_anim_flip_function(Model *model,
+                                         GeOriginalModelFlipCallback callback);
 void ge_port_model_invoke_anim_flip_function(Model *model);
 #endif
 

@@ -43,24 +43,61 @@ static int g_auto_selected_gait;
 static const GeOriginalAnimationRoot *g_bond_walking;
 static const GeOriginalAnimationRoot *g_bond_sprinting;
 static const GeOriginalAnimationRoot *g_bond_idle;
-static Model *g_bond_anim_flip_model;
-static void (*g_bond_anim_flip_function)(void);
+/* Functions have program lifetime. Store their identity in the unchanged
+ * 32-bit model word; model copies retain it and animInit clears only its own
+ * word. No model address or last-selected-player cache participates. */
+#if UINTPTR_MAX > UINT32_MAX
+static GeOriginalModelFlipCallback g_bond_anim_flip_functions[32];
+static size_t g_bond_anim_flip_function_count;
+#endif
 static ModelJoint g_player_gait_root_joint;
 ModelSkeleton ge_port_player_gait_root_skeleton;
 #if UINTPTR_MAX > UINT32_MAX
-void ge_port_model_set_anim_flip_function(Model *model, void *callback)
+void ge_port_model_set_anim_flip_function(Model *model,
+                                         GeOriginalModelFlipCallback callback)
 {
-    g_bond_anim_flip_model = model;
-    g_bond_anim_flip_function = (void (*)(void))callback;
+    size_t index;
+    if (model == NULL) abort();
+    if (callback == NULL) {
+        model->animflipfunc = 0;
+        return;
+    }
+    for (index = 0; index < g_bond_anim_flip_function_count; ++index)
+        if (g_bond_anim_flip_functions[index] == callback) break;
+    if (index == g_bond_anim_flip_function_count) {
+        if (index == sizeof(g_bond_anim_flip_functions) /
+                         sizeof(g_bond_anim_flip_functions[0])) abort();
+        g_bond_anim_flip_functions[g_bond_anim_flip_function_count++] = callback;
+    }
+    model->animflipfunc = (s32)(index + 1);
 }
 
 void ge_port_model_invoke_anim_flip_function(Model *model)
 {
-    if (model == g_bond_anim_flip_model && g_bond_anim_flip_function != NULL) {
-        g_bond_anim_flip_function();
-    }
+    GeOriginalModelFlipCallback callback;
+    if (!ge_original_player_gait_anim_flip_callback(model, &callback) ||
+        callback == NULL) abort();
+    callback();
 }
 #endif
+
+int ge_original_player_gait_anim_flip_callback(const void *native_model,
+                                               GeOriginalModelFlipCallback *out)
+{
+    const Model *model = native_model;
+    if (out == NULL) return 0;
+    *out = NULL;
+    if (model == NULL) return 0;
+    if (model->animflipfunc == 0) return 1;
+#if UINTPTR_MAX > UINT32_MAX
+    if (model->animflipfunc < 0 ||
+        (size_t)model->animflipfunc > g_bond_anim_flip_function_count) return 0;
+    *out = g_bond_anim_flip_functions[model->animflipfunc - 1];
+#else
+    *out = (GeOriginalModelFlipCallback)(uintptr_t)(u32)model->animflipfunc;
+#endif
+    return 1;
+}
 
 static const GeOriginalAnimationRoot *root_for_native_animation(
     ModelAnimation *animation)

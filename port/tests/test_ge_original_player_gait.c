@@ -23,6 +23,62 @@ typedef int PLAYERFLAG;
 s32 g_ClockTimer;
 void bheadUpdatePos(coord3d *velocity);
 
+static unsigned flip_calls[2];
+static void first_flip(void) { ++flip_calls[0]; }
+static void second_flip(void) { ++flip_calls[1]; }
+
+static void test_flip_callback_ownership(const GeOriginalAnimationRoot *walk)
+{
+    GeOriginalPlayerGait *gaits[4];
+    Model *models[4];
+    GeOriginalModelFlipCallback callback = NULL;
+    for (unsigned i = 0; i < 4; ++i) {
+        GeOriginalPlayerGaitStatus status;
+        gaits[i] = ge_original_player_gait_create(walk, &status);
+        assert(gaits[i] && status == GE_ORIGINAL_PLAYER_GAIT_OK);
+        models[i] = ge_original_player_gait_native_model(gaits[i]);
+        modelSetAnimFlipFunction(models[i], i & 1 ? second_flip : first_flip);
+        assert(ge_original_player_gait_anim_flip_callback(models[i], &callback));
+        assert(callback == (i & 1 ? second_flip : first_flip));
+    }
+    assert(sizeof(models[0]->animflipfunc) == 4);
+    assert(models[0]->animflipfunc == models[2]->animflipfunc);
+    assert(models[1]->animflipfunc == models[3]->animflipfunc);
+    assert(models[0]->animflipfunc != models[1]->animflipfunc);
+    /* Invoke through the actual animation-clock loop after all four models
+     * register, so a last-model-only bridge cannot satisfy this fixture. */
+    for (unsigned i = 0; i < 4; ++i) {
+        assert(ge_original_player_gait_set_animation(gaits[i], walk, 0,
+                                                     26.5f, 1.0f, 0.0f));
+        ge_original_player_gait_set_loop(gaits[i], 9.5f, 27.0f, 0.0f);
+        modelTickAnim(models[i], 1, 0);
+    }
+    assert(flip_calls[0] == 2 && flip_calls[1] == 2);
+    Model copy = *models[0];
+    modelSetAnimFrame(&copy, 26.5f);
+    modelTickAnim(&copy, 1, 0);
+    assert(flip_calls[0] == 3);
+    modelSetAnimFlipFunction(models[0], NULL);
+    assert(ge_original_player_gait_anim_flip_callback(models[0], &callback));
+    assert(callback == NULL);
+    assert(ge_original_player_gait_anim_flip_callback(&copy, &callback));
+    assert(callback == first_flip);
+    /* Native reset, including reuse at the same Model address, clears only
+     * that model word. The copied token and other players remain valid. */
+    animInit(models[1], models[1]->obj, (u32 *)models[1]->datas);
+    assert(ge_original_player_gait_anim_flip_callback(models[1], &callback));
+    assert(callback == NULL);
+    assert(ge_original_player_gait_anim_flip_callback(models[3], &callback));
+    assert(callback == second_flip);
+#if UINTPTR_MAX > UINT32_MAX
+    copy.animflipfunc = 0x12345678;
+    assert(!ge_original_player_gait_anim_flip_callback(&copy, &callback));
+    assert(callback == NULL);
+#endif
+    for (unsigned i = 0; i < 4; ++i) ge_original_player_gait_destroy(gaits[i]);
+    puts("native animation loop: four models, two callbacks, copy, clear, reset and checked reference passed");
+}
+
 static unsigned char *read_file(const char *path, size_t *size)
 {
     FILE *file = fopen(path, "rb");
@@ -194,6 +250,7 @@ int main(int argc, char **argv)
     assert(ge_original_animation_root_bind_frames(
         idle, idle_frames, idle_frames_size));
     ge_original_player_gait_bind_bond_animations(walk, sprint);
+    test_flip_callback_ownership(walk);
     assert(fabsf(g_BondMoveAnimationSetup[0].speedMultiplier -
                  5.314286f) < 0.00001f);
     assert(fabsf(g_BondMoveAnimationSetup[1].speedMultiplier -

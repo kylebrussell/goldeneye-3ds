@@ -11,6 +11,13 @@ extern "C" {
 #endif
 
 typedef struct GeOriginalPlayerGait GeOriginalPlayerGait;
+typedef void (*GeOriginalModelFlipCallback)(void);
+
+/* Read-only function identity from a validated full native Model. Zero is a
+ * valid cleared callback. Invalid host tokens return 0 without mutating state;
+ * callers exporting canonical state must map the typed function to a role. */
+int ge_original_player_gait_anim_flip_callback(const void *native_model,
+                                               GeOriginalModelFlipCallback *out);
 
 typedef struct GeOriginalPlayerGaitTick {
     float max_speed;

@@ -56,8 +56,11 @@ owner address without reading overwritten statistics. The caller's wrapper
 address must remain valid through final end.
 
 The 3DS main path now follows this order on stage completion, restarts and
-post-reset load failures. Its registry survives stage restarts, retaining
-released physical keys so the next lifetime advances its generation. E3/E5
+post-reset load failures. Its registry retains released physical keys within
+one match so the next allocation advances its generation. After clean teardown
+checks every identity has ended, a new match starts a fresh registry, making
+initial IDs independent of each peer's prior match history. The protocol session
+identity scopes numerically reused actor IDs across separate matches. E3/E5
 begins immediately after successful pool reset. After native player creation,
 E1/E2, all eight E4 hand identities and all four E6 player identities begin;
 these end before player destruction. E7 capture storage and identity begin
@@ -69,7 +72,8 @@ complete schema or match digest is produced by these ownership bindings.
 `scripts/test_multiplayer_main_state_lifecycle.sh` compiles the actual main
 ownership helpers with native player/inventory allocation and the real prop
 pool under ASan/UBSan in both enum ABIs. It checks 2/4/2 storage reuse, partial
-loads, residual props, stale IDs after teardown and rejection of a new stage
+loads, residual props, identical initial IDs across different prior histories,
+within-match generation changes, stale IDs after teardown and rejection of a new stage
 after a deliberately missed native free callback.
 
 The next stage must reset the prop pool and reconstruct all consumers before

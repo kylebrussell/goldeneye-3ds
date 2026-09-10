@@ -52,7 +52,9 @@ typedef struct GeMpStateBgSnapshot {
 /* Zero-init snapshot. Reserve owned capture storage after geometry load/bind,
  * before ticks; close after its last encode. Capture performs no allocation.
  * The caller owns E7/ns255/slot0's registry lifetime: acquire after native load,
- * release before native close, and acquire a new generation for a new stage.
+ * release before native close; another geometry lifetime within the same
+ * registry advances its generation. A new canonical match session uses a
+ * fresh registry, independently of prior match history.
  * These functions never create a gameplay owner or change its lifetime. */
 GeMpStateStatus ge_mp_state_bg_init(GeMpStateBgSnapshot *, const GeOriginalBgGeometry *);
 void ge_mp_state_bg_close(GeMpStateBgSnapshot *);

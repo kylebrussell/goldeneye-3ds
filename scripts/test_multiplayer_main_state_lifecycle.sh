@@ -12,7 +12,7 @@ from extract_stage_pickup_slice import function_text
 from extract_mp_state_inventory_fixture import render
 from extract_bond_move_explosion_slice import generate
 main = (root / 'platform/3ds/source/main.c').read_text()
-start = main.index('/* Keep released keys across stage restarts')
+start = main.index('/* Identities are scoped to one canonical match session.')
 end = main.index('static stagesetup *dam_intro_load_setup', start)
 (out / 'main_state_lifecycle.c').write_text(main[start:end])
 source = (root / 'src/game/chrprop.c').read_text()

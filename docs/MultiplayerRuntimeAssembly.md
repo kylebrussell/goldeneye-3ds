@@ -23,8 +23,9 @@ Focused sanitizer checks for the constituent player/input, spawn, supplies, rege
 The native prop arena now has an explicit retirement event after all resource
 consumers and the renderer close. Main binds E3/E5 before any allocation,
 E1/E2/E4/E6 after player creation and E7 after BG load; each identity ends at
-its native storage boundary. Released keys persist across restarts so a new
-lifetime advances its generation. Native 2/4/2 lifecycle tests cover partial
+its native storage boundary. Released keys persist within a match so reuse
+advances its generation; a new match starts a fresh registry after clean
+teardown, independent of prior local history. Native 2/4/2 lifecycle tests cover partial
 loads and deliberately missed free callbacks, with faults preventing restart.
 These ownership bindings do not produce a complete state digest.
 

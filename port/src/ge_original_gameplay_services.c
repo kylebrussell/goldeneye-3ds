@@ -200,6 +200,7 @@ static const GeOriginalSfxBank *ge_service_sfx_bank;
 static GeAudioOutput *ge_service_audio_output;
 static uint32_t ge_service_audio_frame_remainder;
 static bool ge_service_exact_gun_dispatch;
+static bool ge_service_exact_held_item_dispatch;
 static void *ge_service_model_load_context;
 static int32_t (*ge_service_model_load)(void *context, int32_t model_id);
 static void *ge_service_settings_context;
@@ -339,6 +340,7 @@ void ge_original_gameplay_services_reset(void)
     g_LastOnScreenProp = g_OnScreenPropList;
     g_InteractProp = NULL;
     ge_service_exact_gun_dispatch = false;
+    ge_service_exact_held_item_dispatch = false;
     ge_service_settings_context = NULL;
     ge_service_persist_settings = NULL;
 #ifdef GE_PLATFORM_3DS
@@ -471,6 +473,11 @@ void ge_original_gameplay_services_set_exact_gun_dispatch(int active)
     ge_service_exact_gun_dispatch = active != 0;
 }
 
+void ge_original_gameplay_services_set_exact_held_item_dispatch(int active)
+{
+    ge_service_exact_held_item_dispatch = active != 0;
+}
+
 void ge_original_gameplay_services_tick(void)
 {
     size_t index;
@@ -480,9 +487,10 @@ void ge_original_gameplay_services_tick(void)
     size_t mix_frames = 0U;
     /* Original gunTickHandState has already published each hand's firing
      * status and first-person pose by this point in the gameplay tick. */
-    if (!ge_service_exact_gun_dispatch)
+    if (!ge_service_exact_held_item_dispatch && !ge_service_exact_gun_dispatch)
         (void)ge_original_covert_modem_fire_tick();
-    (void)ge_original_pp7_fire_tick();
+    if (!ge_service_exact_held_item_dispatch)
+        (void)ge_original_pp7_fire_tick();
     if (ge_service_audio_output != NULL) {
         uint32_t numerator = ge_service_audio_output->sample_rate
             + ge_service_audio_frame_remainder;

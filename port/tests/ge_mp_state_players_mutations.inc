@@ -447,7 +447,6 @@ P_MUTATE(p->swaytarget);
 P_MUTATE(p->swayoffset0);
 P_MUTATE(p->swayoffset2);
 P_MUTATE(p->field_1280);
-P_MUTATE(p->players_cur_animation);
 P_MUTATE(p->field_1288);
 P_MUTATE(p->cheatInputBuffer[0]);
 P_MUTATE(p->cheatInputBuffer[1]);

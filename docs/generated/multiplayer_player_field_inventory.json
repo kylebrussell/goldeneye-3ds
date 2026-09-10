@@ -3,8 +3,8 @@
   "source": "src/game/bondview.h: struct player",
   "declaration_sha256": "cc3e09c384c2b65457fcc82faeb6f5c5caaa32504e3269293032879eb4f29fd7",
   "native_members": 1500,
-  "record_fields": 403,
-  "reference_values": 58,
+  "record_fields": 404,
+  "reference_values": 59,
   "members": [
     {
       "member": "cameramode",
@@ -3080,7 +3080,7 @@
       "member": "players_cur_animation",
       "native_type": "s32",
       "count": 1,
-      "classification": "typed native values"
+      "classification": "legacy 32-bit animation reference"
     },
     {
       "member": "field_1288",

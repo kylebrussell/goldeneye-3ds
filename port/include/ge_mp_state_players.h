@@ -3,7 +3,7 @@
 #include "ge_mp_state.h"
 #include "ge_mp_state_players_fields.inc"
 #define GE_MP_PLAYERS_KIND 0xE6U
-#define GE_MP_PLAYER_SCHEMA_VERSION 1U
+#define GE_MP_PLAYER_SCHEMA_VERSION 2U
 #define GE_MP_PLAYER_MAX_GAPS 256U
 struct player;
 
@@ -15,7 +15,8 @@ typedef enum GeMpPlayerReferenceKind {
     GE_MP_PLAYER_REF_IMAGE, GE_MP_PLAYER_REF_HAND_BUFFER, GE_MP_PLAYER_REF_MODEL_NODE,
     GE_MP_PLAYER_REF_SKELETON, GE_MP_PLAYER_REF_MODEL_SWITCHES,
     GE_MP_PLAYER_REF_MODEL_TEXTURES, GE_MP_PLAYER_REF_TEXTURE_POOL, GE_MP_PLAYER_REF_TEXT,
-    GE_MP_PLAYER_REF_LOOKAT, GE_MP_PLAYER_REF_UNKNOWN
+    GE_MP_PLAYER_REF_LOOKAT, GE_MP_PLAYER_REF_UNKNOWN,
+    GE_MP_PLAYER_REF_ANIMATION
 } GeMpPlayerReferenceKind;
 typedef struct GeMpPlayerReference {
     uint64_t actor_id, offset;
@@ -25,7 +26,10 @@ typedef struct GeMpStatePlayersProviders {
     /* Return a live owner identity plus stable byte offset. A nonzero extent
      * identifies an embedded storage range requiring that owner's typed export;
      * it never authorizes copying the range as bytes. No native address is wire
-     * state. Null pointers bypass the resolver as explicit nullable refs. */
+     * state. Null pointers bypass the resolver as explicit nullable refs.
+     * ANIMATION receives the exact legacy uint32 address token held in
+     * players_cur_animation. The owning provider must validate its identity;
+     * an unrecoverable/truncated host pointer must return INCOMPLETE. */
     GeMpStateStatus (*reference)(void *,uint32_t player,uint16_t field,
         GeMpPlayerReferenceKind,const void *native,size_t extent,GeMpPlayerReference *);
 } GeMpStatePlayersProviders;

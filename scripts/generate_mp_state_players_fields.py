@@ -20,7 +20,8 @@ OVERLAYS = (
 )
 LEGACY_REFS={'field_5C':'FIXED_MATRIX','field_60':'FIXED_MATRIX',
     'field_64':'FLOAT_MATRIX','field_68':'FLOAT_MATRIX','field_10D0':'UNKNOWN',
-    'field_10E0':'FIXED_MATRIX','field_10E4':'LOOKAT'}
+    'field_10E0':'FIXED_MATRIX','field_10E4':'LOOKAT',
+    'players_cur_animation':'ANIMATION'}
 SCALARS={'s32':'I32','f32':'F32','bool':'I32','s16':'I16','s8':'I8','u8':'U8','u16':'U16','u32':'U32','ITEM_IDS':'I32'}
 POINTERS={'StandTile *':'STAN','struct StandTile *':'STAN','PropRecord*':'PROP',
     'struct PropRecord *':'PROP','struct Model *':'MODEL','Mtx*':'FIXED_MATRIX',

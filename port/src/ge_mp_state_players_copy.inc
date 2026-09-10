@@ -459,7 +459,6 @@ P_COPY(F32, 319, p->swaytarget);
 P_COPY(F32, 320, p->swayoffset0);
 P_COPY(F32, 321, p->swayoffset2);
 P_COPY(F32, 322, p->field_1280);
-P_COPY(I32, 90, p->players_cur_animation);
 P_COPY(F32, 323, p->field_1288);
 P_COPY(U16, 2, p->cheatInputBuffer[0]);
 P_COPY(U16, 3, p->cheatInputBuffer[1]);
@@ -523,10 +522,10 @@ P_COPY(I16, 62, p->armor_display_values[5].items[1].pos.AsArray[1]);
 P_COPY(I16, 63, p->armor_display_values[5].items[1].pos.AsArray[2]);
 P_COPY(I16, 64, p->armor_display_values[6].items[0].pos.AsArray[0]);
 P_COPY(I16, 65, p->armor_display_values[6].items[0].pos.AsArray[1]);
+P_COPY(I16, 66, p->armor_display_values[6].items[0].pos.AsArray[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_4(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(I16, 66, p->armor_display_values[6].items[0].pos.AsArray[2]);
 P_COPY(I16, 67, p->armor_display_values[6].items[1].pos.AsArray[0]);
 P_COPY(I16, 68, p->armor_display_values[6].items[1].pos.AsArray[1]);
 P_COPY(I16, 69, p->armor_display_values[6].items[1].pos.AsArray[2]);
@@ -654,10 +653,10 @@ P_COPY(I16, 190, p->armor_display_values[4].items[0].normal.AsArray[0]);
 P_COPY(I16, 191, p->armor_display_values[4].items[0].normal.AsArray[1]);
 P_COPY(I16, 192, p->armor_display_values[4].items[0].normal.AsArray[2]);
 P_COPY(I16, 193, p->armor_display_values[4].items[1].normal.AsArray[0]);
+P_COPY(I16, 194, p->armor_display_values[4].items[1].normal.AsArray[1]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_5(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(I16, 194, p->armor_display_values[4].items[1].normal.AsArray[1]);
 P_COPY(I16, 195, p->armor_display_values[4].items[1].normal.AsArray[2]);
 P_COPY(I16, 196, p->armor_display_values[5].items[0].normal.AsArray[0]);
 P_COPY(I16, 197, p->armor_display_values[5].items[0].normal.AsArray[1]);
@@ -785,10 +784,10 @@ P_COPY(U8, 22, p->armor_display_values[1].items[1].colour.rgba[2]);
 P_COPY(U8, 23, p->armor_display_values[1].items[1].colour.rgba[3]);
 P_COPY(U8, 24, p->armor_display_values[2].items[0].colour.rgba[0]);
 P_COPY(U8, 25, p->armor_display_values[2].items[0].colour.rgba[1]);
+P_COPY(U8, 26, p->armor_display_values[2].items[0].colour.rgba[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_6(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(U8, 26, p->armor_display_values[2].items[0].colour.rgba[2]);
 P_COPY(U8, 27, p->armor_display_values[2].items[0].colour.rgba[3]);
 P_COPY(U8, 28, p->armor_display_values[2].items[1].colour.rgba[0]);
 P_COPY(U8, 29, p->armor_display_values[2].items[1].colour.rgba[1]);
@@ -916,10 +915,10 @@ P_COPY(U8, 150, p->armor_display_values[17].items[1].colour.rgba[2]);
 P_COPY(U8, 151, p->armor_display_values[17].items[1].colour.rgba[3]);
 P_COPY(U8, 152, p->armor_display_values[18].items[0].colour.rgba[0]);
 P_COPY(U8, 153, p->armor_display_values[18].items[0].colour.rgba[1]);
+P_COPY(U8, 154, p->armor_display_values[18].items[0].colour.rgba[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_7(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(U8, 154, p->armor_display_values[18].items[0].colour.rgba[2]);
 P_COPY(U8, 155, p->armor_display_values[18].items[0].colour.rgba[3]);
 P_COPY(U8, 156, p->armor_display_values[18].items[1].colour.rgba[0]);
 P_COPY(U8, 157, p->armor_display_values[18].items[1].colour.rgba[1]);
@@ -1047,10 +1046,10 @@ P_COPY(I16, 390, p->health_display_values[14].items[0].pos.AsArray[2]);
 P_COPY(I16, 391, p->health_display_values[14].items[1].pos.AsArray[0]);
 P_COPY(I16, 392, p->health_display_values[14].items[1].pos.AsArray[1]);
 P_COPY(I16, 393, p->health_display_values[14].items[1].pos.AsArray[2]);
+P_COPY(I16, 394, p->health_display_values[15].items[0].pos.AsArray[0]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_8(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(I16, 394, p->health_display_values[15].items[0].pos.AsArray[0]);
 P_COPY(I16, 395, p->health_display_values[15].items[0].pos.AsArray[1]);
 P_COPY(I16, 396, p->health_display_values[15].items[0].pos.AsArray[2]);
 P_COPY(I16, 397, p->health_display_values[15].items[1].pos.AsArray[0]);
@@ -1178,10 +1177,10 @@ P_COPY(I16, 518, p->health_display_values[12].items[1].normal.AsArray[1]);
 P_COPY(I16, 519, p->health_display_values[12].items[1].normal.AsArray[2]);
 P_COPY(I16, 520, p->health_display_values[13].items[0].normal.AsArray[0]);
 P_COPY(I16, 521, p->health_display_values[13].items[0].normal.AsArray[1]);
+P_COPY(I16, 522, p->health_display_values[13].items[0].normal.AsArray[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_9(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(I16, 522, p->health_display_values[13].items[0].normal.AsArray[2]);
 P_COPY(I16, 523, p->health_display_values[13].items[1].normal.AsArray[0]);
 P_COPY(I16, 524, p->health_display_values[13].items[1].normal.AsArray[1]);
 P_COPY(I16, 525, p->health_display_values[13].items[1].normal.AsArray[2]);
@@ -1309,10 +1308,10 @@ P_COPY(U8, 258, p->health_display_values[8].items[0].colour.rgba[2]);
 P_COPY(U8, 259, p->health_display_values[8].items[0].colour.rgba[3]);
 P_COPY(U8, 260, p->health_display_values[8].items[1].colour.rgba[0]);
 P_COPY(U8, 261, p->health_display_values[8].items[1].colour.rgba[1]);
+P_COPY(U8, 262, p->health_display_values[8].items[1].colour.rgba[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_10(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(U8, 262, p->health_display_values[8].items[1].colour.rgba[2]);
 P_COPY(U8, 263, p->health_display_values[8].items[1].colour.rgba[3]);
 P_COPY(U8, 264, p->health_display_values[9].items[0].colour.rgba[0]);
 P_COPY(U8, 265, p->health_display_values[9].items[0].colour.rgba[1]);
@@ -1440,10 +1439,10 @@ P_COPY(I16, 590, p->buffer_for_watch_greenbackdrop_vertices[0].vtx[3].coord1.AsA
 P_COPY(I16, 591, p->buffer_for_watch_greenbackdrop_vertices[0].vtx[3].coord1.AsArray[2]);
 P_COPY(I16, 592, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[0].coord1.AsArray[0]);
 P_COPY(I16, 593, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[0].coord1.AsArray[1]);
+P_COPY(I16, 594, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[0].coord1.AsArray[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_11(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(I16, 594, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[0].coord1.AsArray[2]);
 P_COPY(I16, 595, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].coord1.AsArray[0]);
 P_COPY(I16, 596, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].coord1.AsArray[1]);
 P_COPY(I16, 597, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].coord1.AsArray[2]);
@@ -1571,10 +1570,10 @@ P_COPY(U8, 394, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[0].color.rgba[
 P_COPY(U8, 395, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[0].color.rgba[3]);
 P_COPY(U8, 396, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].color.rgba[0]);
 P_COPY(U8, 397, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].color.rgba[1]);
+P_COPY(U8, 398, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].color.rgba[2]);
 }
 static __attribute__((noinline)) void ge_player_copy_part_12(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(U8, 398, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].color.rgba[2]);
 P_COPY(U8, 399, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[1].color.rgba[3]);
 P_COPY(U8, 400, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[2].color.rgba[0]);
 P_COPY(U8, 401, p->buffer_for_watch_greenbackdrop_vertices[1].vtx[2].color.rgba[1]);
@@ -1672,17 +1671,17 @@ P_COPY(U8, 468, p->buffer_for_watch_static_vertices[0].vtx[3].color.rgba[0]);
 P_COPY(U8, 469, p->buffer_for_watch_static_vertices[0].vtx[3].color.rgba[1]);
 P_COPY(U8, 470, p->buffer_for_watch_static_vertices[0].vtx[3].color.rgba[2]);
 P_COPY(U8, 471, p->buffer_for_watch_static_vertices[0].vtx[3].color.rgba[3]);
-P_COPY(I32, 91, p->healthdamagetype);
+P_COPY(I32, 90, p->healthdamagetype);
 P_COPY(F32, 324, p->eyeheight);
 P_COPY(F32, 325, p->field_29C0);
-P_COPY(I32, 92, p->mpmenuon);
-P_COPY(I32, 93, p->mpmenumode);
-P_COPY(I32, 94, p->mpquitconfirm);
-P_COPY(I32, 95, p->mpjoywascentre);
-P_COPY(I32, 96, p->damagetype);
-P_COPY(I32, 97, p->field_29E0);
-P_COPY(I32, 98, p->autocrouchpos);
-P_COPY(I32, 99, p->healthdisplaytime);
+P_COPY(I32, 91, p->mpmenuon);
+P_COPY(I32, 92, p->mpmenumode);
+P_COPY(I32, 93, p->mpquitconfirm);
+P_COPY(I32, 94, p->mpjoywascentre);
+P_COPY(I32, 95, p->damagetype);
+P_COPY(I32, 96, p->field_29E0);
+P_COPY(I32, 97, p->autocrouchpos);
+P_COPY(I32, 98, p->healthdisplaytime);
 P_COPY(I16, 724, p->registeredroom);
 P_COPY(F32, 326, p->field_2A08);
 P_COPY(F32, 327, p->field_2A0C);
@@ -1692,28 +1691,28 @@ P_COPY(F32, 330, p->field_2A18[0].f[2]);
 P_COPY(F32, 331, p->field_2A18[1].f[0]);
 P_COPY(F32, 332, p->field_2A18[1].f[1]);
 P_COPY(F32, 333, p->field_2A18[1].f[2]);
-P_COPY(I32, 100, p->field_2A30);
-P_COPY(I32, 101, p->field_2A34);
-P_COPY(I32, 102, p->cur_item_weapon_getname);
+P_COPY(I32, 99, p->field_2A30);
+P_COPY(I32, 100, p->field_2A34);
+P_COPY(I32, 101, p->cur_item_weapon_getname);
 P_COPY(F32, 334, p->actual_health);
 P_COPY(F32, 335, p->actual_armor);
-P_COPY(I32, 103, p->field_2A44[0]);
-P_COPY(I32, 104, p->field_2A44[1]);
+P_COPY(I32, 102, p->field_2A44[0]);
+P_COPY(I32, 103, p->field_2A44[1]);
 P_COPY(F32, 336, p->speedgo);
-P_COPY(I32, 105, p->lock_hand_model[0]);
-P_COPY(I32, 106, p->lock_hand_model[1]);
+P_COPY(I32, 104, p->lock_hand_model[0]);
+P_COPY(I32, 105, p->lock_hand_model[1]);
+P_COPY(I32, 106, p->cur_player_control_type_0);
 }
 static __attribute__((noinline)) void ge_player_copy_part_13(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
 (void)active_player;
-P_COPY(I32, 107, p->cur_player_control_type_0);
-P_COPY(I32, 108, p->cur_player_control_type_1);
+P_COPY(I32, 107, p->cur_player_control_type_1);
 P_COPY(F32, 337, p->cur_player_control_type_2);
-P_COPY(I32, 109, p->neg_vspacing_for_control_type_entry);
+P_COPY(I32, 108, p->neg_vspacing_for_control_type_entry);
 P_COPY(U32, 1, p->has_set_control_type_data);
-P_COPY(I32, 110, p->field_2A6C);
-P_COPY(I32, 111, p->field_2A74);
-P_COPY(I32, 112, p->field_2A78);
-P_COPY(I32, 113, p->field_2A7C);
+P_COPY(I32, 109, p->field_2A6C);
+P_COPY(I32, 110, p->field_2A74);
+P_COPY(I32, 111, p->field_2A78);
+P_COPY(I32, 112, p->field_2A7C);
 P_COPY(U8, 472, active_player);
 }
 static void ge_player_copy_native(GeMpPlayerValues *v,const struct player *p,uint8_t active_player) {
@@ -1783,12 +1782,13 @@ P_REF(570, 46, IMAGE, (const void *)(p->bloodImgCur), 0);
 P_REF(572, 47, IMAGE, (const void *)(p->bloodImgNxt), 0);
 P_REF(574, 48, IMAGE, (const void *)(p->bloodImgBufPtrArray[0]), 0);
 P_REF(574, 49, IMAGE, (const void *)(p->bloodImgBufPtrArray[1]), 0);
-P_REF(610, 50, DISPLAY_LIST, (const void *)(&p->watch_body_armor_bar_gdl), offsetof(struct player,watch_health_bar_gdl)-offsetof(struct player,watch_body_armor_bar_gdl));
-P_REF(612, 51, DISPLAY_LIST, (const void *)(&p->watch_health_bar_gdl), offsetof(struct player,buffer_for_watch_greenbackdrop_DL)-offsetof(struct player,watch_health_bar_gdl));
-P_REF(614, 52, DISPLAY_LIST, (const void *)(&p->buffer_for_watch_greenbackdrop_DL), offsetof(struct player,buffer_for_watch_static_DL)-offsetof(struct player,buffer_for_watch_greenbackdrop_DL));
-P_REF(616, 53, DISPLAY_LIST, (const void *)(&p->buffer_for_watch_static_DL), offsetof(struct player,healthdamagetype)-offsetof(struct player,buffer_for_watch_static_DL));
-P_REF(632, 54, TEXT, (const void *)(uintptr_t)(uint32_t)(p->ptr_text_first_mp_award), 0);
-P_REF(634, 55, TEXT, (const void *)(uintptr_t)(uint32_t)(p->ptr_text_second_mp_award), 0);
-P_REF(651, 56, STAN, (const void *)(p->field_2A70), 0);
-P_REF(657, 57, INVENTORY_OWNER, (const void *)(p), 0);
+P_REF(591, 50, ANIMATION, (const void *)(uintptr_t)(uint32_t)(p->players_cur_animation), 0);
+P_REF(611, 51, DISPLAY_LIST, (const void *)(&p->watch_body_armor_bar_gdl), offsetof(struct player,watch_health_bar_gdl)-offsetof(struct player,watch_body_armor_bar_gdl));
+P_REF(613, 52, DISPLAY_LIST, (const void *)(&p->watch_health_bar_gdl), offsetof(struct player,buffer_for_watch_greenbackdrop_DL)-offsetof(struct player,watch_health_bar_gdl));
+P_REF(615, 53, DISPLAY_LIST, (const void *)(&p->buffer_for_watch_greenbackdrop_DL), offsetof(struct player,buffer_for_watch_static_DL)-offsetof(struct player,buffer_for_watch_greenbackdrop_DL));
+P_REF(617, 54, DISPLAY_LIST, (const void *)(&p->buffer_for_watch_static_DL), offsetof(struct player,healthdamagetype)-offsetof(struct player,buffer_for_watch_static_DL));
+P_REF(633, 55, TEXT, (const void *)(uintptr_t)(uint32_t)(p->ptr_text_first_mp_award), 0);
+P_REF(635, 56, TEXT, (const void *)(uintptr_t)(uint32_t)(p->ptr_text_second_mp_award), 0);
+P_REF(652, 57, STAN, (const void *)(p->field_2A70), 0);
+P_REF(658, 58, INVENTORY_OWNER, (const void *)(p), 0);
 #endif

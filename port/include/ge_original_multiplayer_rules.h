@@ -62,7 +62,9 @@ int ge_original_multiplayer_can_respawn(int32_t player, uint16_t buttons);
 void ge_original_multiplayer_bind_intro_slot(int playback, int recording,
                                               uint32_t slot);
 /* Validate and publish all authored spawn pads before calling the original
- * handler. Pads must already have canonical STAN pointers resolved. */
+ * handler. Pads must already have canonical STAN pointers resolved. The caller
+ * keeps intro and pad storage alive until reconfiguration; respawn revalidates
+ * these bounded records before entering the original unbounded intro parser. */
 GeOriginalMultiplayerStatus ge_original_multiplayer_publish_spawns(
     const int32_t *intro, size_t word_count, void *pads, size_t pad_count,
     int32_t demo_playback);

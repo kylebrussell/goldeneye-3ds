@@ -27,6 +27,9 @@ extern char *LcrypE[];
 int32_t g_ClockTimer = 1;
 int32_t g_UpperTextDisplayFlag;
 int32_t clock_drawn_flag = 1;
+int32_t g_gameOverFlag;
+int32_t cameraFrameCounter1;
+int32_t cameraFrameCounter2;
 typedef struct AmmoStats {
     uint32_t MaxAmmo;
     uint32_t IconImage;

@@ -216,6 +216,34 @@ def main() -> None:
     ).replace(
         "bondviewIntroCameraTextTick", "ge_original_bottom_hud_tick", 1
     )
+    interface = extract_function(bondview, "maybe_mp_interface")
+    gauge_start = interface.index("    if (bondviewGetIfCurrentPlayerHealthShowTime()")
+    gauge_end = interface.index("    if (getPlayerCount() == 1)", gauge_start)
+    assert (interface.index("gunUpdateAndFireBothHands();") < gauge_start
+            < interface.index("    if (g_CurrentPlayer->bonddead != 0)")
+            < interface.rindex("bondviewIntroCameraTextTick();")
+            < interface.rindex("bondviewUpperTextWindowTimerTick();")
+            < interface.index("gunDrawSight(&gdl);")
+            < interface.index("generate_ammo_total_microcode(gdl)"))
+    gauge_tick = interface[gauge_start:gauge_end]
+    assert gauge_tick.count("gdl = bondviewRenderGaugeBars(gdl);") == 2
+    gauge_tick = gauge_tick.replace("        gdl = bondviewRenderGaugeBars(gdl);", "")
+    health_predicate = extract_function(bondview, "bondviewGetIfCurrentPlayerHealthShowTime")
+    watch_predicate = extract_function(
+        (args.repo / "src/game/mpmenu.c").read_text(), "mpwatchShouldDisplayGauges")
+    for original, replacement in (
+        ("bondviewGetIfCurrentPlayerHealthShowTime", "ge_hud_health_show_exact"),
+        ("mpwatchShouldDisplayGauges", "ge_hud_watch_gauges_exact"),
+    ):
+        gauge_tick = gauge_tick.replace(original, replacement)
+        health_predicate = health_predicate.replace(original, replacement)
+        watch_predicate = watch_predicate.replace(original, replacement)
+    lower_render = extract_function(bondview, "hudmsgBottomRender")
+    lower_start = lower_render.index("    if ((g_CurrentPlayer->hudmessoff")
+    lower_end = lower_render.index("        if (var_v1 != 0)", lower_start)
+    lower_prepare = lower_render[lower_start:lower_end] + "    }\n"
+    fade = extract_function(bondview, "currentPlayerDrawFade")
+    fade_prefix = fade[fade.index("    f32 frac"):fade.index("    if (frac > 0)")]
     solo_language_rows = []
     solo_language_externs = []
     for symbol, bank in SOLO_LANGUAGE_BANKS:
@@ -241,6 +269,7 @@ typedef int PLAYERFLAG;
 #include "game/gun.h"
 #include "game/lv.h"
 #include "ge_original_dam_mission_hud.h"
+#include "ge_original_multiplayer_hud.h"
 
 #define BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH \
     GE_ORIGINAL_DAM_MISSION_HUD_MESSAGE_CAPACITY
@@ -287,6 +316,34 @@ s32 status_bar_text_buffer_index;
 s32 display_statusbar;
 char stringbuffer_lowerleft[5][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
 extern s32 clock_drawn_flag;
+extern s32 g_gameOverFlag;
+
+static {health_predicate}
+static {watch_predicate}
+
+void ge_original_gameplay_hud_prepare_exact(void)
+{{
+{gauge_tick}
+}}
+
+void ge_original_bottom_hud_prepare_exact(void)
+{{
+    s32 var_v1 = 0;
+{lower_prepare}
+    (void)var_v1;
+}}
+
+void ge_original_multiplayer_hud_fade_snapshot_exact(
+    GeOriginalMultiplayerHudFade *snapshot)
+{{
+{fade_prefix}
+    snapshot->red = r;
+    snapshot->green = g;
+    snapshot->blue = b;
+    snapshot->fraction = frac;
+    snapshot->time = g_CurrentPlayer->colourfadetime60;
+    snapshot->time_max = g_CurrentPlayer->colourfadetimemax60;
+}}
 
 static const GeOriginalAmmoIconAsset ge_original_ammo_icon_assets[] = {{
 {ammo_icon_table}
@@ -391,25 +448,41 @@ int ge_original_bottom_hud_render_snapshot(
 {{
     s32 weapon_left;
     s32 ammo_type;
+    s32 message_index;
+    s32 multiplayer;
     if (snapshot == NULL) return 0;
     memset(snapshot, 0, sizeof(*snapshot));
     snapshot->count = (size_t)display_statusbar;
     if (g_CurrentPlayer == NULL) return 1;
 
+    multiplayer = getPlayerCount() > 1;
+    message_index = multiplayer ? get_cur_playernum() : status_bar_text_buffer_index;
+    if (message_index < 0 || message_index >= (multiplayer ? 4 : 5)) return 0;
+
     snapshot->timer = g_CurrentPlayer->bondmesscnt;
     snapshot->visible = (uint8_t)(g_CurrentPlayer->hudmessoff == FALSE
         && g_CurrentPlayer->bondmesscnt >= 0
         && g_CurrentPlayer->mpmenuon == FALSE
-        && display_statusbar > 0
-        && stringbuffer_lowerleft[status_bar_text_buffer_index][0] != '\\0');
+        && (multiplayer || (display_statusbar > 0
+            && stringbuffer_lowerleft[message_index][0] != '\\0')));
+    if (multiplayer) snapshot->count = snapshot->visible ? 1U : 0U;
     if (!snapshot->visible) return 1;
     snapshot->x = 40 + 0x1e;
     weapon_left = getCurrentPlayerWeaponId(GUNLEFT);
     ammo_type = get_ammo_type_for_weapon((ITEM_IDS)weapon_left);
     snapshot->y = (int16_t)(240
         - ((ammo_type == 0 && clock_drawn_flag != 0) ? 0x16 : 0x32));
+    /* Preserve the existing solo native layout. MP uses the original US
+     * hudmsgBottomRender offsets inside the native 320x240 viewport. */
+    if (multiplayer) {{
+        snapshot->x = (int16_t)(40
+            + ((getPlayerCount() >= 3 && (message_index & 1)) ? 0xA : 0x1E));
+        snapshot->y = getPlayerCount() >= 3 ? 0x10
+            : (int16_t)(240 - ((ammo_type == 0 && clock_drawn_flag != 0)
+                ? 0x0C : 0x28) - (message_index == 1 ? 8 : 0));
+    }}
     memcpy(snapshot->message,
-        stringbuffer_lowerleft[status_bar_text_buffer_index],
+        stringbuffer_lowerleft[message_index],
         GE_ORIGINAL_BOTTOM_HUD_MESSAGE_CAPACITY);
     snapshot->message[GE_ORIGINAL_BOTTOM_HUD_MESSAGE_CAPACITY - 1U] = '\\0';
     return 1;
@@ -471,8 +544,9 @@ int ge_original_gameplay_hud_render_snapshot(
         (uint32_t)g_CurrentPlayer->gunammooff;
 
     snapshot->gauges_visible = (uint8_t)(
-        g_CurrentPlayer->healthshowtime > 0
-        && g_CurrentPlayer->watch_animation_state == 0);
+        (ge_hud_health_show_exact()
+            && g_CurrentPlayer->watch_animation_state == 0)
+        || ge_hud_watch_gauges_exact());
     if (snapshot->gauges_visible) {{
         ge_original_hud_make_damage_segments_exact(
             armour, GE_ORIGINAL_GAMEPLAY_HUD_GAUGE_VERTEX_COUNT, 1,

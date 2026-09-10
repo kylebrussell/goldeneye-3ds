@@ -37,7 +37,12 @@ def main() -> None:
     for relative, names in module.FUNCTIONS.items():
         for name in names:
             canonical = module.extract_function((args.repo / relative).read_text(), name)
-            assert tokens(canonical) == tokens(module.extract_function(generated, name)), name
+            actual = module.extract_function(generated, name)
+            if name == "chrpropFree":
+                observer = "    ge_original_prop_observe_free(prop);\n"
+                assert actual.count(observer) == 1
+                actual = actual.replace(observer, "", 1)
+            assert tokens(canonical) == tokens(actual), name
             assert f"{name} sha256={module.digest(canonical)}" in generated
             checked += 1
     for relative, names in module.TYPEDEFS.items():
@@ -51,7 +56,7 @@ def main() -> None:
     assert "u8 get_player_mp_char_gender(" not in generated
     assert "struct MP_selectable_chars mp_chr_setup[]" not in generated
     assert checked == 109
-    print(f"bond move explosion exactness: {checked} canonical bodies/data token-identical")
+    print(f"bond move explosion exactness: {checked} canonical bodies/data token-identical after one explicit optional free observer")
 
 
 if __name__ == "__main__":

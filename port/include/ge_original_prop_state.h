@@ -3,6 +3,17 @@
 
 #include <stddef.h>
 #include <stdint.h>
+struct PropRecord;
+struct roomproplistblock;
+typedef struct GeOriginalPropPoolStorage {
+    const struct PropRecord *props, *active_head, *active_tail, *free_head;
+    const int16_t *room_heads;
+    const struct roomproplistblock *room_blocks;
+    uint32_t prop_capacity, room_capacity, room_head_capacity, room_block_capacity;
+    uint64_t lifetime, allocations_at_reset, allocations_now;
+} GeOriginalPropPoolStorage;
+/* Read-only canonical pool/list storage; valid until the next native reset. */
+int ge_original_prop_state_pool_storage(GeOriginalPropPoolStorage *storage);
 
 typedef struct GeOriginalPropState {
     uint32_t room_capacity;

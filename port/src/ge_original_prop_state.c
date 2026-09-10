@@ -1,4 +1,5 @@
 #include "ge_original_prop_state.h"
+#include "ge_original_prop_lifetime.h"
 
 #include <stdint.h>
 #include <math.h>
@@ -38,6 +39,8 @@ s32 g_MaxNumRooms;
 static s16 ge_room_prop_list_block_indices[GE_ORIGINAL_PROP_ROOM_CAPACITY];
 static struct roomproplistblock ge_room_prop_list_blocks[BSS_8007161C_LEN];
 static GeOriginalPropState *ge_prop_state;
+static uint64_t ge_prop_pool_lifetime, ge_prop_reset_allocation_serial;
+static int ge_prop_allocation_serial_available;
 
 static int ge_prop_pointer_in_pool(const void *opaque_prop)
 {
@@ -56,10 +59,15 @@ int ge_original_prop_state_reset(GeOriginalPropState *state,
     uint32_t j;
 
     if (state == NULL || room_capacity == 0U
-            || room_capacity > GE_ORIGINAL_PROP_ROOM_CAPACITY) {
+            || room_capacity > GE_ORIGINAL_PROP_ROOM_CAPACITY
+            || ge_prop_pool_lifetime == UINT64_MAX) {
         return 0;
     }
 
+    ge_original_prop_observe_reset();
+    ++ge_prop_pool_lifetime;
+    ge_prop_allocation_serial_available =
+        ge_original_prop_allocation_serial(&ge_prop_reset_allocation_serial);
     memset(state, 0, sizeof(*state));
     state->room_capacity = room_capacity;
     ge_prop_state = state;
@@ -85,6 +93,27 @@ int ge_original_prop_state_reset(GeOriginalPropState *state,
         }
     }
 
+    return 1;
+}
+
+int ge_original_prop_state_pool_storage(GeOriginalPropPoolStorage *storage)
+{
+    uint64_t serial;
+    if(!storage || !ge_prop_state || !ge_prop_allocation_serial_available
+            || !ge_original_prop_allocation_serial(&serial)
+            || RoomPropListBlockIndices!=ge_room_prop_list_block_indices
+            || RoomPropListBlocks!=ge_room_prop_list_blocks
+            || g_MaxNumRooms!=(s32)ge_prop_state->room_capacity)return 0;
+    storage->props=g_Props;storage->active_head=g_ActivePropsHead;
+    storage->active_tail=g_ActivePropsTail;storage->free_head=g_FreeProps;
+    storage->room_heads=ge_room_prop_list_block_indices;
+    storage->room_blocks=ge_room_prop_list_blocks;
+    storage->prop_capacity=MAX_PROPS;storage->room_capacity=ge_prop_state->room_capacity;
+    storage->room_head_capacity=GE_ORIGINAL_PROP_ROOM_CAPACITY;
+    storage->room_block_capacity=BSS_8007161C_LEN;
+    storage->lifetime=ge_prop_pool_lifetime;
+    storage->allocations_at_reset=ge_prop_reset_allocation_serial;
+    storage->allocations_now=serial;
     return 1;
 }
 

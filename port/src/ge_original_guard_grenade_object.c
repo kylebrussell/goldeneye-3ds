@@ -1,6 +1,7 @@
 #include "ge_original_guard_grenade_object.h"
 
 #include <ultra64.h>
+#include "ge_original_prop_lifetime.h"
 #include <bondconstants.h>
 #include <bondtypes.h>
 #include "game/model.h"
@@ -32,6 +33,7 @@ extern void modelSetScale(Model *model, f32 scale);
 
 static void ge_grenade_prop_free(PropRecord *prop)
 {
+    ge_original_prop_observe_free(prop);
     /* Exact chrpropFree free-list operation for a constructor rollback. */
     prop->prev = g_FreeProps;
     prop->next = NULL;

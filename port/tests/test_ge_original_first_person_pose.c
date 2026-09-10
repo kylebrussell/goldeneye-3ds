@@ -18,6 +18,7 @@ static struct player player;
 static WeaponStats stats;
 static ModelFileHeader item_header;
 struct player *g_CurrentPlayer;
+struct player *g_playerPointers[4];
 static uint32_t frustum_publications;
 
 void ge_original_bondview_update_frustum_planes_exact(void)

@@ -20,9 +20,15 @@ typedef int PLAYERFLAG;
 /* The original setters retain the previous matrix pointer.  Ping-pong storage
  * is required here because GeOriginalBondCameraResult is caller-owned and a
  * single static matrix would make the previous and current pointers alias. */
-static Mtxf ge_live_world_to_view[2];
-static Mtxf ge_live_view_to_world[2];
-static Mtxf ge_live_projection;
+typedef struct GeLivePlayerCamera {
+    Mtxf world_to_view[2];
+    Mtxf view_to_world[2];
+    Mtxf projection;
+} GeLivePlayerCamera;
+
+/* Four canonical roster slots plus the standalone intro/host-fixture owner.
+ * Both current and previous matrices must survive another player's pass. */
+static GeLivePlayerCamera ge_live_cameras[5];
 
 /* Strong in the full canonical chr/prop support slice.  Focused camera-only
  * host tests intentionally omit that large translation unit; the weak
@@ -32,6 +38,42 @@ static Mtxf ge_live_projection;
 extern void ge_original_bondview_update_frustum_planes_exact(void)
     __attribute__((weak));
 extern struct player *g_CurrentPlayer __attribute__((weak));
+extern struct player *g_playerPointers[4];
+
+static GeLivePlayerCamera *ge_camera_storage(struct player *player)
+{
+    unsigned slot;
+    for (slot = 0U; slot < 4U; ++slot)
+        if (g_playerPointers[slot] == player) return &ge_live_cameras[slot];
+    return &ge_live_cameras[4];
+}
+
+static void ge_camera_publish_frustum(struct player *player)
+{
+    if ((uintptr_t)(void *)&g_CurrentPlayer != 0U
+            && g_CurrentPlayer == NULL)
+        g_CurrentPlayer = player;
+    if (ge_original_bondview_update_frustum_planes_exact != NULL
+            && (uintptr_t)(void *)&g_CurrentPlayer != 0U
+            && g_CurrentPlayer == player)
+        ge_original_bondview_update_frustum_planes_exact();
+}
+
+int ge_original_bond_camera_restore_live_player(void)
+{
+    struct player *player = ge_original_spawn_player_get();
+    GeLivePlayerCamera *camera;
+    if (player == NULL || (uintptr_t)(void *)&g_CurrentPlayer == 0U
+            || g_CurrentPlayer != player) return 0;
+    camera = ge_camera_storage(player);
+    if ((player->field_10CC != &camera->world_to_view[0]
+                && player->field_10CC != &camera->world_to_view[1])
+            || (player->viewtoworldmtxf != &camera->view_to_world[0]
+                && player->viewtoworldmtxf != &camera->view_to_world[1])
+            || player->projmatrixf != &camera->projection) return 0;
+    ge_camera_publish_frustum(player);
+    return 1;
+}
 
 static int ge_camera_matrix_finite(const float matrix[4][4])
 {
@@ -48,6 +90,7 @@ int ge_original_bond_camera_publish_live_player(
     const GeOriginalBondCameraResult *result)
 {
     struct player *player = ge_original_spawn_player_get();
+    GeLivePlayerCamera *camera;
     Mtxf *world_to_view;
     Mtxf *view_to_world;
     float width;
@@ -70,20 +113,21 @@ int ge_original_bond_camera_publish_live_player(
             || !(config->perspective_aspect > 0.0f)
             || !(config->near_distance > 0.0f)) return 0;
 
-    world_to_view = player->field_10CC == &ge_live_world_to_view[0]
-        ? &ge_live_world_to_view[1] : &ge_live_world_to_view[0];
-    view_to_world = player->viewtoworldmtxf == &ge_live_view_to_world[0]
-        ? &ge_live_view_to_world[1] : &ge_live_view_to_world[0];
+    camera = ge_camera_storage(player);
+    world_to_view = player->field_10CC == &camera->world_to_view[0]
+        ? &camera->world_to_view[1] : &camera->world_to_view[0];
+    view_to_world = player->viewtoworldmtxf == &camera->view_to_world[0]
+        ? &camera->view_to_world[1] : &camera->view_to_world[0];
     memcpy(world_to_view->m, result->view, sizeof(world_to_view->m));
     memcpy(view_to_world->m, result->view_to_world,
            sizeof(view_to_world->m));
-    memcpy(ge_live_projection.m, result->projection,
-           sizeof(ge_live_projection.m));
+    memcpy(camera->projection.m, result->projection,
+           sizeof(camera->projection.m));
     player->field_10EC = player->viewtoworldmtxf;
     player->viewtoworldmtxf = view_to_world;
     player->field_10E8 = player->field_10CC;
     player->field_10CC = world_to_view;
-    player->projmatrixf = &ge_live_projection;
+    player->projmatrixf = &camera->projection;
 
     /* Exact currentPlayerSetScreenSize/Position/Perspective semantics. N64
      * viewport scale is twice the pixel extent and translation is in
@@ -133,12 +177,6 @@ int ge_original_bond_camera_publish_live_player(
      * the single-player alias.  The exact frustum body dereferences that
      * canonical global, so establish the same player identity here without
      * replacing a different active-player selection. */
-    if ((uintptr_t)(void *)&g_CurrentPlayer != 0U
-            && g_CurrentPlayer == NULL)
-        g_CurrentPlayer = player;
-    if (ge_original_bondview_update_frustum_planes_exact != NULL
-            && (uintptr_t)(void *)&g_CurrentPlayer != 0U
-            && g_CurrentPlayer == player)
-        ge_original_bondview_update_frustum_planes_exact();
+    ge_camera_publish_frustum(player);
     return 1;
 }

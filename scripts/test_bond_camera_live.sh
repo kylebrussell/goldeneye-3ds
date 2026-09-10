@@ -3,7 +3,10 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 test_dir=$(mktemp -d)
 trap 'rm -rf "${test_dir}"' EXIT
-cc -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces \
+for abi in native short-enum; do
+abi_flags=(-fno-short-enums)
+if [[ ${abi} == short-enum ]]; then abi_flags=(-fshort-enums); fi
+cc "${abi_flags[@]}" -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces \
   -fsanitize=address,undefined -fno-omit-frame-pointer \
   -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA \
   -I "${repo_dir}/port/include" -idirafter "${repo_dir}/include" \
@@ -14,3 +17,4 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces \
   -o "${test_dir}/test_bond_camera_live"
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
   "${test_dir}/test_bond_camera_live"
+done

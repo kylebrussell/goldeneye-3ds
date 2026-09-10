@@ -2,7 +2,7 @@
 
 `ge_mp_state_players.h/.c` reads the actual native `struct player` owner.
 The generated inventory classifies all 1,500 named US player members; the
-E6 schema has 403 fields and 58 reference values. All owned scalar and array
+E6 schema has 404 fields and 59 reference values. All owned scalar and array
 elements are copied through explicit typed member expressions. Native struct
 bytes, padding, pointer addresses and model/display-list alias words are
 never serialized as integer payloads. This is a domain exporter, not a
@@ -105,6 +105,17 @@ INCOMPLETE. The two nominal s32 multiplayer award text fields similarly require
 text/content resolution. Legacy 32-bit pointer values are passed to resolvers
 without dereferencing them; unrecoverable host pointer identity stays incomplete.
 
+`players_cur_animation` is also a legacy 32-bit reference, with the dedicated
+ANIMATION provider kind. Despite its s32 declaration, original `playerTick`
+compares this member to animation-table addresses and stores the address passed
+to `modelSetAnimation` (`bondview2.c`). Zero remains an explicit null sentinel.
+Each nonzero token requires a validated animation owner plus stable byte offset;
+unmapped or unrecoverably truncated host addresses leave a reference gap.
+The exporter never guesses an animation index from an address word. E6 schema
+version 2 changes field 591 from I32 to ACTOR_REF, adds its offset as field 592,
+and advances subsequent generated field IDs by one. Prior E6 schema payloads
+must not be interpreted with this layout.
+
 ## Export, gaps and source inventory
 
 Call `ge_mp_state_players_export(&owner, &providers, &snapshot)` while native
@@ -138,12 +149,16 @@ source boundaries are in `bondview.h`, `bondview2.c`, `bondview.c`,
 initialization plus the existing inventory owner under ASan/UBSan. It runs
 independent two- and four-player processes with different selected local slots
 and compares typed payload bytes; it repeats under native and short-enum ABIs
-and compares those payloads too. Each scenario mutates all 6,692 owned scalar
+and compares those payloads too. Each scenario mutates all 6,688 owned scalar
 elements across the four physical rows, including inactive rows, model-header
 metadata, hand-control values and display-vertex components. It also checks
 cross-player prop/model/node references, texture cursor offset sensitivity,
 negative-zero/signed enum bits, missing and stale references, unknown legacy
-pointers, lifecycle retirement/generation advance and ABA rejection. External
+pointers, lifecycle retirement/generation advance and ABA rejection.
+Animation reference checks write the actual allocated native player member,
+reject unknown/stale/truncated identities, and verify that two legacy addresses
+mapped to one stable animation owner and offset produce equal typed values.
+Changing the canonical offset changes the exported values. External
 fixture providers supply resource identities only, not fake model or effect
 payloads. A complete-state hash remains INCOMPLETE and leaves its digest
 unchanged.

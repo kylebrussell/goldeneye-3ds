@@ -166,6 +166,75 @@ static void reference_mutations(void)
      * separate domains. Never mistake these alias words for E6 integers. */
     int32_t word=p->field_5A0;fingerprint(before);p->field_5A0=0x12345678;fingerprint(after);assert(!memcmp(before,after,32));p->field_5A0=word;
 }
+struct AnimationReferenceFixture {
+    uintptr_t tokens[2];
+    GeMpPlayerReference resolved;
+    unsigned calls;
+};
+static GeMpStateStatus animation_reference(void *context,uint32_t slot,uint16_t field,
+    GeMpPlayerReferenceKind kind,const void *pointer,size_t extent,GeMpPlayerReference *result)
+{
+    struct AnimationReferenceFixture *fixture=context;
+    if(kind==GE_MP_PLAYER_REF_ANIMATION) {
+        assert(field==591 && extent==0);++fixture->calls;
+        for(unsigned i=0;i<2;++i)if((uintptr_t)pointer==fixture->tokens[i]) {
+            *result=fixture->resolved;return GE_MP_STATE_OK;
+        }
+        return GE_MP_STATE_INCOMPLETE;
+    }
+    return reference(NULL,slot,field,kind,pointer,extent,result);
+}
+static void animation_references(void)
+{
+    struct player *p=ge_original_multiplayer_player(0);
+    int32_t saved=p->players_cur_animation;
+    struct AnimationReferenceFixture fixture={{UINT32_C(0x01002000),UINT32_C(0x81002000)},
+        {acquire(0x22,255,0),32},0};
+    const GeMpStatePlayersProviders mapped={&fixture,animation_reference};
+    static GeMpPlayerValues relocated_values[4];
+    const unsigned field_index=591-256;
+    assert(!strcmp(ge_mp_state_players_field_path(591),"players_cur_animation"));
+    p->players_cur_animation=0;
+    assert(ge_mp_state_players_export(&owner,&mapped,&out)==GE_MP_STATE_OK && !fixture.calls);
+    assert(out.fields[0][field_index].type==GE_MP_STATE_ACTOR_REF
+        && *(const uint64_t*)out.fields[0][field_index].values==0);
+    p->players_cur_animation=1;
+    assert(ge_mp_state_players_export(&owner,&mapped,&out)==GE_MP_STATE_INCOMPLETE && fixture.calls==1);
+    assert(out.total_gaps==1 && out.gaps[0].field==591
+        && out.gaps[0].reference_kind==GE_MP_PLAYER_REF_ANIMATION);
+    assert(!out.fields[0][field_index].count && !out.fields[0][field_index+1].count);
+    /* playerTick stores ModelAnimation addresses in this nominal s32 member.
+     * Two relocated legacy addresses for one registered asset must canonicalize
+     * to the same owner plus byte offset, never to either address word. */
+    for(unsigned i=0;i<2;++i) {
+        uint32_t word=(uint32_t)fixture.tokens[i];memcpy(&p->players_cur_animation,&word,4);
+        assert(ge_mp_state_players_export(&owner,&providers,&out)==GE_MP_STATE_INCOMPLETE);
+        assert(ge_mp_state_players_export(&owner,&mapped,&out)==GE_MP_STATE_OK);
+        assert(*(const uint64_t*)out.fields[0][field_index].values==fixture.resolved.actor_id);
+        assert(*(const uint64_t*)out.fields[0][field_index+1].values==32);
+        if(!i)memcpy(relocated_values,out.values,sizeof(relocated_values));
+        else assert(!memcmp(relocated_values,out.values,sizeof(relocated_values)));
+    }
+    fixture.resolved.offset=36;
+    assert(ge_mp_state_players_export(&owner,&mapped,&out)==GE_MP_STATE_OK);
+    assert(*(const uint64_t*)out.fields[0][field_index+1].values==36);
+    assert(memcmp(relocated_values,out.values,sizeof(relocated_values)));
+    assert(ge_mp_registry_release(&registry,fixture.resolved.actor_id)==GE_MP_STATE_OK);
+    assert(ge_mp_state_players_export(&owner,&mapped,&out)==GE_MP_STATE_INCOMPLETE);
+    assert(out.total_gaps==1 && out.gaps[0].field==591 && out.gaps[0].status==GE_MP_STATE_STALE);
+    if(sizeof(void*)>4) {
+        static ModelAnimation native_animation;
+        uintptr_t address=(uintptr_t)&native_animation;uint32_t token=(uint32_t)address;
+        assert(address>UINT32_MAX);
+        fixture.tokens[0]=address;fixture.tokens[1]=address;
+        memcpy(&p->players_cur_animation,&token,4);
+        assert(ge_mp_state_players_export(&owner,&mapped,&out)==GE_MP_STATE_INCOMPLETE);
+        assert(out.total_gaps==1 && out.gaps[0].field==591
+            && out.gaps[0].status==GE_MP_STATE_INCOMPLETE);
+    }
+    p->players_cur_animation=saved;
+    printf("E6 animation reference: null, unknown, relocated, offset, stale and host-truncated native owner cases passed\n");
+}
 static void failures(void)
 {
     assert(ge_mp_state_players_export(&owner,NULL,&out)==GE_MP_STATE_INCOMPLETE && out.total_gaps && out.record_count==4);
@@ -212,7 +281,7 @@ int main(int argc,char **argv)
     setup(count,peer);
     static unsigned char bytes[100000];size_t size=payload(bytes,sizeof(bytes));FILE *file=fopen(argv[3],"wb");assert(file);assert(fwrite(bytes,1,size,file)==size);assert(!fclose(file));
     uint64_t id=0;assert(ge_mp_state_players_actor(&owner,owner.players[3],&id)==GE_MP_STATE_OK && id==owner.ids[3]);
-    if(peer==0){mutations();reference_mutations();failures();lifecycle(count);}else teardown();
+    if(peer==0){mutations();reference_mutations();animation_references();failures();lifecycle(count);}else teardown();
     printf("E6 native %u players peer%u: four physical rows, %u typed mutations, reference/lifecycle guards; aggregate incomplete\n",count,peer,mutation_count);
     return 0;
 }

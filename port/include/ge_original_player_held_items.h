@@ -6,12 +6,15 @@
 /* Canonical lvlRender order for EACH selected simulation player:
  * propsTick -> onscreen count -> autoaim -> held items -> interaction/reload
  * -> propsTickPlayer -> gunUpdateAndFire. Never call again from local draw.
- * Camera matrices, ordered onscreen props and model hit lists must be ready. */
+ * Camera matrices, ordered onscreen props and model hit lists must be ready.
+ * A bound canonical BG geometry owner is required before any dispatch; absent
+ * ownership reports BG_FRONTIER before consuming RNG or mutating shots. */
 typedef enum GeOriginalPlayerHeldItemsStatus {
     GE_ORIGINAL_PLAYER_HELD_ITEMS_OK = 0,
     GE_ORIGINAL_PLAYER_HELD_ITEMS_NO_PLAYER,
     GE_ORIGINAL_PLAYER_HELD_ITEMS_LIGHT_FRONTIER,
-    GE_ORIGINAL_PLAYER_HELD_ITEMS_STAN_TEXTURE_FRONTIER
+    GE_ORIGINAL_PLAYER_HELD_ITEMS_STAN_TEXTURE_FRONTIER,
+    GE_ORIGINAL_PLAYER_HELD_ITEMS_BG_FRONTIER
 } GeOriginalPlayerHeldItemsStatus;
 
 /* The native light owner must resolve the hit triangle's Gfx/vertex ABI and

@@ -81,6 +81,18 @@ typedef struct GeOriginalStagePlayerBodySlot {
     ChrRecord chr;
 } GeOriginalStagePlayerBodySlot;
 
+typedef struct GeOriginalStageCachedMuzzleFlash {
+    GeOriginalGuardMuzzleFlashPublication publication;
+    uint8_t valid;
+} GeOriginalStageCachedMuzzleFlash;
+
+typedef struct GeOriginalStageMuzzleFlashView {
+    GeOriginalStageCachedMuzzleFlash *flashes;
+    size_t capacity;
+    uint64_t tick;
+    uint8_t prepared;
+} GeOriginalStageMuzzleFlashView;
+
 typedef struct GeOriginalStageGuardSceneWorkspace {
     GeOriginalModelSceneInput *scene_inputs;
     size_t scene_input_capacity;
@@ -109,6 +121,7 @@ struct GeOriginalStageGuardRuntime {
     uint8_t draw_camera_ready;
     uint8_t draw_room_membership[256];
     size_t draw_room_count;
+    float draw_vertical_fov,draw_aspect,draw_near;
     float draw_horizontal_margin_ndc;
     uint8_t draw_visibility_override;
     size_t capacity;
@@ -125,6 +138,9 @@ struct GeOriginalStageGuardRuntime {
     GeOriginalStageGuardWeaponSlot player_items[GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY];
     size_t player_item_next;
     uint32_t player_item_generation;
+    GeOriginalStageMuzzleFlashView muzzle_views[4];
+    uint64_t muzzle_tick;
+    uint8_t muzzle_cached_mode;
     struct player *view_player;
     uint8_t view_first_person;
 };
@@ -299,24 +315,24 @@ static int runtime_guard_room_draw_visible(
         : slot->state.visible != 0U;
 }
 
+static int runtime_model_draw_visible_with_margin(
+    const GeOriginalStageGuardRuntime *runtime,const Model *model,
+    const coord3d *position,float margin)
+{
+    if(runtime==NULL||!runtime->draw_camera_ready||model==NULL
+            ||model->obj==NULL||position==NULL)return 1;
+    return runtime_draw_sphere_visible_with_margin(
+        runtime->draw_world_to_view,runtime->draw_vertical_fov,
+        runtime->draw_aspect,runtime->draw_near,position->f,
+        model->obj->BoundingVolumeRadius*model->scale,margin);
+}
+
 static int runtime_guard_draw_visible_with_margin(
     const GeOriginalStageGuardRuntime *runtime,size_t guard_index,float margin)
 {
-    ChrRecord *chr;
-    Model *model;
-    float center[3],radius;
-    if(runtime==NULL||!runtime->draw_camera_ready
-            ||g_CurrentPlayer==NULL)return 1;
-    chr=runtime_live_chr(runtime,guard_index);
-    if(chr==NULL||chr->prop==NULL||(model=chr->model)==NULL
-            ||model->obj==NULL)return 1;
-    center[0]=chr->prop->pos.x;center[1]=chr->prop->pos.y;
-    center[2]=chr->prop->pos.z;
-    radius=model->obj->BoundingVolumeRadius*model->scale;
-    return runtime_draw_sphere_visible_with_margin(
-        runtime->draw_world_to_view,g_CurrentPlayer->c_perspfovy,
-        g_CurrentPlayer->c_perspaspect,g_CurrentPlayer->c_perspnear,
-        center,radius,margin);
+    ChrRecord *chr=runtime_live_chr(runtime,guard_index);
+    return chr==NULL||chr->prop==NULL?1:
+        runtime_model_draw_visible_with_margin(runtime,chr->model,&chr->prop->pos,margin);
 }
 
 static int runtime_guard_draw_visible(
@@ -332,6 +348,22 @@ static int runtime_room_resident(const GeOriginalStageGuardRuntime *runtime,
 {
     return runtime->services.room_resident==NULL
         || runtime->services.room_resident(runtime->services.context,room);
+}
+
+static int runtime_room_draw_visible(
+    const GeOriginalStageGuardRuntime *runtime,uint8_t room)
+{
+    return !runtime->draw_visibility_override
+        ||(room<runtime->draw_room_count&&runtime->draw_room_membership[room]!=0U);
+}
+
+static int runtime_model_draw_visible(
+    const GeOriginalStageGuardRuntime *runtime,const Model *model,
+    const coord3d *position,uint8_t room)
+{
+    return runtime_room_draw_visible(runtime,room)&&runtime_room_resident(runtime,room)
+        &&runtime_model_draw_visible_with_margin(runtime,model,position,
+            runtime->draw_visibility_override?runtime->draw_horizontal_margin_ndc:0.0f);
 }
 
 static GeOriginalStagePlayerBodySlot *runtime_player_slot(
@@ -387,6 +419,22 @@ static int runtime_player_item_live(const GeOriginalStageGuardWeaponSlot *slot)
         &&slot->prop->type==PROP_TYPE_WEAPON
         &&slot->prop->obj==(const ObjectRecord *)(const void *)&slot->weapon
         &&slot->model->obj!=NULL;
+}
+
+static int runtime_player_body_draw_visible(
+    const GeOriginalStageGuardRuntime *runtime,const GeOriginalStagePlayerBodySlot *body,
+    const Model *model,uint8_t room)
+{
+    return runtime_model_draw_visible(runtime,model,&body->player_prop->pos,room);
+}
+
+static int runtime_player_item_draw_visible(
+    const GeOriginalStageGuardRuntime *runtime,const GeOriginalStageGuardWeaponSlot *item)
+{
+    return runtime_player_item_live(item)&&item->prop->parent==NULL
+        &&(item->prop->flags&PROPFLAG_ENABLED)!=0U&&item->prop->rooms[0]!=UINT8_MAX
+        &&runtime_model_draw_visible(runtime,item->model,&item->weapon.runtime_pos,
+            item->prop->rooms[0]);
 }
 
 static GeOriginalStageGuardWeaponSlot *runtime_live_player_weapon(
@@ -611,6 +659,7 @@ void ge_original_stage_guard_runtime_destroy(
             (void)ge_original_pitem_model_release_instance(
                 runtime->weapon_models,runtime->hats[index].model);
     ge_original_stage_guard_actor_pool_end(runtime->chrs);
+    for(index=0U;index<4U;++index)free(runtime->muzzle_views[index].flashes);
     free(runtime->scene_workspace.scene_character_parts);free(runtime->scene_workspace.scene_inputs);
     free(runtime->hats);free(runtime->weapons);free(runtime->fallback_props);
     free(runtime->props);free(runtime->chrs);
@@ -1325,10 +1374,11 @@ int ge_original_stage_guard_runtime_weapon_snapshot(
 size_t ge_original_stage_guard_runtime_muzzle_flash_count(
     const GeOriginalStageGuardRuntime *runtime)
 {
-    return runtime != NULL ? runtime->weapon_count : 0U;
+    return runtime != NULL ? runtime->weapon_count
+        +(runtime->muzzle_cached_mode?GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY:0U) : 0U;
 }
 
-int ge_original_stage_guard_runtime_muzzle_flash(
+static int runtime_muzzle_flash_legacy(
     const GeOriginalStageGuardRuntime *runtime, size_t weapon_index,
     GeOriginalGuardMuzzleFlashPublication *publication)
 {
@@ -1369,6 +1419,117 @@ int ge_original_stage_guard_runtime_muzzle_flash(
         weapon->model->render_pos[gunfire.matrix_index].pos.m,
         weapon->model->scale,scale_random,
         sins((uint16_t)(phase+UINT16_C(0x4000))),sins(phase),publication);
+}
+
+static GeOriginalStageGuardWeaponSlot *runtime_muzzle_flash_source(
+    GeOriginalStageGuardRuntime *runtime,size_t index,
+    GeOriginalStagePlayerBodySlot **player_body,GeOriginalPitemModelGunfire *gunfire)
+{
+    GeOriginalStageGuardWeaponSlot *weapon;
+    *player_body=NULL;
+    if(index<runtime->weapon_count){
+        weapon=&runtime->weapons[index];
+        if(weapon->owner==NULL||weapon->prop==NULL
+                ||weapon->prop->parent!=weapon->owner->state.prop_record
+                ||runtime_live_chr(runtime,(size_t)(weapon->owner-runtime->slots))==NULL)return NULL;
+    }else{
+        index-=runtime->weapon_count;
+        if(index>=GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY)return NULL;
+        weapon=&runtime->player_items[index];
+        if(!runtime_player_item_live(weapon)||weapon->prop->parent==NULL)return NULL;
+        for(size_t i=0U;i<4U;++i)if(runtime_live_player_weapon(runtime,&runtime->players[i],
+                weapon->state.hand)==weapon){*player_body=&runtime->players[i];break;}
+        if(*player_body==NULL)return NULL;
+    }
+    if(weapon->model==NULL||weapon->model->obj==NULL||weapon->model->render_pos==NULL
+            ||!ge_original_pitem_model_instance_gunfire(runtime->weapon_models,
+                weapon->model,0U,gunfire)||!gunfire->visible
+            ||gunfire->matrix_index>=(uint16_t)weapon->model->obj->numMatrices)return NULL;
+    return weapon;
+}
+
+int ge_original_stage_guard_runtime_prepare_muzzle_flashes(
+    GeOriginalStageGuardRuntime *runtime,uint64_t simulation_tick,unsigned viewport_slot)
+{
+    GeOriginalStageMuzzleFlashView *view;size_t count;
+    if(runtime==NULL||viewport_slot>=4U||g_CurrentPlayer==NULL
+            ||g_playerPointers[viewport_slot]!=g_CurrentPlayer||!runtime->draw_camera_ready
+            ||(runtime->muzzle_cached_mode&&simulation_tick<runtime->muzzle_tick))return 0;
+    view=&runtime->muzzle_views[viewport_slot];
+    if(view->prepared&&view->tick==simulation_tick)return 1;
+    count=runtime->weapon_count+GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;
+    if(count>view->capacity){
+        GeOriginalStageCachedMuzzleFlash *candidate;
+        if(count>SIZE_MAX/sizeof(*candidate))return 0;
+        candidate=calloc(count,sizeof(*candidate));if(candidate==NULL)return 0;
+        free(view->flashes);view->flashes=candidate;view->capacity=count;
+    }else memset(view->flashes,0,count*sizeof(*view->flashes));
+    for(size_t index=0U;index<count;++index){
+        GeOriginalStagePlayerBodySlot *body;GeOriginalPitemModelGunfire gunfire;
+        GeOriginalStageGuardWeaponSlot *weapon=runtime_muzzle_flash_source(runtime,index,&body,&gunfire);
+        uint32_t scale_random,angle_random;uint16_t phase;int canonical,draw;
+        if(weapon==NULL)continue;
+        if(body==NULL){
+            size_t owner=(size_t)(weapon->owner-runtime->slots);
+            canonical=(weapon->prop->parent->flags&PROPFLAG_ONSCREEN)!=0U
+                &&(weapon->prop->flags&PROPFLAG_ONSCREEN)!=0U;
+            draw=weapon->state.matrices_ready&&runtime_guard_room_draw_visible(runtime,weapon->owner)
+                &&runtime_guard_draw_visible(runtime,owner);
+        }else{
+            uint8_t room;
+            Model *model=runtime_live_player_body(runtime,body,&room);
+            canonical=body->player_owner!=g_CurrentPlayer
+                &&(body->player_prop->flags&PROPFLAG_ONSCREEN)!=0U
+                &&(weapon->prop->flags&PROPFLAG_ONSCREEN)!=0U;
+            draw=model!=NULL&&weapon->state.matrices_ready
+                &&(!runtime->view_first_person||body->player_owner!=runtime->view_player)
+                &&runtime_player_body_draw_visible(runtime,body,model,room);
+        }
+        if(canonical){
+            /* Simulation owns these original dogfnegx samples once per
+             * canonical viewport, independent of the console's local view. */
+            scale_random=randomGetNext();angle_random=randomGetNext();
+        }else if(draw){
+            u64 visual_seed=UINT64_C(0x9e3779b97f4a7c15)
+                ^((uint64_t)(uint32_t)weapon->state.owner_chr_id<<32)
+                ^(simulation_tick<<1)^index^((uint64_t)viewport_slot<<48);
+            scale_random=randomGetNextFrom(&visual_seed);angle_random=randomGetNextFrom(&visual_seed);
+        }else continue;
+        if(!draw)continue;
+        phase=(uint16_t)((angle_random*UINT32_C(1024))&UINT32_C(0xffff));
+        view->flashes[index].valid=(uint8_t)ge_original_guard_muzzle_flash_build(&gunfire,
+            weapon->model->render_pos[gunfire.matrix_index].pos.m,
+            weapon->model->scale,scale_random,
+            sins((uint16_t)(phase+UINT16_C(0x4000))),sins(phase),
+            &view->flashes[index].publication);
+    }
+    view->tick=simulation_tick;view->prepared=1U;
+    runtime->muzzle_tick=simulation_tick;runtime->muzzle_cached_mode=1U;return 1;
+}
+
+int ge_original_stage_guard_runtime_muzzle_flash_for_view(
+    const GeOriginalStageGuardRuntime *runtime,unsigned viewport_slot,size_t weapon_index,
+    GeOriginalGuardMuzzleFlashPublication *publication)
+{
+    const GeOriginalStageMuzzleFlashView *view;
+    if(runtime==NULL||publication==NULL||viewport_slot>=4U||!runtime->muzzle_cached_mode)return 0;
+    view=&runtime->muzzle_views[viewport_slot];
+    if(!view->prepared||view->tick!=runtime->muzzle_tick||weapon_index>=view->capacity
+            ||!view->flashes[weapon_index].valid)return 0;
+    *publication=view->flashes[weapon_index].publication;return 1;
+}
+
+int ge_original_stage_guard_runtime_muzzle_flash(
+    const GeOriginalStageGuardRuntime *runtime,size_t weapon_index,
+    GeOriginalGuardMuzzleFlashPublication *publication)
+{
+    if(runtime!=NULL&&runtime->muzzle_cached_mode){
+        const struct player *viewer=runtime->view_player!=NULL?runtime->view_player:g_CurrentPlayer;
+        for(unsigned slot=0U;slot<4U;++slot)if(g_playerPointers[slot]==viewer)
+            return ge_original_stage_guard_runtime_muzzle_flash_for_view(runtime,slot,weapon_index,publication);
+        return 0;
+    }
+    return runtime_muzzle_flash_legacy(runtime,weapon_index,publication);
 }
 
 static void runtime_release_hat_candidates(
@@ -1815,6 +1976,9 @@ ge_original_stage_guard_runtime_update_matrices(
     memcpy(runtime->draw_world_to_view,world_to_view,
         sizeof(runtime->draw_world_to_view));
     runtime->draw_camera_ready=1U;
+    runtime->draw_vertical_fov=g_CurrentPlayer!=NULL?g_CurrentPlayer->c_perspfovy:0.0f;
+    runtime->draw_aspect=g_CurrentPlayer!=NULL?g_CurrentPlayer->c_perspaspect:0.0f;
+    runtime->draw_near=g_CurrentPlayer!=NULL?g_CurrentPlayer->c_perspnear:0.0f;
     for(index=0;index<runtime->count;++index){
         GeOriginalStageGuardSlot *slot=&runtime->slots[index];
         Model *model=slot->pair.model_instance;
@@ -1958,7 +2122,7 @@ ge_original_stage_guard_runtime_update_matrices(
             ModelRenderData renderdata;Mtxf base;size_t matrix;int retained;
             uint8_t room_id;
             model=runtime_live_player_body(runtime,body_slot,&room_id);
-            if (model != NULL && !runtime_room_resident(runtime, room_id)) {
+            if (model != NULL && !runtime_player_body_draw_visible(runtime,body_slot,model,room_id)) {
                 if (runtime_retain_matrices(model, body_slot->player_render_positions,
                         body_slot->player_pair.matrix_count) < 0)
                     return runtime_matrix_failed(runtime, __LINE__, runtime->count);
@@ -1972,7 +2136,7 @@ ge_original_stage_guard_runtime_update_matrices(
                         return runtime_matrix_failed(runtime, __LINE__, runtime->count);
                 }
             }
-            if(model!=NULL&&runtime_room_resident(runtime,room_id)){
+            if(model!=NULL&&runtime_player_body_draw_visible(runtime,body_slot,model,room_id)){
                 if(model->obj==NULL||model->render_pos==NULL
                         ||body_slot->player_render_positions==NULL
                         ||body_slot->player_pair.matrix_count==0U
@@ -2255,7 +2419,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
         if(model!=NULL&&body_slot->player_matrices_ready
                 &&(!runtime->view_first_person
                     ||body_slot->player_owner!=runtime->view_player)
-                &&runtime_room_resident(runtime,room_id)){
+                &&runtime_player_body_draw_visible(runtime,body_slot,model,room_id)){
             const size_t parts=
                 ge_original_character_model_instance_scene_part_count(
                     runtime->models,model);
@@ -2273,10 +2437,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
     }
     for(size_t item_index=0U;item_index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++item_index){
         GeOriginalStageGuardWeaponSlot *item=&runtime->player_items[item_index];
-        if(runtime_player_item_live(item)&&item->prop->parent==NULL
-                &&(item->prop->flags&PROPFLAG_ENABLED)!=0U
-                &&item->prop->rooms[0]!=UINT8_MAX
-                &&runtime_room_resident(runtime,item->prop->rooms[0]))
+        if(runtime_player_item_draw_visible(runtime,item))
             input_count+=ge_original_pitem_model_instance_scene_part_count(
                 runtime->weapon_models,item->model);
     }
@@ -2397,7 +2558,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
         if(model!=NULL&&body_slot->player_matrices_ready
                 &&(!runtime->view_first_person
                     ||body_slot->player_owner!=runtime->view_player)
-                &&runtime_room_resident(runtime,room_id)){
+                &&runtime_player_body_draw_visible(runtime,body_slot,model,room_id)){
             if(!ge_original_character_model_instance_scene_parts(
                     runtime->models,model,character_parts,
                     maximum_character_parts,&parts))goto fail;
@@ -2459,10 +2620,7 @@ static GeOriginalStageGuardRuntimeStatus collect_scene_inputs(
      * the same object matrix/runtime_pos transform as ordinary stage props. */
     for(size_t item_index=0U;item_index<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++item_index){
         GeOriginalStageGuardWeaponSlot *item=&runtime->player_items[item_index];
-        if(!runtime_player_item_live(item)||item->prop->parent!=NULL
-                ||(item->prop->flags&PROPFLAG_ENABLED)==0U
-                ||item->prop->rooms[0]==UINT8_MAX
-                ||!runtime_room_resident(runtime,item->prop->rooms[0]))continue;
+        if(!runtime_player_item_draw_visible(runtime,item))continue;
         size_t parts=ge_original_pitem_model_instance_scene_part_count(
             runtime->weapon_models,item->model);
         for(size_t part_index=0U;part_index<parts;++part_index){

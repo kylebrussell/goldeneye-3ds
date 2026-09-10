@@ -102,7 +102,8 @@ static int ge_guard_runtime_active_list_valid(void)
     for (active = chrpropGetActiveTail(); active != NULL;
             active = active->prev) {
         if (++visited > MAX_PROPS) return 0;
-#if defined(GE_PLATFORM_3DS) && defined(GE_DAM_FULL_PROPS_LIVE)
+#if (defined(GE_PLATFORM_3DS) || defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)) \
+        && defined(GE_DAM_FULL_PROPS_LIVE)
         if (active->type == PROP_TYPE_OBJ
                 || active->type == PROP_TYPE_WEAPON
                 || active->type == PROP_TYPE_DOOR) {

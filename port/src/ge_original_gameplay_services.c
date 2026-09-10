@@ -31,10 +31,11 @@ typedef int PLAYERFLAG;
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef GE_PLATFORM_3DS
+#if defined(GE_PLATFORM_3DS) || defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)
 #include "memp.h"
 #include "game/initanitable.h"
 #include "game/vtxstore.h"
+#include "ge_original_animation_table_refs.h"
 
 /* lvlStageLoad normally establishes MEMPOOL_STAGE immediately before the
  * canonical vtxstore reset.  The native 3DS stage bootstrap reaches this
@@ -44,7 +45,9 @@ static unsigned char ge_guard_damage_vtx_arena[65536]
 extern MemoryPool g_mempPools[MEMPOOL_COUNT];
 extern void initWeaponAnimGroups(void);
 extern void expand_ani_table_entries(s32 **entries);
+#ifndef GE_PORT_WIDE_ANIMATION_REFS
 extern s32 animation_table_ptrs1[];
+#endif
 extern struct ModelAnimation *animation_table_ptrs2[];
 static bool ge_guard_animation_tables_initialized;
 static bool ge_guard_animation_table_pointers_expanded;
@@ -343,7 +346,7 @@ void ge_original_gameplay_services_reset(void)
     ge_service_exact_held_item_dispatch = false;
     ge_service_settings_context = NULL;
     ge_service_persist_settings = NULL;
-#ifdef GE_PLATFORM_3DS
+#if defined(GE_PLATFORM_3DS) || defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)
     ge_original_embedment_pool_reset_exact();
     ge_original_dam_guard_death_force_link();
     memset(&g_mempPools[MEMPOOL_STAGE], 0,
@@ -353,6 +356,13 @@ void ge_original_gameplay_services_reset(void)
     g_mempPools[MEMPOOL_STAGE].end = ge_guard_damage_vtx_arena
         + sizeof(ge_guard_damage_vtx_arena);
     sub_GAME_7F09B820();
+#ifdef GE_PORT_WIDE_ANIMATION_REFS
+    if (ge_original_animation_table_refs_materialize()
+            && !ge_guard_animation_tables_initialized) {
+        initWeaponAnimGroups();
+        ge_guard_animation_tables_initialized = true;
+    }
+#else
     if (!ge_guard_animation_table_pointers_expanded) {
         expand_ani_table_entries((s32 **)&animation_table_ptrs1);
         expand_ani_table_entries((s32 **)&animation_table_ptrs2);
@@ -379,6 +389,7 @@ void ge_original_gameplay_services_reset(void)
             ge_guard_animation_tables_initialized = true;
         }
     }
+#endif
 #endif
     ge_original_covert_modem_object_reset();
     ge_original_guard_grenade_object_reset();
@@ -1043,7 +1054,7 @@ void chrSetWeaponFlag4(ChrRecord *chr, GUNHAND hand)
 
 void objFreePermanently(struct ObjectRecord *obj, bool freeprop)
 {
-#ifdef GE_PLATFORM_3DS
+#if defined(GE_PLATFORM_3DS) || defined(GE_PORT_FULL_GAMEPLAY_RUNTIME)
     extern void objFree(ObjectRecord *object, s32 free_prop, s32 can_regen);
     /* Exact propobj.c wrapper; full live props support owns objFree itself. */
     objFree(obj, freeprop, 0);

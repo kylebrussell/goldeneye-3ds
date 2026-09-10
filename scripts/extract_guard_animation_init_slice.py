@@ -51,6 +51,7 @@ def main() -> None:
         '#include "game/initanitable.h"',
         '#include "game/math_floor.h"',
         '#include "game/model.h"',
+        '#include "ge_original_animation_table_refs.h"',
         "extern struct animation_table_data *ptr_animation_table;",
         "extern ModelSkeleton skeleton_guard;",
         "extern u32 _animation_entriesSegmentRomStart[];",
@@ -87,6 +88,39 @@ def main() -> None:
         pieces.append(data_helper.extract_data(chr_source, name))
     pieces.append(data_helper.extract_data(table_source,
                                            "animation_table_ptrs2"))
+    # On 64-bit hosts, retain authored offsets separately from native pointers.
+    # Rebinding a stage decodes fresh source bytes; never truncate pointers or
+    # reinterpret two adjacent original s32 offsets as one pointer-sized slot.
+    pieces.append("#ifdef GE_PORT_WIDE_ANIMATION_REFS")
+    for name in ("animation_table_ptrs1", "animation_table_ptrs2"):
+        original = data_helper.extract_data(table_source, name)
+        initializer = original[original.index("{"):]
+        pieces.append(f"static const uintptr_t {name}_offsets[] = {initializer}")
+    pieces.append(r"""
+uintptr_t ge_original_animation_table_refs[ANIM_MAX + 1];
+int ge_original_animation_table_refs_materialize(void)
+{
+    int complete = 1;
+    size_t index;
+    for (index = 0; index < ANIM_MAX; ++index) {
+        uintptr_t offset = animation_table_ptrs1_offsets[index];
+        animation_table_ptrs1[index] = offset <= 1 ? offset
+            : (uintptr_t)ge_port_guard_animation_resolve((u32)offset);
+        complete = (offset <= 1 || animation_table_ptrs1[index] != 0)
+            && complete;
+    }
+    animation_table_ptrs1[ANIM_MAX] = 0;
+    for (index = 0; index < AIRCRAFT_ANIMATION_MAX; ++index) {
+        uintptr_t offset = animation_table_ptrs2_offsets[index];
+        animation_table_ptrs2[index] = offset <= 1 ? (ModelAnimation *)offset
+            : ge_port_guard_animation_resolve((u32)offset);
+        complete = (offset <= 1 || animation_table_ptrs2[index] != NULL)
+            && complete;
+    }
+    return complete;
+}
+""")
+    pieces.append("#endif")
 
     pieces.append(helper.find_function(init_source, "sub_GAME_7F0001F0"))
     pieces.append(helper.find_function(init_source, "sub_GAME_7F000290"))

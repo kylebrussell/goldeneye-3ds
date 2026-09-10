@@ -95,6 +95,12 @@ bash "${repo_dir}/scripts/test_multiplayer_match_bootstrap.sh" \
     "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" \
     "${repo_dir}/build/3ds-animations/bond" \
     "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+bash "${repo_dir}/scripts/test_multiplayer_match_bootstrap.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" \
+    "${repo_dir}/build/3ds-animations/bond" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" --combat
 python3 "${repo_dir}/scripts/tests/test_gun_opposite_hand_native.py"
 python3 "${repo_dir}/scripts/tests/test_guard_damage_room_origin_exact.py"
 python3 "${repo_dir}/scripts/tests/test_bg_room_reader_owner.py"

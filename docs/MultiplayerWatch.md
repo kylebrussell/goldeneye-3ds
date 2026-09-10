@@ -70,3 +70,12 @@ Award language resolution is explicitly bound to `ge_original_language_text`
 and the real `LmpmenuE` pointer table. The packed original `langGet`/`g_LangBanks`
 loader is not invoked by this slice. Tests link the actual language provider and
 all its native table dependencies, including authored Quad Kill text.
+
+Awards preflight also checks the original float-helper conversion boundary.
+`mpFindMaxFloat`/`mpFindMinFloat` deliberately truncate selected metric values
+through signed `s32 aux`; preserving this native quirk requires validating the
+cast-reachable first three slots before side effects. Armor, average speed,
+kill/shot ratio and kill/death ratio use the exact source f32 expressions and
+must lie in `[-2147483648,2147483648)`. The fourth value is only compared and is
+not given an invented conversion. Invalid metric fixtures snapshot all player,
+permanent/watch, RNG, music and SFX state and assert transactional rejection.

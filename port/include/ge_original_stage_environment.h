@@ -41,6 +41,12 @@ typedef struct GeOriginalStageEnvironment {
 int ge_original_stage_environment_select(
     int32_t level_id, int cinematic, GeOriginalStageEnvironment *environment);
 
+/* Original count-dependent selection, usable before native player allocation.
+ * Multiplayer falls back to its player-count default, then the fogless table. */
+int ge_original_stage_environment_select_for_player_count(
+    int32_t level_id, int cinematic, uint32_t player_count,
+    GeOriginalStageEnvironment *environment);
+
 uint32_t ge_original_stage_environment_pica_fog_color(
     const GeOriginalStageEnvironment *environment);
 int ge_original_stage_environment_build_fog_lut(

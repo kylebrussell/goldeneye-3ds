@@ -198,6 +198,7 @@ def main() -> None:
         (gunfire_source, "recall_joy2_hits_edit_detail_edit_flag"),
         (file_source, "get_007_reaction_speed"),
         (lv_source, "lvlGetSelectedDifficulty"),
+        (lv_source, "lvlSetSelectedDifficulty"),
         (propobj_source, "get_hat_model"),
         (player_source, "set_cur_player"),
         (debug_source, "get_debug_joy2hitsedit_flag"),

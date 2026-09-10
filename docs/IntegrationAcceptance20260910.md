@@ -33,7 +33,7 @@ After committing source changes, run:
 python3 scripts/build_3ds_candidate.py --output build/integration/release-build \
   --toolchain devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5
 python3 scripts/package_3ds_candidate.py \
-  --binaries platform/3ds --pack build/3ds-assets/goldeneye.u.gepack \
+  --binaries build/integration/release-build/binaries --pack build/3ds-assets/goldeneye.u.gepack \
   --build-receipt build/integration/release-build/build-receipt.json \
   --acceptance build/integration/acceptance.json --evidence build/integration \
   --toolchain devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5 \
@@ -69,3 +69,28 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   wireless hardware. No network scan or deployment was performed.
 - No pre-existing Azahar process was observed. The user profile/configuration
   remains untouched. Any emulator execution is centrally scheduled and isolated.
+
+- Integrated canonical control/inventory capture-release behavior, all-stage
+  campaign objective/result fixtures, authored camera tag ownership, native
+  audio address/envelope corrections, conservative per-eye renderer visibility
+  and protected room residency. A review aligned guard flashes to world stereo
+  depth and bounded the preload mask copy to the actual source array.
+- Offline music evidence covers ten-second prefixes of all 63 authored sequences
+  plus layered/repeat fixtures. All 65 source music entries match the current
+  full pack. This does not establish complete-song playback or listening quality.
+- The isolated signature benchmark used seven alternating baseline/candidate
+  samples. Median shared-placement work was 20.7895 to 12.1635 microseconds;
+  24-part grouped work was 20.9390 to 12.5805; unique placements were essentially
+  unchanged at 20.9325 to 20.9215. All checksums matched. These are ARM64 host
+  measurements, not game frame timing or ARM32 performance evidence.
+- A corrected XDG-isolated Azahar smoke completed 514 frontend and 600 Dam
+  gameplay frames, with active music telemetry. Its private pack and log paths
+  were verified. It used an earlier integration executable and zero slider;
+  it establishes neither final-candidate acceptance nor stereo/timing fidelity.
+  The earlier portable-cwd attempt was discarded after detecting shared reads;
+  macOS sandbox policy denied shared writes, and only the owned process stopped.
+- Multiplayer protocol agreement, timeout checks, canonical player/rule/combat
+  primitives and eleven arena asset descriptors are integrated. Work continues
+  toward an actual local match, live synchronization, and frontend/results
+  transitions. The diagnostic lobby and primitive fixtures are insufficient
+  evidence for playable matches or radio acceptance.

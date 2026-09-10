@@ -159,3 +159,35 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   This is build and controller regression evidence; the identical-route rerun
   has not yet supplied a completed mission result. See
   [Dam route triage](DamControllerRouteTriage.md).
+- The diagnostic main/shared multiplayer runtime is integrated at `79aaea2a`,
+  including setup, authored arena/resource construction, per-player simulation,
+  session limits, death/respawn and results transitions. Renderer regressions at
+  `72a9d24d` verify the captured local camera and separate upload spans. Input
+  gates at `93a9d631` refresh native stop/menu/control state before MoveBond.
+  Native two/four-player gun producer checks at `b0aa593b` use ROM PP7 models
+  and verify separate hand model, matrix and flash storage. These pass focused
+  host checks; complete matches and synchronized UDS gameplay are unaccepted.
+- Both local hand draws are integrated at `c411c73a`, with independent scene,
+  texture and vertex storage. Capture occurs after the native gun producer and
+  before death/respawn; invalid publication disables the stale hand. Focused
+  source mutations reject overlapping ranges, aliased hand selection, stale
+  publication and late capture. Native/short-enum material-cache and guard-eye
+  regressions pass. Emulator visual acceptance remains outstanding.
+- The core exporter at `ede116c5` captures typed native RNG, frame/timer, boss,
+  player-order, pending-input and joy-bank fields. Actual-owner mutation and
+  independent fresh-process byte/hash checks pass. The inventory/permanent
+  player exporter at `e0a6b201` covers all 124 physical records and passes
+  original inventory/death operations, lifetime and 2-to-4-to-2 prior-history
+  checks. Both explicitly leave full state coverage incomplete. Native prop,
+  hand, model, object/projectile and remaining singleton domains still require
+  complete typed ownership before live state hashes can be certified.
+- The full host aggregate passed on frozen `08b13ded` with copied private
+  inputs and a separate positive Facility camera check against the regenerated
+  pack. A later forced ARM build at `b822d6e6` retained the core capture symbol
+  and passed dependency/input receipt verification. Neither checkpoint includes
+  the later main assembly and exporters; a fresh common-source aggregate and
+  forced build are required for their combined acceptance.
+- The corrected Dam rerun was blocked before gameplay by the locked Mac UI.
+  Only that run's owned emulator process was stopped; its observation records
+  no gameplay, mission or timing outcome. The successful corrected-route
+  result and retained-save reload remain outstanding.

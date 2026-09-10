@@ -76,22 +76,32 @@ Original N64 matched captures and physical stereo/GPU acceptance remain open.
 | Sustained 60 fps | Profile CPU and GPU on physical New 3DS XL with audible music/SFX and maximum stereo; reduce demonstrated costs, including loading transitions and busy combat | At least 3,600 measured frames per representative route after declared warmup, cold/repeat runs, complete frame/presentation records; loading hitches reported separately |
 | Control ergonomics | Test C-Stick range, sustained aiming, crouch, scoped zoom, remote-mine gestures, handedness, touch capture and saved settings on the device | Playable combat/stealth routes and observed touch accuracy, plus reboot/save checks |
 | Touchscreen | Test readability and gesture comfort; validate the implemented canonical inventory selection through live gadget/model routes | Read-only information matches the original watch; touch actions preserve authored inventory/weapon semantics |
-| Wireless game state | Integrate the tested canonical player/input/camera/weapon/body ownership, arena/rules, regeneration and setup/results providers into complete live matches | Two then four local simulated players complete matches without a network before transport is connected |
+| Wireless game state | Validate the integrated diagnostic setup/game/results loop with native background collision, both first-person hands, full match progression and restart after different histories | Two then four local simulated players complete matches without a network before transport is connected |
 | Wireless synchronization | Connect the implemented ordered agreement/tick transport to complete canonical state coverage, RNG ownership, stable actor identities and live match handling | Deterministic transport simulation with delay/drop/duplication/reordering, then two/four physical devices; player damage, pickups, kills and scores agree |
 | Release | Package a reproducible candidate with asset conversion version, runtime settings and evidence; test sleep/resume, low memory, shutdown and malformed data | Rebuild identity, clean SD install, explicit tested-hardware and feature limitations |
 
 The multiplayer providers now allocate independent canonical players, input,
 hands, inventory and bodies, with authored arena construction, combat/rules,
 dropped-item lifetime, regeneration and separate shooter/local camera state.
-Focused two/four-player fixtures pass; they do not constitute a playable match.
-The integrated main loop still awaits the session/bootstrap and live results
-connection. See [player ownership](MultiplayerPlayers20260910.md),
+The 3DS mode selector now enters diagnostic multiplayer setup, builds the
+authored arena, and runs the shared native player/session loop through results.
+SELECT changes the locally controlled player; other players receive neutral
+pads. Focused two/four-player fixtures pass, including the actual dual-hand gun
+producer with ROM models and isolated model/matrix/flash storage. Full native
+match progression and restart acceptance remain open, as does background bullet
+collision. Both local first-person hand scenes are captured before death and
+respawn into independent texture/GPU storage; emulator visual acceptance is
+still required. See
+[runtime assembly](MultiplayerRuntimeAssembly.md),
+[player ownership](MultiplayerPlayers20260910.md),
 [view ownership](MultiplayerViews20260910.md),
 [state coverage requirements](MultiplayerStateOwnership20260910.md), and
-[asset regeneration](MultiplayerAssetRegeneration.md). The existing diagnostic
-lobby remains unable to start a match. Its compatibility tag and lineage
-fingerprint are not exact executable/asset hashes; the match protocol's exact
-identity fields require a complete runtime contract and verified state coverage.
+[asset regeneration](MultiplayerAssetRegeneration.md). The radio probe still
+cannot start a synchronized match. Its compatibility tag and lineage fingerprint
+are not exact executable/asset hashes; the match protocol's exact identity fields
+require a complete runtime contract and verified state coverage. Typed native
+core and inventory/permanent-player domains are exported, with explicit gaps;
+neither can attest complete game state or authorize a finish-tick digest.
 
 ## Reproducible checks
 

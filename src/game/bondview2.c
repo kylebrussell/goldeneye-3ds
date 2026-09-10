@@ -7304,7 +7304,18 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         f32 nd; // canonical name
         f32 ftemp_7;
         f32 sp240;
+#if defined(GE_PORT_BOND_MOVEMENT_SLICE) || defined(GE_PORT_EXACT_MOVEBOND_FRONTIER)
+        /* stanTileDistanceRelated clears sixteen original words, then its
+         * callbacks read the pointer-width locus record. The matching
+         * placeholder has only two words and is not native scratch storage. */
+        union {
+            struct StandTileLocusCallbackRecord record;
+            s32 original_clear_words[16];
+        } curLocus_storage;
+#define curLocus curLocus_storage.record
+#else
         struct move_bond_temp_struct curLocus;
+#endif
         struct move_bond_collision bondCollision;
         f32 shorten; // canonical name
         f32 headpos_x;
@@ -7831,6 +7842,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             g_CurrentPlayer->field_488.collision_position.f[2],
             &sp5C_out_unused);
     }
+#if defined(GE_PORT_BOND_MOVEMENT_SLICE) || defined(GE_PORT_EXACT_MOVEBOND_FRONTIER)
+#undef curLocus
+#endif
 }
 
 

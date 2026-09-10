@@ -110,6 +110,9 @@ def main() -> None:
     source = args.source.read_text(encoding="utf-8")
     bodies = [extract_function(source, name, occurrence)
               for name, occurrence in FUNCTIONS]
+    state_declaration = "    static Unk80081600 dword_CODE_bss_80081600;"
+    if sum(body.count(state_declaration) for body in bodies) != 1:
+        raise ValueError("review original global-visibility interpreter state declaration")
     bodies = [body.replace(
         "#define osSyncPrintf(x)",
         "#define osSyncPrintf(...)"
@@ -127,11 +130,15 @@ def main() -> None:
         "#else\n"
         "    *((u8 *) i) = depth;\n"
         "#endif",
+    ).replace(
+        state_declaration,
+        "    /* State retains its original lifetime in the named interpreter owner. */",
     ) for body in bodies]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         "/* Generated from src/game/bg.c; do not edit. */\n"
-        '#include "ge_original_bg_visibility_internal.h"\n\n'
+        '#include "ge_original_bg_visibility_internal.h"\n'
+        '#include "ge_mp_state_visibility_interpreter.inc"\n\n'
         + "\n\n".join(bodies)
         + "\n",
         encoding="utf-8",

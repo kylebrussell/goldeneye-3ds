@@ -17,13 +17,17 @@ list, or background state of its own.
 
 The build adds `port/src/ge_original_player_held_items.c` and the output of
 `scripts/extract_player_held_items_slice.py REPO OUTPUT`. Existing owners supply
-the native visibility room table/count, background geometry/STAN queries,
+the native BG geometry room table/count, background geometry/STAN queries,
 canonical bullet path, character/object hit and damage dispatch, item stats,
 camera, objective photograph service, tank-shell/projectile service, remote
 mine state, and effects. Three tiny accessor bodies are locally namespaced to
-avoid duplicating existing retained native symbols. The source uses the same
-`ge_bg_visibility_room_info` and `ge_bg_visibility_max_rooms` as full props;
-retaining the query does not itself populate native room geometry.
+avoid duplicating existing retained native symbols. The retained bbox walk reads
+`ge_original_bg_geometry_native_rooms()` and the geometry owner's room count,
+independently of renderer visibility/residency. The held-item boundary requires
+that owner before dispatch; an absent owner reports
+`GE_ORIGINAL_PLAYER_HELD_ITEMS_BG_FRONTIER` without consuming RNG or recording
+shots. This presence check does not claim complete room geometry by itself;
+the runtime must load and validate the authored stage with the BG owner.
 
 At match initialization, after gameplay services reset, enable
 `ge_original_gameplay_services_set_exact_held_item_dispatch(1)`. This suppresses

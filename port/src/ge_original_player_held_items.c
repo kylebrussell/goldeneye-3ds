@@ -3,6 +3,10 @@
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
+#ifndef PLAYERFLAG
+typedef int PLAYERFLAG;
+#endif
+#include "ge_original_bg_geometry_internal.h"
 #include "ge_original_bond_input_internal.h"
 
 static void *ge_held_light_context;
@@ -35,6 +39,9 @@ GeOriginalPlayerHeldItemsStatus ge_original_player_held_items_tick(void)
 {
     if (g_CurrentPlayer == NULL || g_playerPerm == NULL)
         return GE_ORIGINAL_PLAYER_HELD_ITEMS_NO_PLAYER;
+    if (ge_original_bg_geometry_native_rooms() == NULL
+            || ge_original_bg_geometry_room_count() == 0U)
+        return GE_ORIGINAL_PLAYER_HELD_ITEMS_BG_FRONTIER;
     ge_held_status = GE_ORIGINAL_PLAYER_HELD_ITEMS_OK;
     chraiCheckUseHeldItems();
     return ge_held_status;

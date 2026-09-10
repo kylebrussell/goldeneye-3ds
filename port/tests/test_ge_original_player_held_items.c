@@ -24,8 +24,14 @@ ModelFileHeader cartshell_header; /* Shell rendering is outside held-item pass. 
 extern u64 g_randomSeed;
 PropRecord *g_OnScreenPropList[16];
 PropRecord **g_LastOnScreenProp = g_OnScreenPropList;
-s_room_info ge_bg_visibility_room_info[2];
-s32 ge_bg_visibility_max_rooms = 2;
+/* Explicit primitive BG owner for this fixture, independent of the
+ * renderer/visibility publication table. Real owner acceptance is separate. */
+static s_room_info fixture_bg_rooms[2];
+static int fixture_bg_bound;
+s_room_info *ge_original_bg_geometry_native_rooms(void)
+{ return fixture_bg_bound ? fixture_bg_rooms : NULL; }
+size_t ge_original_bg_geometry_room_count(void)
+{ return fixture_bg_bound ? 2 : 0; }
 static bg_portal_data_entry portals[1];
 bg_portal_data_entry *g_BgPortals = portals;
 s32 g_RemoteMineOwnerTriggerFlag;
@@ -113,6 +119,7 @@ static void setup(size_t count, size_t shooter, size_t target)
     gitem_structs[ITEM_AUTOSHOT].item_weapon_stats = &autoshot_stats;
     g_RemoteMineOwnerTriggerFlag = 0;
     photos = tanks = light_calls = background_tests = impact_explosions = 0;
+    fixture_bg_bound = 1;
     stan_blocked = bg_hit = melee_blocked = bg_texture = 0;
     last_impact_texture = INT32_MIN;
     ge_original_player_held_items_bind_lights(NULL, NULL);
@@ -216,8 +223,14 @@ int main(void)
         }
     }
     setup(2, 0, 1);
-    g_LastOnScreenProp = g_OnScreenPropList;
     players[0].hands[0].weapon_firing_status = 1;
+    fixture_bg_bound = 0;
+    u64 rng_before = g_randomSeed;
+    assert(ge_original_player_held_items_tick() == GE_ORIGINAL_PLAYER_HELD_ITEMS_BG_FRONTIER);
+    assert(g_randomSeed == rng_before && background_tests == 0);
+    assert(g_playerPlayerData[0].shot_count[SHOT_REGISTER_TOTAL] == 0);
+    fixture_bg_bound = 1;
+    g_LastOnScreenProp = g_OnScreenPropList;
     stan_blocked = 1;
     assert(ge_original_player_held_items_tick() == GE_ORIGINAL_PLAYER_HELD_ITEMS_OK);
     assert(impact_explosions == 1 && last_impact_texture == -1);

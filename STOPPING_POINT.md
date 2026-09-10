@@ -146,3 +146,13 @@ The parent task owns bringing this committed branch into its checkout while
 preserving the parent's existing local work. No further feature follow-up is
 scheduled. Resume only on a new user instruction, starting with this handoff,
 the exact evidence scopes and the open findings above.
+
+The parent coordinator reports that its checkout has already fast-forwarded to
+`3d0484fd` on `codex/integrated-stopping-point-20260910`; it will fast-forward
+the final handoff documentation next. Its original uncommitted work matched the
+baseline exactly and is redundantly preserved in stash
+`62dde08f4132eea5c536d4d474d685427a167a50`. Original `master` remains `849840cf`.
+The user's untracked `platform/3ds/source/main.c.orig` remains unchanged,
+SHA256 `25a8f597c4d660ada95dfeda0b664c3fefd8a29c25d90550f853287fe39ea593`.
+These parent-preservation checks were performed by the parent coordinator;
+this integration task did not edit or recheck that checkout.

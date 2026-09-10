@@ -143,12 +143,19 @@ exit damage suppression, which uses a separate global.
 `mission_result` contains title requests, briefing frontiers and briefing
 commits. Values≥1,0,≥1 prove result API dispatch. Void persistence callbacks
 cannot report a disk-write failure through that commit counter. Preserve the
-private96-byte save and inspect a retained copy:
+private96-byte save and verify a retained copy alongside the complete route:
 
 ```sh
-bash scripts/inspect_campaign_save.sh /path/to/retained/goldeneye.sav 0
-python3 scripts/verify_dam_end_to_end_result.py /path/to/retained/result
+python3 scripts/verify_dam_end_to_end_result.py /path/to/retained/result \
+    --save /path/to/retained/goldeneye.sav --folder 0
 ```
+
+This command preserves every route requirement and requires a real read-only
+provider reload before reporting durable completion/access. It records the
+retained save's path, byte count and SHA-256. Missing, corrupt, wrong-folder
+and incomplete saves fail even when route telemetry and callback counts pass.
+For controller diagnostics alone, explicitly use `--route-only`; its output
+states that retained-save persistence was not verified.
 
 A successful Dam00 save records the best Dam00 time (ticks/60, capped to the
 original10-bit representation; faster existing time is preserved), marks

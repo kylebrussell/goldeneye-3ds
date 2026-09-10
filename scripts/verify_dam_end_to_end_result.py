@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Verify that a controller-only Azahar run completed Dam's authored flow."""
+"""Verify Dam's controller route and completion in its retained campaign save."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 from pathlib import Path
+import subprocess
 
 
 REQUIRED_MISSION_BITS = 0x00000100 | 0x00000400 | 0x00001000
@@ -33,7 +36,8 @@ def integers(values: dict[str, str], key: str, count: int) -> list[int]:
     return result
 
 
-def verify(path: Path) -> str:
+def verify_route(path: Path) -> str:
+    """Check controller telemetry only; callback counts do not prove a save write."""
     values, repeated = parse(path)
     if values.get("status") != "complete":
         try:
@@ -241,7 +245,8 @@ def verify(path: Path) -> str:
     mission_result = integers(values, "mission_result", 3)
     if mission_result[0] < 1 or mission_result[1] != 0 \
             or mission_result[2] < 1:
-        raise ValueError("successful Dam result was not persisted canonically")
+        raise ValueError("successful Dam result did not dispatch its canonical "
+                         "provider callbacks")
 
     sound = integers(values, "sound", 4)
     if sound[0] < 1 or sound[1] < 1 or sound[2] != 0:
@@ -249,17 +254,73 @@ def verify(path: Path) -> str:
     average_ms = int(values.get("frame_average_ms", "100000"), 0)
     if average_ms > 50:
         raise ValueError(f"average frame time is too slow ({average_ms} ms)")
-    return (f"Dam end-to-end verified: {total} authored stops, "
+    return (f"Dam controller route verified: {total} authored stops, "
             f"{values['rooms_visited']} rooms, {shots} PP7 shots, "
             f"mission 0x{registers:08x}, {average_ms} ms/frame")
+
+
+def verify(path: Path, save: Path, folder: int = 0) -> str:
+    """Require both the unchanged route checks and a real, read-only save reload."""
+    route = verify_route(path)
+    if folder not in range(4):
+        raise ValueError("save folder must be 0, 1, 2 or 3")
+    try:
+        save_bytes = save.read_bytes()
+    except OSError as error:
+        raise ValueError(f"retained save could not be read: {error}") from error
+    inspector = Path(__file__).resolve().with_name("inspect_campaign_save.sh")
+    result = subprocess.run(
+        ["bash", str(inspector), str(save), str(folder)],
+        capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(
+            "retained save did not verify Dam 00 Agent completion and "
+            f"Facility 00 Agent access (inspector exit {result.returncode}): "
+            f"{detail}")
+    if save.read_bytes() != save_bytes:
+        raise ValueError("retained save changed during verification; retain "
+                         "a stable copy before checking completion and unlock")
+    try:
+        report = json.loads(result.stdout)
+    except ValueError as error:
+        raise ValueError("invalid retained-save inspection report") from error
+    if not isinstance(report, dict) \
+            or report.get("format") != "GE_CAMPAIGN_SAVE_INSPECTION_1" \
+            or report.get("folder") != folder \
+            or report.get("crc_valid") is not True \
+            or report.get("loads") != 1 or report.get("writes") != 0 \
+            or report.get("acceptance_passed") is not True:
+        raise ValueError("retained-save inspection did not confirm read-only "
+                         "completion and unlock acceptance")
+    return (f"{route}\nRetained save verified: durable Dam 00 Agent completion "
+            f"({report['dam_00_time_seconds']} s) and Facility 00 Agent access "
+            f"in folder {folder}; CRC valid, 1 reload, 0 writes.\n"
+            f"Save source: {save.resolve()} ({len(save_bytes)} bytes, "
+            f"SHA-256 {hashlib.sha256(save_bytes).hexdigest()})")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("result", type=Path)
+    evidence = parser.add_mutually_exclusive_group(required=True)
+    evidence.add_argument("--save", type=Path,
+                          help="retained save from this run; required for "
+                               "durable completion/unlock acceptance")
+    evidence.add_argument("--route-only", action="store_true",
+                          help="check controller telemetry without certifying "
+                               "saved completion or unlock")
+    parser.add_argument("--folder", choices=("0", "1", "2", "3"),
+                        help="retained save folder ID (default: 0)")
     args = parser.parse_args()
+    if args.route_only and args.folder is not None:
+        parser.error("--folder requires --save")
     try:
-        print(verify(args.result))
+        if args.route_only:
+            route = verify_route(args.result)
+            print(f"Route-only check; retained-save persistence not verified.\n{route}")
+        else:
+            print(verify(args.result, args.save, int(args.folder or "0")))
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from error
     return 0

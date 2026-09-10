@@ -31,4 +31,12 @@ GE_INPUT_PROBE_CONFIG="${config}" \
 GE_INPUT_PROBE_TIMEOUT_SECONDS="${GE_DAM_END_TO_END_PROBE_TIMEOUT_SECONDS:-1800}" \
     "${repo_dir}/scripts/run_dam_input_probe.sh"
 
-python3 "${repo_dir}/scripts/verify_dam_end_to_end_result.py" "${result}"
+verification_args=("${result}")
+if [[ -n "${GE_DAM_END_TO_END_RETAINED_SAVE:-}" ]]; then
+    verification_args+=(--save "${GE_DAM_END_TO_END_RETAINED_SAVE}"
+        --folder "${GE_DAM_END_TO_END_SAVE_FOLDER:-0}")
+else
+    verification_args+=(--route-only)
+fi
+python3 "${repo_dir}/scripts/verify_dam_end_to_end_result.py" \
+    "${verification_args[@]}"

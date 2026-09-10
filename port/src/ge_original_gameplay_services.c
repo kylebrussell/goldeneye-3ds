@@ -102,6 +102,22 @@ uint64_t ge_original_gameplay_services_audio_decode_ticks(void) { return ge_serv
 
 static GeServiceSound ge_service_sounds[GE_SERVICE_SOUND_CAPACITY];
 static GeOriginalGameplayServiceStats ge_service_stats;
+static void *ge_service_player_items_context;
+static GeOriginalGameplayPlayerItemCreate ge_service_player_items_create;
+
+void ge_original_gameplay_services_bind_player_items(
+    void *context,GeOriginalGameplayPlayerItemCreate create)
+{
+    ge_service_player_items_context=context;
+    ge_service_player_items_create=create;
+}
+
+void ge_original_gameplay_services_unbind_player_items(void *context)
+{
+    if(ge_service_player_items_context==context){
+        ge_service_player_items_context=NULL;ge_service_player_items_create=NULL;
+    }
+}
 static GeServicePcm ge_service_pcm_cache[GE_SERVICE_PCM_CACHE_CAPACITY];
 static uint64_t ge_service_pcm_stamp;
 
@@ -986,6 +1002,13 @@ PropRecord *something_with_generating_object(ChrRecord *self, s32 propid,
         ITEM_IDS itemid, s32 flags, WeaponObjRecord *weapon,
         ItemModelFileRecord *prop_header)
 {
+    if (weapon == NULL && prop_header == NULL
+            && ge_service_player_items_create != NULL) {
+        PropRecord *prop = NULL;
+        if (ge_service_player_items_create(ge_service_player_items_context,
+                self, propid, itemid, (uint32_t)flags, &prop))
+            return prop;
+    }
     if (weapon == NULL && prop_header == NULL
             && propid == PROP_CHRGRENADE && itemid == ITEM_GRENADE) {
         return ge_original_guard_grenade_object_create(

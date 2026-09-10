@@ -21,14 +21,53 @@ players. It does not enable a match loop or establish playable wireless matches.
   Distinct owners have distinct models, characters, world weapons and matrices.
 - Before drawing, call
   `ge_original_stage_guard_runtime_set_local_player_view(runtime, player, 1)`
-  for a local first-person view. Its own world body and initial held attachment
+  for a local first-person view. Its own world body and both held attachments
   are excluded while opponents remain visible. Pass `NULL, 0` for cinematic
   publication. Rendering does not remove simulation bodies or weapons.
 - Keep player storage alive until the stage provider is destroyed. Body
   allocation slots remain associated with the roster for the stage lifetime;
-  a fifth owner is rejected. Canonical teardown must clear a retired character's
-  model before its reserved record can be constructed again. Existing live
-  bodies retain the canonical animation/resume behavior.
+  a fifth owner is rejected. Character IDs remain fixed within that runtime;
+  changing a choice requires stage/runtime reconstruction. Existing multiplayer
+  bodies retain canonical animation/resume behavior through death and respawn.
+
+## Held-item lifecycle
+
+Runtime creation automatically binds a typed player-item factory in
+`ge_original_gameplay_services`; destruction unbinds only its own factory.
+The original `sub_GAME_7F09B368` lower-hand helper flags an equipped item for
+removal; `sub_GAME_7F09B398` raises a hand through the original
+`getCurrentPlayerWeaponId` / `getPropForHeldItem` mapping. Both are already in
+the live gun/input extraction. No additional per-frame weapon synchronization
+call is needed. The caller must run canonical gun and object ticks for every
+player and publish the VIEWER roots through the active-prop composer.
+
+Thirty stable native player-item records supply the canonical weapon-create
+fresh-slot allocation boundary. Each successful construction uses the exact
+blank collectable state, native `objInit`, and original `chrEquipWeapon`;
+left-hand and explicit dual-weapon links follow that function. Recognized player
+allocation failure returns NULL without falling through to the guard-grenade
+factory. This bounded provider does not implement canonical cross-pool/offscreen
+weapon eviction; thirty simultaneous live player items exhaust its pool.
+
+`drop_inventory` creates concealed copies through the same factory. Original
+`propobjSetDropped` / `objDrop` own projectile state, detachment, room placement,
+and active-list insertion. Dropped items retain their model even if their former
+owner dies or resumes a body. Their renderer uses canonical object matrix and
+runtime position, independently of the owner's first-person visibility. Both
+cached and uncached scene publication include them.
+
+Only canonical `objFree` clearing the stable weapon record's `prop` permits
+native model release and record reuse. Runtime teardown invokes canonical object
+cleanup before releasing native records, clearing held links and dual links and
+removing dropped roots from the active list. This closes the earlier release-on-
+lost-hand lifetime bug. Player storage, canonical prop pool, projectile services,
+and model providers must outlive runtime destruction.
+
+`ge_original_stage_guard_runtime_chr_pool(runtime, &capacity)` exposes the
+reserved guard allocator pool for zero-authored-guard arena composition. Its
+capacity includes dynamic guard slots; four player records remain separate and
+are reached through VIEWER props. Item snapshots scan slot indices 0–29 and
+report generation, attachment, pending removal, and native object/model identity.
 
 ## Content
 
@@ -52,7 +91,15 @@ player-body appearance provider.
 - `test_ge_original_stage_guard_runtime`: ASan/UBSan two/four actual canonical
   body instances and held weapons, integrated heads, four local-camera views,
   cached and uncached geometry publication, existing-body resume and fifth-owner
-  rejection. Existing 665 authored characters across 21 stages and 300 authored
+  rejection. It also runs unchanged canonical hand helpers, actual factory
+  dispatch, `drop_inventory`, `objDrop`, `objDetach`, `objFree`, dual linking and
+  model clearing extracted by `extract_player_item_lifecycle_fixture.py`.
+  Two/four players exercise change/removal/unarmed, both hands, concealed death
+  drops, existing-body respawn, 34 reuses, capacity exhaustion, native model-byte
+  reclamation, dropped scene publication, and final attached/dropped teardown.
+  Projectile allocation, inventory membership, sound, lighting, and room services
+  are explicit resource doubles; drop coverage uses the canonical offscreen
+  branch. Existing 665 authored characters across 21 stages and 300 authored
   hats pass as well. This test is built by `scripts/test_stage_assets.sh`.
 - `test_ge_original_character_models`: ASan/UBSan all 74 ROM-backed models,
   3,082 nodes and 1,021 display lists. Its optional timing loop now requires
@@ -68,9 +115,9 @@ player-body appearance provider.
 
 ## Remaining match acceptance
 
-These fixtures establish initial body/weapon resource ownership and rendering,
-not canonical shooting/damage, animated death, spawn-pad selection, inventory
-respawn, dual-world-weapon updates, dropped-item lifetime, scoring, or results.
-Those systems must still drive these player records through the multiplayer
-simulation workstream. Actual emulator matches, physical radio matches and
+These fixtures establish body and held/dropped-item resource ownership,
+canonical attachment/drop/free transitions, and rendering. They do not establish
+full canonical shooting/damage, animated death, spawn-pad selection, inventory
+respawn, onscreen drop collision, scoring, or results. Those systems must drive
+these player records through the multiplayer simulation workstream. Actual emulator matches, physical radio matches and
 hardware performance remain integration-coordinator acceptance.

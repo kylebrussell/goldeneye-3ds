@@ -9,6 +9,17 @@
 
 #define GE_ORIGINAL_SFX_CACHE_BYTE_LIMIT (2U * 1024U * 1024U)
 
+struct ChrRecord;
+struct PropRecord;
+/* Return 1 when this owner recognizes the character, even if allocation
+ * fails and *prop is NULL. Return 0 to keep the existing non-player factory. */
+typedef int (*GeOriginalGameplayPlayerItemCreate)(
+    void *context, struct ChrRecord *chr, int32_t model_id, int32_t item_id,
+    uint32_t flags, struct PropRecord **prop);
+void ge_original_gameplay_services_bind_player_items(
+    void *context, GeOriginalGameplayPlayerItemCreate create);
+void ge_original_gameplay_services_unbind_player_items(void *context);
+
 typedef struct GeOriginalGameplayServiceStats {
     uint32_t sound_play_calls;
     uint32_t sound_deactivate_calls;

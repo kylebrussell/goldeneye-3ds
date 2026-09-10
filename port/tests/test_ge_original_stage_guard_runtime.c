@@ -15,6 +15,14 @@ typedef int PLAYERFLAG;
 #endif
 #include "game/player.h"
 #include "game/chraction.h"
+#include "game/propobj.h"
+#include "ge_original_gameplay_services.h"
+extern void lifecycle_inventory_set(ITEM_IDS,int);
+extern size_t lifecycle_free_calls(void);
+extern size_t lifecycle_grenade_fallback_calls(void);
+extern void sub_GAME_7F09B368(GUNHAND);
+extern void sub_GAME_7F09B398(GUNHAND);
+extern void drop_inventory(void);
 
 #include <assert.h>
 #include <math.h>
@@ -1179,6 +1187,145 @@ static size_t audit_stage_guard_construction(
     return guard_count;
 }
 
+static void test_player_item_lifecycle(GeOriginalStageGuardRuntime *runtime,
+    GeOriginalPitemModelProvider *weapon_models,struct player **owners,size_t count,
+    const float world_to_view[4][4],const float view_to_world[4][4])
+{
+    const size_t initial=ge_original_stage_guard_runtime_player_item_count(runtime);
+    GeOriginalPitemModelStats instances_before,instances_after;
+    ge_original_pitem_model_get_stats(weapon_models,&instances_before);
+    PropRecord *drops[8];Model *drop_models[8];size_t drop_count=0U;
+    GeOriginalStageGuardScene baseline,with_drops,dual_scene;
+    GeOriginalModelSceneCache cache={0};
+    struct player *saved_current=g_CurrentPlayer;
+    assert(count==2U||count==4U);
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
+    assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&baseline)
+        ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+    for(size_t i=0;i<count;++i){
+        ChrRecord *chr=owners[i]->prop->chr;PropRecord *old=chr->weapons_held[GUNRIGHT];
+        Model *body=owners[i]->bodyModel,*old_model=old->obj->model;
+        g_CurrentPlayer=owners[i];
+        owners[i]->hands[GUNRIGHT].weaponnum=ITEM_AK47;
+        sub_GAME_7F09B368(GUNRIGHT);
+        assert((old->obj->runtime_bitflags&(1U<<2))!=0U);
+        sub_GAME_7F09B398(GUNRIGHT);
+        assert(chr->weapons_held[GUNRIGHT]==old&&old_model->obj!=NULL);
+        objFreePermanently(old->obj,TRUE);
+        assert(chr->weapons_held[GUNRIGHT]==NULL);
+        sub_GAME_7F09B398(GUNRIGHT);
+        PropRecord *right=chr->weapons_held[GUNRIGHT];
+        assert(right!=NULL&&right->obj->obj==PROP_CHRKALASH
+            &&right->weapon->weaponnum==ITEM_AK47&&right->parent==owners[i]->prop
+            &&right->obj->model->attachedto==body
+            &&right->obj->model->attachedto_objinst==body->obj->Switches[3]);
+        /* Unarmed has no world model in the actual held-item mapping. */
+        sub_GAME_7F09B368(GUNRIGHT);objFreePermanently(right->obj,TRUE);
+        owners[i]->hands[GUNRIGHT].weaponnum=ITEM_UNARMED;sub_GAME_7F09B398(GUNRIGHT);
+        assert(chr->weapons_held[GUNRIGHT]==NULL);
+        owners[i]->hands[GUNRIGHT].weaponnum=ITEM_WPPK;sub_GAME_7F09B398(GUNRIGHT);
+        owners[i]->hands[GUNLEFT].weaponnum=ITEM_WPPK;sub_GAME_7F09B398(GUNLEFT);
+        right=chr->weapons_held[GUNRIGHT];PropRecord *left=chr->weapons_held[GUNLEFT];
+        assert(right!=NULL&&left!=NULL&&right!=left&&right->obj->model!=left->obj->model
+            &&left->parent==owners[i]->prop&&left->obj->model->attachedto==body
+            &&left->obj->model->attachedto_objinst==body->obj->Switches[5]);
+        /* Canonical explicit paired-weapon flag also owns dualweapon links. */
+        objFreePermanently(left->obj,TRUE);
+        left=something_with_generating_object(chr,PROP_CHRWPPK,ITEM_WPPK,
+            PROPFLAG_WEAPON_LEFTHANDED|PROPFLAG_IS_DOUBLE,NULL,NULL);
+        assert(left!=NULL&&left->weapon->dualweapon==right->weapon
+            &&right->weapon->dualweapon==left->weapon);
+    }
+    assert(ge_original_stage_guard_runtime_player_item_count(runtime)==initial+count);
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
+    assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&dual_scene)
+        ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+    assert(dual_scene.input_count>baseline.input_count);
+    lifecycle_inventory_set(ITEM_WPPK,1);lifecycle_inventory_set(ITEM_AK47,1);
+    for(size_t i=0;i<count;++i){
+        g_CurrentPlayer=owners[i];owners[i]->bonddead=TRUE;
+        ChrRecord *chr=owners[i]->prop->chr;Model *body=owners[i]->bodyModel;
+        /* Exact drop_inventory creates concealed copies and objDrop activates
+         * them. Equipped copies stay pending until canonical object cleanup. */
+        drop_inventory();
+        assert((chr->weapons_held[GUNRIGHT]->obj->runtime_bitflags&(1U<<2))!=0U
+            &&(chr->weapons_held[GUNLEFT]->obj->runtime_bitflags&(1U<<2))!=0U);
+        objFreePermanently(chr->weapons_held[GUNLEFT]->obj,TRUE);
+        assert(chr->weapons_held[GUNRIGHT]->weapon->dualweapon==NULL);
+        objFreePermanently(chr->weapons_held[GUNRIGHT]->obj,TRUE);
+        /* Multiplayer keeps the body record across death. Resume its exact
+         * constructor boundary, then canonical hand-raise supplies new items. */
+        owners[i]->bonddead=FALSE;body->anim=NULL;
+        assert(ge_original_stage_guard_runtime_load_player_body(runtime,owners[i],
+            chr->bodynum,chr->headnum,0.25f));
+        assert(owners[i]->bodyModel==body&&owners[i]->prop->chr==chr);
+        owners[i]->hands[GUNRIGHT].weaponnum=ITEM_WPPK;sub_GAME_7F09B398(GUNRIGHT);
+        assert(chr->weapons_held[GUNRIGHT]!=NULL&&chr->weapons_held[GUNLEFT]==NULL);
+    }
+    lifecycle_inventory_set(ITEM_WPPK,0);lifecycle_inventory_set(ITEM_AK47,0);
+    for(size_t slot=0;slot<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY;++slot){
+        GeOriginalStagePlayerItemSnapshot state;
+        if(!ge_original_stage_guard_runtime_player_item_snapshot(runtime,slot,&state)||state.attached)
+            continue;
+        PropRecord *prop=state.item.prop_record;ObjectRecord *object=prop->obj;
+        assert(drop_count<2U*count&&state.generation!=0U&&!state.pending_removal
+            &&prop->parent==NULL&&(prop->flags&PROPFLAG_ENABLED)!=0U
+            &&object->model->attachedto_objinst==NULL&&object->projectile!=NULL);
+        PropRecord *owner=object->projectile->ownerprop;
+        assert(owner!=NULL&&object->runtime_pos.x==owner->pos.x
+            &&object->runtime_pos.y==owner->pos.y&&object->runtime_pos.z==owner->pos.z
+            &&prop->rooms[0]==owner->stan->room);
+        drops[drop_count]=prop;drop_models[drop_count++]=object->model;
+    }
+    assert(drop_count==2U*count);
+    assert(ge_original_stage_guard_runtime_player_item_count(runtime)==initial+drop_count);
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
+    assert(ge_original_stage_guard_runtime_build_scene_cached(runtime,&cache,view_to_world,NULL,&with_drops)
+        ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+    size_t drop_parts=0;
+    for(size_t i=0;i<drop_count;++i){
+        assert(drops[i]->obj->model==drop_models[i]&&drop_models[i]->obj!=NULL);
+        drop_parts+=ge_original_pitem_model_instance_scene_part_count(weapon_models,drop_models[i]);
+    }
+    assert(with_drops.input_count==baseline.input_count+drop_parts);
+    assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&with_drops)
+        ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
+    assert(with_drops.input_count==baseline.input_count+drop_parts);
+    for(size_t i=0;i<drop_count;++i)objFreePermanently(drops[i]->obj,TRUE);
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
+    assert(ge_original_stage_guard_runtime_player_item_count(runtime)==initial);
+    /* More switches than the pool capacity must reclaim retired native
+     * models, preserving every other owner's body and attachment. */
+    for(size_t n=0;n<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY+4U;++n){
+        g_CurrentPlayer=owners[n%count];ChrRecord *chr=g_CurrentPlayer->prop->chr;
+        sub_GAME_7F09B368(GUNRIGHT);objFreePermanently(chr->weapons_held[GUNRIGHT]->obj,TRUE);
+        sub_GAME_7F09B398(GUNRIGHT);
+        assert(chr->weapons_held[GUNRIGHT]!=NULL
+            &&ge_original_stage_guard_runtime_player_item_count(runtime)==initial);
+    }
+    /* Bounded resource exhaustion cannot fall through into a guard factory
+     * or steal a live peer's weapon, and freed records can be reused. */
+    PropRecord *extras[GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY];size_t extras_count=0U;
+    while(ge_original_stage_guard_runtime_player_item_count(runtime)<GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY){
+        PropRecord *prop=something_with_generating_object(owners[extras_count%count]->prop->chr,
+            PROP_CHRWPPK,ITEM_WPPK,PROPFLAG_CONCEAL_GUN,NULL,NULL);
+        assert(prop!=NULL);extras[extras_count++]=prop;
+    }
+    size_t fallback_before=lifecycle_grenade_fallback_calls();
+    assert(something_with_generating_object(owners[0]->prop->chr,PROP_CHRGRENADE,
+        ITEM_GRENADE,PROPFLAG_CONCEAL_GUN,NULL,NULL)==NULL);
+    assert(lifecycle_grenade_fallback_calls()==fallback_before);
+    for(size_t i=0;i<count;++i)assert(owners[i]->prop->chr->weapons_held[GUNRIGHT]!=NULL);
+    for(size_t i=0;i<extras_count;++i)objFreePermanently(extras[i]->obj,TRUE);
+    assert(ge_original_stage_guard_runtime_update_matrices(runtime,world_to_view)==0);
+    assert(ge_original_stage_guard_runtime_player_item_count(runtime)==initial);
+    ge_original_pitem_model_get_stats(weapon_models,&instances_after);
+    assert(instances_after.instantiated_models==instances_before.instantiated_models
+        &&instances_after.native_instance_bytes==instances_before.native_instance_bytes);
+    ge_original_model_scene_cache_close(&cache);g_CurrentPlayer=saved_current;
+    printf("%zu players: canonical hand changes, dual links, death drops, respawn body reuse and 34 slot reuses\n",count);
+}
+
 int main(int argc,char **argv)
 {
     GeAssetPack pack;const GeStageAssetDescriptor *stage;
@@ -1790,6 +1937,12 @@ int main(int argc,char **argv)
             assert(ge_original_stage_guard_runtime_build_scene(runtime,view_to_world,NULL,&players_scene)
                 ==GE_ORIGINAL_STAGE_GUARD_RUNTIME_SCENE_CAPACITY_EXCEEDED);
             assert(players_scene.input_count==cached_baseline_inputs+total_parts);
+            if(player_index==0U||player_index==2U){
+                struct player *owners[4]={&stage_player,&multiplayer_players[0],
+                    &multiplayer_players[1],&multiplayer_players[2]};
+                test_player_item_lifecycle(runtime,weapon_models,owners,player_index+2U,
+                    world_to_view,view_to_world);
+            }
         }
         for(size_t local=0U;local<4U;++local){
             struct player *owner=local==0U?&stage_player:&multiplayer_players[local-1U];
@@ -1894,6 +2047,18 @@ int main(int argc,char **argv)
                         ==(ObjectRecord *)hat.hat_record);
         }
     }
+    /* Teardown must detach held links and delist dropped roots before the
+     * native item models/records or body records are released. */
+    stage_player.bodyModel=viewer.chr->model;
+    PropRecord *destroy_drop=NULL;
+    assert(ge_original_stage_guard_runtime_create_player_item(runtime,viewer.chr,
+        PROP_CHRWPPK,ITEM_WPPK,PROPFLAG_WEAPON_LEFTHANDED,&destroy_drop));
+    assert(destroy_drop!=NULL&&viewer.chr->weapons_held[GUNLEFT]==destroy_drop);
+    propobjSetDropped(destroy_drop,DROPTYPE_DEFAULT);assert(objDrop(destroy_drop));
+    size_t pool_capacity=0U;
+    ChrRecord *guard_pool=ge_original_stage_guard_runtime_chr_pool(runtime,&pool_capacity);
+    assert(guard_pool!=NULL&&pool_capacity>=guard_count);
+    for(size_t i=0;i<pool_capacity;++i)assert(&guard_pool[i]!=viewer.chr);
     /* A default-headed guard is blocked without the canonical chooser. */
     memset(&services,0,sizeof(services));
     blocked_runtime=ge_original_stage_guard_runtime_create(models,1U,
@@ -1914,6 +2079,12 @@ int main(int argc,char **argv)
     ge_original_stage_guard_runtime_destroy(blocked_runtime);
     free(storage.batches);free(storage.vertices);
     ge_original_stage_guard_runtime_destroy(runtime);
+    assert(viewer.chr==NULL&&viewer.child==NULL&&stage_player.bodyModel==NULL);
+    for(size_t i=0;i<3U;++i)assert(multiplayer_props[i].child==NULL&&multiplayer_props[i].chr==NULL);
+    assert(g_ActivePropsHead==NULL&&g_ActivePropsTail==NULL);
+    ChrRecord unknown={0};size_t fallback_before=lifecycle_grenade_fallback_calls();
+    assert(something_with_generating_object(&unknown,PROP_CHRGRENADE,ITEM_GRENADE,0,NULL,NULL)==NULL);
+    assert(lifecycle_grenade_fallback_calls()==fallback_before+1U);
     stage_player.prop=NULL;
     ge_original_pitem_model_provider_destroy(weapon_models);
     ge_original_character_model_provider_destroy(models);

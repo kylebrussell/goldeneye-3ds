@@ -6,6 +6,8 @@
 #include "ge_mp_state_guns.h"
 #include "ge_mp_state_players.h"
 #include "ge_mp_state_bg.h"
+#include "ge_mp_state_effects.h"
+#include "ge_mp_state_visibility.h"
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
@@ -29,6 +31,8 @@ static void begin(unsigned count)
     assert(runtime_multiplayer_state_registry_ready());
     assert(runtime_multiplayer_state_acquire(GE_MP_BG_KIND, GE_MP_BG_NAMESPACE,
         GE_MP_BG_SLOT, &multiplayer_state.bg));
+    assert(runtime_multiplayer_state_acquire(GE_MP_VISIBILITY_KIND,
+        GE_MP_VISIBILITY_NAMESPACE, GE_MP_VISIBILITY_SLOT, &multiplayer_state.visibility));
     assert(ge_original_prop_state_reset(&props, 16));
     assert(runtime_multiplayer_state_begin_stage());
     assert(ge_mp_registry_resolve(&multiplayer_state.registry, multiplayer_state.bg, NULL) == GE_MP_STATE_OK);
@@ -50,6 +54,7 @@ static void begin(unsigned count)
 
 static void end(unsigned count)
 {
+    runtime_multiplayer_state_end_visibility();
     runtime_multiplayer_state_release(&multiplayer_state.bg);
     if (count) {
         runtime_multiplayer_state_end_players();
@@ -68,6 +73,7 @@ static void repeated_stage(unsigned count)
     begin(count);
     ids[used++] = multiplayer_state.core;
     ids[used++] = multiplayer_state.bg;
+    ids[used++] = multiplayer_state.visibility;
     for (unsigned slot = 0; slot < 4; ++slot) {
         ids[used++] = multiplayer_state.players.ids[slot];
         for (unsigned hand = 0; hand < 2; ++hand)
@@ -97,7 +103,7 @@ static void repeated_stage(unsigned count)
     assert(!multiplayer_state.failed);
     for (size_t index = 0; index < used; ++index)
         assert(ge_mp_registry_resolve(&multiplayer_state.registry, ids[index], NULL) == GE_MP_STATE_STALE);
-    assert(multiplayer_state.registry.count == 739);
+    assert(multiplayer_state.registry.count == 740);
 }
 
 int main(void)

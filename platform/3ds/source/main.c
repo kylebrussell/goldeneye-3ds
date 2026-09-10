@@ -111,9 +111,13 @@
 #include "ge_mp_state_guns.h"
 #include "ge_mp_state_players.h"
 #include "ge_mp_state_bg.h"
+#include "ge_mp_state_effects.h"
+#include "ge_mp_state_visibility.h"
 #include "ge_original_boss.h"
 #include "ge_original_covert_modem_fire.h"
 #include "ge_original_effect_buffers.h"
+#include "ge_original_effect_runtime.h"
+#include "ge_original_multiplayer_fog.h"
 #include "ge_original_gameplay_services.h"
 #include "ge_original_gun_live.h"
 #include "ge_original_gunbarrel.h"
@@ -4400,9 +4404,11 @@ static struct {
     GeMpStateInventoryOwner inventory;
     GeMpStatePropsOwner props;
     GeMpStatePlayersOwner players;
+    GeMpStateEffectsOwner effects;
     GeMpStateBgSnapshot background;
     uint64_t core;
     uint64_t bg;
+    uint64_t visibility;
     uint64_t hands[4][2];
     bool registry_live;
     bool failed;
@@ -4452,13 +4458,25 @@ static bool runtime_multiplayer_state_registry_ready(void)
     return true;
 }
 
-static bool runtime_multiplayer_state_begin_geometry(const GeOriginalBgGeometry *geometry)
+static bool runtime_multiplayer_state_begin_geometry(const GeOriginalBgGeometry *geometry,
+    const GeDamVisibilityRuntime *visibility)
 {
     return runtime_multiplayer_state_registry_ready()
+        && runtime_multiplayer_state_status("visibility storage",
+            visibility != NULL && visibility->loaded && visibility->program != NULL
+                && visibility->background != NULL ? GE_MP_STATE_OK : GE_MP_STATE_INCOMPLETE)
+        && runtime_multiplayer_state_acquire(GE_MP_VISIBILITY_KIND,
+            GE_MP_VISIBILITY_NAMESPACE, GE_MP_VISIBILITY_SLOT,
+            &multiplayer_state.visibility)
         && runtime_multiplayer_state_acquire(GE_MP_BG_KIND, GE_MP_BG_NAMESPACE,
             GE_MP_BG_SLOT, &multiplayer_state.bg)
         && runtime_multiplayer_state_status("BG capture storage",
             ge_mp_state_bg_init(&multiplayer_state.background, geometry));
+}
+
+static void runtime_multiplayer_state_end_visibility(void)
+{
+    runtime_multiplayer_state_release(&multiplayer_state.visibility);
 }
 
 static void runtime_multiplayer_state_end_geometry(void)
@@ -4491,6 +4509,20 @@ static bool runtime_multiplayer_state_begin_players(void)
                 return false;
     return runtime_multiplayer_state_status("player begin",
         ge_mp_state_players_begin(&multiplayer_state.players, &multiplayer_state.registry));
+}
+
+/* Both native effects and the projectile pool must already have reset. */
+static bool runtime_multiplayer_state_begin_effects(void)
+{
+    return runtime_multiplayer_state_status("effects begin",
+        ge_mp_state_effects_begin(&multiplayer_state.effects, &multiplayer_state.registry));
+}
+
+static void runtime_multiplayer_state_end_effects(void)
+{
+    if (multiplayer_state.effects.live)
+        (void)runtime_multiplayer_state_status("effects end",
+            ge_mp_state_effects_end(&multiplayer_state.effects));
 }
 
 static void runtime_multiplayer_state_end_players(void)
@@ -11832,8 +11864,10 @@ static void load_dam_room_preview(GeAssetPack *asset_pack,
     if (preview->world_status != GE_DAM_WORLD_OK) return;
     preview->visibility_status = ge_dam_visibility_runtime_load_for_stage(
         asset_pack, stage_assets, &preview->visibility_runtime);
-    preview->environment_ready = ge_original_stage_environment_select(
-        stage_assets->level_id, 0, &preview->environment);
+    preview->environment_ready = ge_original_stage_environment_select_for_player_count(
+        stage_assets->level_id, 0, multiplayer.requested
+            ? (uint32_t)multiplayer.request.selection.config.player_count : 1U,
+        &preview->environment);
     if (preview->environment_ready) {
         const float near_distance = preview->environment.fog_enabled != 0U
             ? preview->environment.blend_multiplier : 15.0f;
@@ -19911,7 +19945,8 @@ start_stage_runtime:
         }
         ge_original_bg_geometry_bind(dam_preview.bg_geometry);
         if (multiplayer.requested
-                && !runtime_multiplayer_state_begin_geometry(dam_preview.bg_geometry))
+                && !runtime_multiplayer_state_begin_geometry(dam_preview.bg_geometry,
+                    &dam_preview.visibility_runtime))
             goto cleanup_runtime;
         ge_original_player_held_items_bind_lights(dam_preview.bg_geometry,
             ge_original_bg_geometry_light_break);
@@ -19932,18 +19967,28 @@ start_stage_runtime:
             printf("Multiplayer player/spawn preparation failed.\n");
             goto cleanup_runtime;
         }
-        if (!ge_original_effect_buffers_reset_players(multiplayer.count, selected_level_id)) {
+        if (!ge_original_effect_runtime_reset(multiplayer.count, selected_level_id)) {
             multiplayer.failed = true;
             printf("Multiplayer effect buffer initialization failed.\n");
             goto cleanup_runtime;
         }
     } else {
-        ge_original_effect_buffers_reset_single_player();
+        if (!ge_original_effect_runtime_reset(1U, selected_level_id)) {
+            printf("Native effect initialization failed.\n");
+            goto cleanup_runtime;
+        }
         initialize_original_stage_intro(&dam_collision, &dam_intro,
                                         &dam_objects.props,
                                         original_stage_setup,
                                         selected_level_id,
                                         original_frontend_runtime.ramrom_active != 0U);
+    }
+    if (!ge_original_multiplayer_fog_load(selected_level_id, 0,
+            multiplayer.requested ? multiplayer.count : 1U,
+            dam_preview.visibility_runtime.visibility_scale)) {
+        multiplayer.failed = multiplayer.requested;
+        printf("Native stage fog initialization failed.\n");
+        goto cleanup_runtime;
     }
     if (visual_probe_tour.enabled) {
         const GeVisualProbeView *view = ge_visual_probe_tour_view_at(
@@ -19977,6 +20022,8 @@ start_stage_runtime:
         (void)ge_original_guard_animation_table_bind(
             bond_animations.segment, bond_animations.segment_size);
     ge_original_gameplay_services_reset();
+    if (multiplayer.requested && !runtime_multiplayer_state_begin_effects())
+        goto cleanup_runtime;
     ge_original_dam_mission_exit_services_reset();
     {
         size_t credits_count = 0U;
@@ -20553,7 +20600,7 @@ start_stage_runtime:
             if (multiplayer.accumulator_seconds >= 1.0 / 60.0) {
                 input.pressed |= multiplayer.pending_buttons;
                 if (!ge_port_input_sample_pads(&input, pads[multiplayer.local])
-                        || !runtime_multiplayer_select(0U)
+                        || !runtime_multiplayer_select(multiplayer.last_slot)
                         || !(ticks = ge_port_advance_multiplayer_tick(&port,
                             pads, multiplayer.count))) {
                     multiplayer.failed = multiplayer.ended = true;
@@ -20654,12 +20701,12 @@ start_stage_runtime:
                 const uint64_t original_tick_profile_start = svcGetSystemTick();
                 if (multiplayer.running) {
                     GeOriginalMultiplayerRegenBatch regen;
+                    if (dam_preview.environment_ready && dam_preview.environment.clouds != 0U)
+                        ge_dam_sky_tick(&dam_cloud_offset, port.original_clock_timer);
                     multiplayer.last_status = ge_original_multiplayer_runtime_begin_world(
                         &stage_ordinary_objects.active_props, port.original_clock_timer, &regen);
                     if (multiplayer.last_status != GE_ORIGINAL_MP_RUNTIME_OK)
                         multiplayer.failed = multiplayer.ended = true;
-                    if (dam_preview.environment_ready && dam_preview.environment.clouds != 0U)
-                        ge_dam_sky_tick(&dam_cloud_offset, port.original_clock_timer);
                 } else if (stage_ordinary_objects.actor_tick_status
                         == RUNTIME_STAGE_ACTOR_TICK_READY) {
                     /* Exact bossMainloop/lvlManageMpGame boundary: background
@@ -21969,9 +22016,11 @@ cleanup_runtime:
     free(dam_preview.render_batches);
     free(dam_preview.gpu_batch_bounds);
     free(dam_preview.gpu_batch_run_ends);
-    ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);
     close_dam_world_objects(&dam_objects);
     close_stage_ordinary_objects(&stage_ordinary_objects);
+    ge_original_multiplayer_fog_close();
+    runtime_multiplayer_state_end_visibility();
+    ge_dam_visibility_runtime_close(&dam_preview.visibility_runtime);
     ge_original_player_held_items_bind_lights(NULL, NULL);
     ge_original_bg_geometry_bind(NULL);
     runtime_multiplayer_state_end_geometry();
@@ -22000,6 +22049,8 @@ cleanup_runtime:
     ge_original_stage_setup_close(&packaged_stage_setup);
     close_dam_collision(&dam_collision);
     renderer_exit();
+    runtime_multiplayer_state_end_effects();
+    ge_original_effect_runtime_end();
     if (prop_state_ready) {
         /* All native consumers are closed. The distinct arena-end event
          * preserves residual PropRecord bytes and checks observed lifetimes. */

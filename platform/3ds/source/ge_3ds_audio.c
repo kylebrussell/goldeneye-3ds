@@ -178,18 +178,15 @@ int ge_3ds_audio_bind_secondary(GeAudioOutput *output)
     return 0;
 }
 
-void ge_3ds_audio_pump(void)
+static bool ge_3ds_audio_validate_bindings(void)
 {
-    size_t index;
-    int rate_changed;
-
     if (!g_audio.active) {
-        return;
+        return false;
     }
     if (!ge_3ds_audio_output_valid(g_audio.output)) {
         g_last_error = -1;
         ge_3ds_audio_exit();
-        return;
+        return false;
     }
     if (g_audio.secondary_output != NULL
             && (!ge_3ds_audio_output_valid(g_audio.secondary_output)
@@ -202,6 +199,32 @@ void ge_3ds_audio_pump(void)
         g_audio.secondary_output = NULL;
         g_last_error = -1;
     }
+    return true;
+}
+
+void ge_3ds_audio_resume(void)
+{
+    if (!ge_3ds_audio_validate_bindings()) return;
+    /* This runs on the main thread after all producers finish. Removing the
+     * NDSP queue first releases its wave descriptors before subsequent pumps
+     * overwrite them. Discard the pre-sleep ring backlog without resetting
+     * synthesis state or diagnostic counters. Fresh production and the normal
+     * pump will fill the empty queue, including zero padding on underflow. */
+    ge_3ds_audio_clear_queue();
+    (void)ge_audio_output_discard(
+            g_audio.output, g_audio.output->queued_frames);
+    if (g_audio.secondary_output != NULL) {
+        (void)ge_audio_output_discard(g_audio.secondary_output,
+                g_audio.secondary_output->queued_frames);
+    }
+}
+
+void ge_3ds_audio_pump(void)
+{
+    size_t index;
+    int rate_changed;
+
+    if (!ge_3ds_audio_validate_bindings()) return;
 
     rate_changed = ge_audio_refill_update_rate(
             &g_audio.refill,

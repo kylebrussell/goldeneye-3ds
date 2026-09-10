@@ -21,6 +21,10 @@ int ge_3ds_audio_init(GeAudioOutput *output);
  * Rejected bindings preserve the existing secondary. A secondary invalidated
  * or retuned incompatibly after binding is detached by the next pump. */
 int ge_3ds_audio_bind_secondary(GeAudioOutput *output);
+/* At the safe main-thread resume boundary, after finishing all producers,
+ * drop pre-sleep NDSP/ring backlog. Preserve synth state and counters; the
+ * next ordinary pump queues fresh audio. No-op while inactive. */
+void ge_3ds_audio_resume(void);
 /* An invalid primary or failed DSP cache flush stops the sink and releases its
  * resources. Recheck is_active after pumping when choosing producer fallback. */
 void ge_3ds_audio_pump(void);

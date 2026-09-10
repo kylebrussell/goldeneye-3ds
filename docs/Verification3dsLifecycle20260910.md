@@ -24,8 +24,13 @@ close unregisters the hook and discards the pending event.
    interruption reason. Do not remove the interrupted frames and then declare
    a continuous 60 Hz capture successful.
 5. Finish any outstanding audio worker and original music runtime work before
-   changing their rings. The audio drain runs at this safe main-thread
-   boundary; the APT callback must never manipulate NDSP or producer storage.
+   changing their rings. Call `ge_3ds_audio_resume()` at this safe main-thread
+   boundary, before fresh synthesis and the next normal audio pump. It clears
+   the NDSP queue and discards both valid rings' queued pre-sleep samples,
+   preserving synth state, bindings and diagnostic counters. Invalid rings
+   follow the same stop/detach policy as the normal pump. Recheck
+   `ge_3ds_audio_is_active()` after the drain/pump when choosing producer
+   fallback. The APT callback must never manipulate NDSP or producer storage.
 
 The helper does not itself implement these main-loop policies. Their complete
 hookup must be reviewed in the integrated candidate, including frontend loops
@@ -56,7 +61,10 @@ no additional runtime library with this toolchain.
 linear allocation failure, each initial cache-flush failure, runtime failure,
 idempotent cleanup, ring validation, overlapping bindings, rate changes and
 owned-buffer preservation. Its simulated stalled queue is an ownership check,
-not a physical lid-sleep test.
+not a physical lid-sleep test. Resume tests queue negative sentinel samples in
+NDSP and both rings, drain them, and then require every resubmitted sample to
+be freshly produced mixed PCM or zero-filled underflow. They also check
+preserved counters, repeated drains, and inactive/failed/invalid-ring drains.
 
 Real-console lid close/open and HOME/restore still need testing during menus,
 gameplay, worker activity and transitions. Verify no simulation catchup, held

@@ -336,6 +336,66 @@ static void test_runtime_validation_and_rate(void)
     assert(ge_3ds_audio_last_error() == -77 && mock.exits == 1U && mock.frees == 1U);
 }
 
+static void test_resume_discards_old_audio(void)
+{
+    int16_t old_samples[WAVE_SAMPLES];
+    int16_t new_samples[WAVE_SAMPLES];
+    size_t i, wave;
+    reset_test();
+    ge_3ds_audio_resume();
+    assert(mock.clears == 0U && mock.inits == 0U);
+    for (i = 0; i < WAVE_SAMPLES; ++i) {
+        old_samples[i] = -12345;
+        new_samples[i] = 10000;
+    }
+    for (i = 0; i < RING_FRAMES / WAVE_FRAMES; ++i) {
+        assert(ge_audio_output_write(&primary, old_samples, WAVE_FRAMES)
+                == WAVE_FRAMES);
+        assert(ge_audio_output_write(&secondary, old_samples, WAVE_FRAMES)
+                == WAVE_FRAMES);
+    }
+    assert(ge_3ds_audio_init(&primary) == 0);
+    assert(ge_3ds_audio_bind_secondary(&secondary) == 0);
+    for (wave = 0; wave < mock.queue_count; ++wave)
+        assert(mock.queue[wave]->data_pcm16[0] == -12345);
+    ge_3ds_audio_resume();
+    assert(ge_3ds_audio_is_active() && mock.queue_count == 0U);
+    assert(mock.inits == 1U && mock.allocs == 1U && mock.exits == 0U);
+    assert(primary.queued_frames == 0U && secondary.queued_frames == 0U);
+    assert(primary.frames_discarded == 2048U && secondary.frames_discarded == 4096U);
+    assert(primary.frames_read == 2048U && secondary.frames_read == 0U);
+    assert(primary.frames_written == 4096U && secondary.frames_written == 4096U);
+    assert(ge_3ds_audio_refill_stats()->blocks_prepared == 4U);
+    ge_3ds_audio_resume(); /* Duplicate drain has no extra source effect. */
+    assert(primary.frames_discarded == 2048U && secondary.frames_discarded == 4096U);
+    assert(ge_audio_output_write(&primary, new_samples, WAVE_FRAMES) == WAVE_FRAMES);
+    assert(ge_audio_output_write(&secondary, new_samples, WAVE_FRAMES) == WAVE_FRAMES);
+    ge_3ds_audio_pump();
+    assert(mock.queue_count == 4U && mock.adds == 8U && mock.allocs == 1U);
+    for (wave = 0; wave < mock.queue_count; ++wave)
+        for (i = 0; i < WAVE_SAMPLES; ++i)
+            assert(mock.queue[wave]->data_pcm16[i] == (wave == 0U ? 19999 : 0));
+    /* Resume with no new source produces silence, never old linear contents. */
+    ge_3ds_audio_resume();
+    ge_3ds_audio_pump();
+    for (wave = 0; wave < mock.queue_count; ++wave)
+        for (i = 0; i < WAVE_SAMPLES; ++i)
+            assert(mock.queue[wave]->data_pcm16[i] == 0);
+    secondary.read_frame = SIZE_MAX;
+    ge_3ds_audio_resume(); /* Invalid secondary is detached, not dereferenced. */
+    assert(ge_3ds_audio_is_active() && mock.queue_count == 0U);
+    primary.samples = NULL;
+    ge_3ds_audio_resume();
+    assert(!ge_3ds_audio_is_active() && mock.exits == 1U && mock.frees == 1U);
+    ge_3ds_audio_resume();
+    assert(mock.exits == 1U && mock.frees == 1U);
+    reset_test();
+    mock.init_result = -55;
+    assert(ge_3ds_audio_init(&primary) == -1);
+    ge_3ds_audio_resume();
+    assert(mock.exits == 0U && ge_3ds_audio_last_error() == -55);
+}
+
 int main(void)
 {
     size_t i;
@@ -345,7 +405,8 @@ int main(void)
     test_queue_ownership();
     test_secondary_binding();
     test_runtime_validation_and_rate();
+    test_resume_discards_old_audio();
     ge_3ds_audio_exit();
-    puts("3DS audio lifecycle: validation, fault cleanup, queue ownership and rate tests passed");
+    puts("3DS audio lifecycle: validation, fault cleanup, ownership, rate and resume drain tests passed");
     return 0;
 }

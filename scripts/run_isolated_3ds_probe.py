@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -50,10 +51,15 @@ def execute(args):
         if not source.is_file():
             raise ValueError(f'missing input: {source}')
     args.output.mkdir(parents=True)
-    user = args.output.resolve() / 'user'
+    # macOS Azahar changes cwd to the app's parent. Explicit existing XDG
+    # roots survive that change and prevent fallback to the shared profile.
+    user = args.output.resolve() / 'xdg-data/azahar-emu'
+    config_root = args.output.resolve() / 'xdg-config/azahar-emu'
+    cache_root = args.output.resolve() / 'xdg-cache/azahar-emu'
+    cache_root.mkdir(parents=True)
     install = user / 'sdmc/3ds/goldeneye-3ds'
     install.mkdir(parents=True)
-    prepare_profile(args.profile, user / 'config/qt-config.ini', user)
+    prepare_profile(args.profile, config_root / 'qt-config.ini', user)
     shutil.copyfile(args.binary, install / 'goldeneye-3ds.3dsx')
     shutil.copyfile(args.pack, install / 'goldeneye.u.gepack')
     gameplay_only = args.probe.read_text().startswith('GE_INPUT_PROBE ')
@@ -70,7 +76,7 @@ def execute(args):
     provenance = {'environment': 'emulator', 'emulator_sha256': digest(args.emulator),
                   'binary_sha256': digest(args.binary), 'pack_sha256': digest(args.pack),
                   'probe_sha256': digest(args.probe),
-                  'profile_sha256': digest(user / 'config/qt-config.ini'),
+                  'profile_sha256': digest(config_root / 'qt-config.ini'),
                   'settings': {s.name: digest(s) for s in args.setting},
                   'timeout_seconds': args.timeout, 'stage': args.stage, 'status': 'started'}
     (args.output / 'run.json').write_text(json.dumps(provenance, indent=2) + '\n')
@@ -92,7 +98,10 @@ def execute(args):
                     for path in args.protect)
                 command = ['/usr/bin/sandbox-exec', '-p', policy] + command
             process = subprocess.Popen(command,
-                                       cwd=args.output.resolve(), stdout=log, stderr=subprocess.STDOUT)
+                                       cwd=args.output.resolve(), stdout=log, stderr=subprocess.STDOUT,
+                                       env=dict(os.environ, XDG_DATA_HOME=str(user.parent),
+                                                XDG_CONFIG_HOME=str(config_root.parent),
+                                                XDG_CACHE_HOME=str(cache_root.parent)))
             while process.poll() is None and time.monotonic() - start < args.timeout:
                 frontend = install / 'frontend-probe.result'
                 gameplay = install / 'dam-input-probe.result'

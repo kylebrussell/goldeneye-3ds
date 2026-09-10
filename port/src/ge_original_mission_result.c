@@ -254,6 +254,11 @@ int ge_original_mission_result_set_current_mission(int32_t mission)
 int ge_original_mission_result_apply_exact(int32_t difficulty,
                                             int32_t mission_ticks)
 {
+    /* The original frontend only produces these values. Validate the native
+     * adapter boundary before the unchanged body indexes its 3-column table;
+     * 007 is valid and retains the original no-persistence behavior. */
+    if (difficulty < DIFFICULTY_AGENT || difficulty > DIFFICULTY_007
+            || mission_ticks < 0) return 0;
     const int32_t mission =
         ge_result_mission_entries[ge_result_briefingpage].mission_num;
     ++ge_result_snapshot.apply_calls;

@@ -86,6 +86,10 @@ static int clock_ok(GeMpProtocol *p, uint64_t now)
         return 0;
     }
     p->now_ms = now;
+    /* Check before receive-side progress can replace the expired deadline.
+     * Poll still sends the resulting terminal abort on this same call. */
+    if (p->state != GE_MP_ABORTED && now - p->progress_ms >= GE_MP_TIMEOUT_MS)
+        ge_mp_protocol_abort(p, p->local_slot ? GE_MP_FAILURE_HOST_LOST : GE_MP_FAILURE_TIMEOUT);
     return 1;
 }
 void ge_mp_protocol_abort(GeMpProtocol *p, GeMpFailure failure)
@@ -210,8 +214,6 @@ void ge_mp_protocol_poll(GeMpProtocol *p, uint64_t now)
 {
     unsigned i, type = 0;
     if (!p || !p->send || !clock_ok(p, now)) return;
-    if (p->state != GE_MP_ABORTED && now - p->progress_ms >= GE_MP_TIMEOUT_MS)
-        ge_mp_protocol_abort(p, p->local_slot ? GE_MP_FAILURE_HOST_LOST : GE_MP_FAILURE_TIMEOUT);
     if (!p->send_due && now - p->last_send_ms < GE_MP_RETRY_MS) return;
     p->send_due = 0; p->last_send_ms = now;
     if (p->state == GE_MP_ABORTED) {

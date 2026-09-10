@@ -1,4 +1,5 @@
 #include "ge_dam_visibility_runtime.h"
+#include "ge_original_bg_visibility_state.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -252,6 +253,12 @@ static GeDamVisibilityRuntimeStatus ge_dam_visibility_evaluate(
     int width;
     int height;
 
+    /* Even validation failures invalidate the attempted canonical pass. The
+     * previous room publication remains gameplay-owned, but cannot be reused
+     * as a successful state capture for this evaluation. */
+    ge_original_bg_visibility_state_begin();
+    if (runtime != NULL)
+        runtime->last_original_status = GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
     if (runtime == NULL || camera == NULL || player_position == NULL
             || result == NULL || runtime->loaded == 0U) {
         return GE_DAM_VISIBILITY_RUNTIME_INVALID_ARGUMENT;

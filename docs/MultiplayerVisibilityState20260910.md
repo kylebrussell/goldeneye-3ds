@@ -28,6 +28,14 @@ match the immutable program before exposing their typed opcodes, lengths and
 arguments. Portal arguments are stable portal indices, not native pointers.
 Points are copied as finite coordinate triples in portal/point order.
 
+Runtime/publication duplicate floats are compared by exact binary32 bits,
+including the sign of zero. Canonical runtime evaluation invalidates capture
+before any argument/camera early return and marks its last-original status as
+invalid until traversal succeeds. Low-level canonical restore also invalidates
+before its preload-callback rejection. These changes affect export freshness,
+not retained gameplay room values or the room-cycle counter. Failed private
+eye run/restore operations leave the canonical publication available.
+
 The input authoritative door-control array must have the exact portal count
 and match each published portal control byte. The capture retains both this
 future input and the current native portal's two control bytes and ordered
@@ -101,9 +109,19 @@ isolation, preload independence, command/player/polygon/background identity,
 active traversal rejection, unknown room metadata, nonfinite retained state,
 retirement/failed publication and stale IDs.
 
+Boundary regressions additionally cover both clip-range signed-zero mismatch
+directions and successful matching negative-zero encoding; all eight early
+argument/camera rejection cases for canonical run and restore wrappers; and
+preload/null-input/null-result low-level restore failures. They check both the
+bridge and wrapper status, successful recovery, unchanged cycle on rejection,
+and canonical digest preservation after equivalent private-eye failures.
+
 `scripts/test_mp_state_visibility_mutations.py` requires semantic assertion
 failures when cycle or retained bbox is omitted, signed depth is truncated,
-door-control matching is removed, or an active queue is accepted. The existing
+door-control matching is removed, or an active queue is accepted. Four further
+mutations require failures for numeric float comparison, omitted runtime
+invalidation/status, and omitted early restore invalidation (nine total).
+The existing
 multiplayer visibility suite still passes. Exporter and adapter compile with
 actual devkitARM. These checks make no hardware, timing or visual acceptance
 claim, and an isolated fixture's codec schema is not a full-runtime attestation.

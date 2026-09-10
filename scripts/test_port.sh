@@ -22,6 +22,7 @@ python3 "${repo_dir}/scripts/pack_3ds_assets.py" \
 
 "${repo_dir}/scripts/test_gun_update_exact.sh"
 bash "${repo_dir}/scripts/test_bond_move_locus_storage.sh"
+bash "${repo_dir}/scripts/test_mtxutil_packing.sh"
 bash "${repo_dir}/scripts/test_scene_overlay_growth.sh" "${test_dir}/scene-overlay-growth"
 bash "${repo_dir}/scripts/test_3ds_scene_texture_reconcile.sh"
 bash "${repo_dir}/scripts/test_3ds_texture_uv.sh"

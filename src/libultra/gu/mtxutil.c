@@ -27,7 +27,8 @@ void guMtxF2L(float mf[4][4], Mtx *m)
 		e1=FTOFIX32(mf[i][j*2]);
 		e2=FTOFIX32(mf[i][j*2+1]);
 		*(ai++) = ( e1 & 0xffff0000 ) | ((e2 >> 16)&0xffff);
-		*(af++) = ((e1 << 16) & 0xffff0000) | (e2 & 0xffff);
+		/* Pack the original low halfword as bits; signed negative shifts are undefined. */
+		*(af++) = (((unsigned int)e1 << 16) & 0xffff0000) | (e2 & 0xffff);
 	}
 }
 

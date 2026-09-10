@@ -33,6 +33,8 @@
 #include "ge_3ds_fade_overlay.h"
 #include "ge_3ds_frontend_probe.h"
 #include "ge_3ds_stereo.h"
+#include "ge_3ds_controls.h"
+#include "ge_3ds_wireless.h"
 #include "ge_3ds_original_frontend_cast.h"
 #include "ge_3ds_original_hud.h"
 #include "ge_3ds_save_provider.h"
@@ -333,6 +335,7 @@ static uint64_t frontend_frame_begin_wait_ticks;
 /* Stereoscopic state. The right-eye target is created at startup; each
  * gameplay frame decides from the 3D slider whether to submit it. */
 static int stereo_uniform = -1;
+static bool stereo_uniform_cache_valid;
 static Ge3dsStereoConfig stereo_config;
 static float stereo_slider;
 static int stereo_current_eye;          /* -1 left, +1 right, 0 mono */
@@ -11669,14 +11672,25 @@ static bool dam_visibility_contains_room(const RuntimeDamPreview *preview,
  * keeps its exact mono position. */
 static void renderer_set_stereo_layer(Ge3dsStereoLayer layer)
 {
+    static Ge3dsStereoUniforms uploaded;
+    static int uploaded_index = -1;
     Ge3dsStereoUniforms uniforms;
     if (stereo_uniform < 0) return;
     ge_3ds_stereo_uniforms(&stereo_config, stereo_slider, stereo_current_eye,
                            layer, stereo_screen_x_column, &uniforms);
+    /* Authored and runtime projections share world stereo, and all mono
+     * layers are zero. Matrix/material switches do not invalidate these
+     * dedicated shader registers: avoid redundant Citro3D dirty uploads. */
+    if (stereo_uniform_cache_valid && uploaded_index == stereo_uniform
+            && memcmp(&uploaded, &uniforms, sizeof(uniforms)) == 0)
+        return;
     C3D_FVUnifSet(GPU_VERTEX_SHADER, stereo_uniform,
                   uniforms.coefficient[0], uniforms.coefficient[1], 0.0f, 0.0f);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, stereo_uniform + 1,
                   uniforms.constant[0], uniforms.constant[1], 0.0f, 0.0f);
+    uploaded = uniforms;
+    uploaded_index = stereo_uniform;
+    stereo_uniform_cache_valid = true;
 }
 
 /* CPU frustum culling must not reject geometry that the eye offset moves
@@ -12668,21 +12682,49 @@ static bool load_rareware_textures(GeAssetPack *asset_pack,
     return true;
 }
 
-static float normalize_axis(s16 value)
-{
-    const float normalized = (float)value / 156.0f;
-    const float magnitude = fabsf(normalized);
+static Ge3dsControls controls;
+static bool controls_gameplay;
 
-    if (magnitude < 0.12f) {
-        return 0.0f;
+static void update_touch_objectives(void)
+{
+    Ge3dsTouchObjective items[GE_3DS_TOUCH_OBJECTIVE_MAX];
+    size_t used = 0U;
+    const int count = ge_original_stage_objective_live_count();
+    const int selected_difficulty = lvlGetSelectedDifficulty();
+    int menu;
+    /* Same difficulty/text providers as the original watch. Evaluation is
+     * read-only: it does not consume the objective-change HUD notification. */
+    for (menu = 0; menu < count && menu < GE_ORIGINAL_STAGE_OBJECTIVE_MAX
+            && used < GE_3DS_TOUCH_OBJECTIVE_MAX; ++menu) {
+        int8_t difficulty;
+        uint16_t text_id;
+        GeOriginalStageObjectiveEvaluation evaluation;
+        Ge3dsTouchObjectiveStatus status = GE_3DS_TOUCH_OBJECTIVE_UNAVAILABLE;
+        const char *text;
+        if (!ge_original_stage_objective_live_difficulty((uint8_t)menu, &difficulty)
+                || difficulty > selected_difficulty
+                || !ge_original_stage_objective_live_text_id((uint8_t)menu, &text_id))
+            continue;
+        text = ge_original_language_text(text_id);
+        if (text == NULL) continue;
+        if (ge_original_stage_objective_live_evaluate((uint8_t)menu, &evaluation)
+                == GE_ORIGINAL_STAGE_OBJECTIVE_RUNTIME_OK) {
+            switch (evaluation.value) {
+            case GE_ORIGINAL_STAGE_OBJECTIVE_COMPLETE:
+                status = GE_3DS_TOUCH_OBJECTIVE_COMPLETE;
+                break;
+            case GE_ORIGINAL_STAGE_OBJECTIVE_FAILED:
+                status = GE_3DS_TOUCH_OBJECTIVE_FAILED;
+                break;
+            case GE_ORIGINAL_STAGE_OBJECTIVE_INCOMPLETE:
+                status = GE_3DS_TOUCH_OBJECTIVE_INCOMPLETE;
+                break;
+            default: break;
+            }
+        }
+        items[used++] = (Ge3dsTouchObjective){text, status};
     }
-    if (normalized < -1.0f) {
-        return -1.0f;
-    }
-    if (normalized > 1.0f) {
-        return 1.0f;
-    }
-    return normalized;
+    ge_3ds_controls_set_objectives(&controls, items, used);
 }
 
 static uint32_t map_actions(u32 keys)
@@ -12703,29 +12745,13 @@ static uint32_t map_actions(u32 keys)
     return actions;
 }
 
-/* controls.cfg: "dual_analog 0" restores the single-stick 1.1 layout
- * (Circle Pad moves and turns, C-Stick quantized to C-buttons). The default
- * plays GoldenEye's 2.2 Galore style on the two analog sticks. */
-static bool load_controls_dual_analog(void)
-{
-    bool dual_analog = true;
-    char line[64];
-    FILE *stream = fopen(CONTROLS_CONFIG_PATH, "rb");
-    if (stream == NULL) return dual_analog;
-    while (fgets(line, sizeof(line), stream) != NULL) {
-        int value;
-        if (sscanf(line, " dual_analog %d", &value) == 1)
-            dual_analog = value != 0;
-    }
-    fclose(stream);
-    return dual_analog;
-}
-
 static GePortInput read_input(bool cstick_available)
 {
     circlePosition circle = {0};
     circlePosition cstick = {0};
-    GePortInput input = {0};
+    touchPosition touch = {0};
+    Ge3dsControlSample sample = {0};
+    u32 held;
 
     hidScanInput();
     hidCircleRead(&circle);
@@ -12733,13 +12759,21 @@ static GePortInput read_input(bool cstick_available)
         hidCstickRead(&cstick);
     }
 
-    input.move_x = normalize_axis(circle.dx);
-    input.move_y = normalize_axis(circle.dy);
-    input.look_x = normalize_axis(cstick.dx);
-    input.look_y = normalize_axis(cstick.dy);
-    input.held = map_actions(hidKeysHeld());
-    input.pressed = map_actions(hidKeysDown());
-    return input;
+    held = hidKeysHeld();
+    sample.move_x = circle.dx;
+    sample.move_y = circle.dy;
+    sample.look_x = cstick.dx;
+    sample.look_y = cstick.dy;
+    sample.held = map_actions(held);
+    sample.dpad_x = ((held & KEY_DRIGHT) != 0) - ((held & KEY_DLEFT) != 0);
+    sample.dpad_y = ((held & KEY_DUP) != 0) - ((held & KEY_DDOWN) != 0);
+    sample.touching = (held & KEY_TOUCH) != 0;
+    if (sample.touching) {
+        hidTouchRead(&touch);
+        sample.touch_x = touch.px;
+        sample.touch_y = touch.py;
+    }
+    return ge_3ds_controls_sample(&controls, &sample, controls_gameplay);
 }
 
 typedef struct RuntimeFrontendEmbeddedTexture {
@@ -16744,6 +16778,8 @@ static bool renderer_init(GeAssetPack *asset_pack,
     C3D_CullFace(GPU_CULL_NONE);
     projection_uniform = shaderInstanceGetUniformLocation(shader_program.vertexShader, "projection");
     stereo_uniform = shaderInstanceGetUniformLocation(shader_program.vertexShader, "stereo");
+    /* A new shader may reuse the old location without retaining registers. */
+    stereo_uniform_cache_valid = false;
 
     attributes = C3D_GetAttrInfo();
     AttrInfo_Init(attributes);
@@ -17309,10 +17345,21 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
 
         if (gpu_world_render && !replay_world_runs) {
             float widened[3][4][4];
+            /* The authored viewport is 320 px wide. User overrides may
+             * widen the union frustum, but must never shrink it below the
+             * actual displacement of either eye. Eye-space overlays use
+             * their own first-person depth settings. */
+            const float cull_scale = fmaxf(1.0f / 160.0f,
+                stereo_config.cull_margin_per_px);
             const float cull_margin = eye_count > 1U
-                ? ge_3ds_stereo_max_world_shift_px(&stereo_config,
-                    stereo_slider, dam_preview->visibility_runtime.near_distance)
-                    * stereo_config.cull_margin_per_px
+                ? ge_3ds_stereo_max_shift_px(&stereo_config, stereo_slider,
+                    GE_3DS_STEREO_LAYER_WORLD,
+                    dam_preview->visibility_runtime.near_distance) * cull_scale
+                : 0.0f;
+            const float eye_cull_margin = eye_count > 1U
+                ? ge_3ds_stereo_max_shift_px(&stereo_config, stereo_slider,
+                    GE_3DS_STEREO_LAYER_FIRST_PERSON,
+                    dam_preview->visibility_runtime.near_distance) * cull_scale
                 : 0.0f;
             renderer_prepare_room_visibility(&room_visibility,
                 &dam_preview->visibility_result, dam_preview->visibility_ready);
@@ -17321,7 +17368,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             renderer_stereo_widen_clip(dam_preview->runtime_world_to_clip,
                 widened[1], cull_margin);
             renderer_stereo_widen_clip(dam_preview->eye_to_clip,
-                widened[2], cull_margin);
+                widened[2], eye_cull_margin);
             ge_draw_batch_clip_context_init(
                 &clip_contexts[GE_DAM_ROOM_COORDINATE_AUTHORED], widened[0]);
             ge_draw_batch_clip_context_init(
@@ -18709,6 +18756,8 @@ int main(void)
 
     gfxInitDefault();
     consoleInit(GFX_BOTTOM, &bottom_console);
+    ge_3ds_controls_init(&controls);
+    (void)ge_3ds_controls_load(&controls, CONTROLS_CONFIG_PATH);
     stage_assets = load_stage_selection();
     selected_level_id = stage_level_id(stage_assets);
     dam_stage = stage_assets->stage == GE_STAGE_DAM;
@@ -18719,6 +18768,31 @@ int main(void)
     }
 
     print_runtime_console_header(stage_assets, selected_level_id);
+
+    /* Opt-in lobby before C3D/audio/gameplay own the hardware. This tag and
+     * pack-lineage fingerprint identify the lobby contract, not matching
+     * executable bytes or deterministic network-game compatibility. */
+    hidScanInput();
+    if ((hidKeysHeld() & KEY_SELECT) != 0) {
+        GeAssetPack lobby_pack = {0};
+        if (ge_asset_pack_open(&lobby_pack,
+                "sdmc:/3ds/goldeneye-3ds/goldeneye.u.gepack") == GE_ASSET_PACK_OK) {
+            uint32_t asset_id = UINT32_C(2166136261);
+            size_t index;
+            for (index = 0; index < sizeof(lobby_pack.source_sha1); ++index)
+                asset_id = (asset_id ^ lobby_pack.source_sha1[index])
+                    * UINT32_C(16777619);
+            asset_id ^= lobby_pack.entry_count;
+            asset_id ^= (uint32_t)lobby_pack.file_size;
+            asset_id ^= (uint32_t)(lobby_pack.file_size >> 32);
+            ge_asset_pack_close(&lobby_pack);
+            ge_3ds_wireless_lobby_run(UINT32_C(0x20260909), asset_id);
+            if (!aptMainLoop()) goto exit_graphics;
+            print_runtime_console_header(stage_assets, selected_level_id);
+        } else {
+            printf("Wireless lobby needs the installed asset pack.\n");
+        }
+    }
 
     if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) {
         printf("\nCould not initialize citro3d.\n");
@@ -19217,7 +19291,7 @@ start_stage_runtime:
          * analog sticks. RAMROM attract replays were recorded against the
          * 1.1 style, and the input probe routes steer with the move stick
          * as 1.1 turn input, so both keep the single-stick layout. */
-        const bool dual_analog = load_controls_dual_analog()
+        const bool dual_analog = controls.settings.dual_analog && cstick_available
             && !input_probe.enabled
             && !original_frontend_runtime.ramrom_active;
         ge_original_input_set_dual_analog(dual_analog);
@@ -19269,12 +19343,27 @@ start_stage_runtime:
         audio_output_ready ? &audio_output : NULL);
     scheduler_active = ge_retrace_scheduler_init(&scheduler, NULL, NULL) == 0
         && ge_retrace_scheduler_start(&scheduler, 16667U) == 0;
+    controls_gameplay = !input_probe.enabled && !visual_probe_tour.enabled
+        && !original_frontend_runtime.ramrom_active && !GE_3DS_LIVE_DIAGNOSTICS;
+    if (controls_gameplay) {
+        ge_3ds_controls_set_objectives(&controls, NULL, 0U);
+        controls.objectives_refresh_pending = true;
+        if (ge_3ds_controls_objectives_due(&controls, osGetTime()))
+            update_touch_objectives();
+        controls.panel_dirty = true;
+        ge_3ds_controls_draw_panel(&controls, stdout);
+    }
     previous_time = osGetTime();
     uint32_t last_submit_vblank = C3D_FrameCounter(0);
 
     while (aptMainLoop()) {
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
+        if (controls_gameplay) {
+            if (ge_3ds_controls_objectives_due(&controls, osGetTime()))
+                update_touch_objectives();
+            ge_3ds_controls_draw_panel(&controls, stdout);
+        }
         const uint64_t frame_start_ticks = input_probe.enabled ? svcGetSystemTick() : 0U;
         const uint64_t frame_counters_before[15] = {
             fine_profile.frame_begin_ticks, fine_profile.music_render_ticks,
@@ -20628,6 +20717,7 @@ start_stage_runtime:
         }
     }
 
+    controls_gameplay = false;
     if (gameplay_stage_ended
             && !input_probe.enabled && !visual_probe_tour.enabled) {
         GeOriginalMissionResultSnapshot completed_mission = {0};
@@ -20646,6 +20736,10 @@ start_stage_runtime:
     }
 
 cleanup_runtime:
+    controls_gameplay = false;
+    if (controls.settings_dirty
+            && !ge_3ds_controls_save(&controls, CONTROLS_CONFIG_PATH))
+        printf("Could not save control settings.\n");
     (void)ge_original_music_runtime_finish(original_music);
     ge_3ds_music_worker_close();
     ge_original_props_profile_bind(NULL, NULL);

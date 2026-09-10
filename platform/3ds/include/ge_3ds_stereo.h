@@ -50,8 +50,9 @@ typedef struct Ge3dsStereoConfig {
     float first_person_convergence;
     /* Constant pop-out of screen-space HUD elements, in pixels. */
     float hud_parallax_px;
-    /* Extra horizontal clip margin for CPU batch culling, as a fraction of the
-     * viewport half-width per pixel of parallax. */
+    /* Horizontal clip margin per pixel of parallax. The renderer floors this
+     * at 1 / viewport_half_width so overrides cannot discard eye-visible
+     * geometry; larger values may deliberately retain extra geometry. */
     float cull_margin_per_px;
 } Ge3dsStereoConfig;
 
@@ -84,9 +85,13 @@ void ge_3ds_stereo_uniforms(const Ge3dsStereoConfig *config, float slider,
                             const float screen_x_column[2],
                             Ge3dsStereoUniforms *uniforms);
 
-/* Largest horizontal on-screen displacement in pixels any world vertex not
- * nearer than `near_depth` can receive at this slider position. Used to widen
- * CPU frustum culling so geometry visible to one eye is never rejected. */
+/* Largest horizontal displacement in pixels for a layer at depths >=
+ * near_depth. An invalid near depth returns infinity for perspective layers
+ * with nonzero parallax, allowing horizontal culling to fail open. */
+float ge_3ds_stereo_max_shift_px(const Ge3dsStereoConfig *config,
+    float slider, Ge3dsStereoLayer layer, float near_depth);
+
+/* World-layer shorthand, retained for callers that only draw world geometry. */
 float ge_3ds_stereo_max_world_shift_px(const Ge3dsStereoConfig *config,
                                        float slider, float near_depth);
 

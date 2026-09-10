@@ -111,6 +111,18 @@ void init_lpfilter(ALLowPass *lp)
 	fcoef *= ffc;
 	lp->fcvec.fccoef[i] = (s16)(fcoef * SCALE);
     }
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+    /* _filterBuffer passes this generated table to A_LOADADPCM, whose byte
+     * stream is big-endian just like the authored instrument books. The CPU
+     * never reads fccoef numerically after initialization. Encode explicitly
+     * on native targets; swapped feedback coefficients destabilize reverb. */
+    for (i=0; i<16; i++) {
+        u16 coefficient = (u16)lp->fcvec.fccoef[i];
+        u8 *bytes = (u8 *)&lp->fcvec.fccoef[i];
+        bytes[0] = (u8)(coefficient >> 8);
+        bytes[1] = (u8)coefficient;
+    }
+#endif
 }
 
 

@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('timing', ROOT / 'scripts/analyze_3ds_frame_timing.py')
@@ -58,6 +60,44 @@ class TimingTests(unittest.TestCase):
         for rows in ([[1] * 20, [2] * 13, [3] * 20], [[1] * 20, [3] * 20, [3] * 20]):
             with self.assertRaises(ValueError):
                 self.analyze(rows=rows)
+
+    def test_sustained_gate_requires_work_and_presentation(self):
+        rows = [[i, 1] + [0] * 16 + [1, 0] for i in range(1, 4)]
+        arguments = dict(rows=rows, warmup=0, metadata='status=complete\n',
+                         presents=[[i, 0, 10, i] for i in range(1, 4)])
+        result = self.analyze(**arguments)
+        self.assertTrue(TIMING.sustained_60hz_gate(result, 3)['passed'])
+        self.assertFalse(TIMING.sustained_60hz_gate(result, 4)['passed'])
+        for changes in (
+                {'metadata': 'status=running\n'}, {'version': 1},
+                {'presents': None},
+                {'presents': [[1, 0, 10, 1], [2, 0, 10, 1], [3, 0, 10, 2]]},
+                {'presents': [[1, 0, 10, 1], [2, 0, 10, 3], [3, 0, 10, 4]]},
+                {'rows': [[i, 2] + [0] * 16 + [1, 0] for i in range(1, 4)]},
+                {'rows': [[i, 1] + [0] * 16 + [2, 0] for i in range(1, 4)]}):
+            with self.subTest(changes=changes):
+                result = self.analyze(**(arguments | changes))
+                self.assertFalse(TIMING.sustained_60hz_gate(result, 3)['passed'])
+        with self.assertRaises(ValueError):
+            TIMING.sustained_60hz_gate(result, 1)
+
+    def test_sustained_gate_cli_fails_incomplete_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'probe.result'
+            lines = ['status=complete', 'runtime_profile_tick_hz=60',
+                     'frame_timing_version=2', 'frame_timing_count=2']
+            lines += ['frame_timing=' + ','.join(map(str,
+                      [i, 1] + [0] * 16 + [1, 0])) for i in (1, 2)]
+            path.write_text('\n'.join(lines))
+            command = [sys.executable, str(ROOT / 'scripts/analyze_3ds_frame_timing.py'),
+                       str(path), '--warmup', '0', '--require-60hz', '--min-samples', '2']
+            run = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 1, run.stderr)
+            self.assertFalse(json.loads(run.stdout)[0]['sustained_60hz']['passed'])
+            lines += [f'frame_present_timing={i},0,10,{i}' for i in (1, 2)]
+            path.write_text('\n'.join(lines))
+            run = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
 
 
 class ComparisonTests(unittest.TestCase):

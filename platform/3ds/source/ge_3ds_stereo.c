@@ -113,21 +113,31 @@ void ge_3ds_stereo_uniforms(const Ge3dsStereoConfig *config, float slider,
     uniforms->coefficient[1] = screen_x_column[1] * coefficient;
 }
 
+float ge_3ds_stereo_max_shift_px(const Ge3dsStereoConfig *config,
+    float slider, Ge3dsStereoLayer layer, float near_depth)
+{
+    float constant;
+    float coefficient;
+    float far_shift;
+    float near_shift;
+    ge_3ds_stereo_pixel_shift(config, slider, -1, layer,
+        &constant, &coefficient);
+    if (layer != GE_3DS_STEREO_LAYER_WORLD
+            && layer != GE_3DS_STEREO_LAYER_FIRST_PERSON)
+        return fabsf(constant + coefficient);
+    far_shift = fabsf(coefficient);
+    if (constant == 0.0f) return far_shift;
+    if (!(near_depth > 0.0f) || !isfinite(near_depth)) return INFINITY;
+    /* |constant / W + coefficient| attains its supremum at the near
+     * endpoint or infinity. Do not clamp W: even small nearby props can
+     * enter an eye's image from outside the mono frustum. */
+    near_shift = fabsf(constant / near_depth + coefficient);
+    return near_shift > far_shift ? near_shift : far_shift;
+}
+
 float ge_3ds_stereo_max_world_shift_px(const Ge3dsStereoConfig *config,
                                        float slider, float near_depth)
 {
-    float parallax;
-    float near_shift;
-    if (config == NULL || !config->enabled || !(slider > 0.0f)) return 0.0f;
-    if (slider > 1.0f) slider = 1.0f;
-    parallax = config->parallax_px * slider;
-    if (!(near_depth > 0.0f)) return parallax;
-    /* Geometry between the near plane and a third of the convergence
-     * distance is a wall the player is touching: it is large, never a small
-     * batch that culling could reject, so bounding the margin there keeps
-     * the widened frustum (and its extra draw work) modest. */
-    if (near_depth < config->convergence / 3.0f)
-        near_depth = config->convergence / 3.0f;
-    near_shift = parallax * fabsf(config->convergence / near_depth - 1.0f);
-    return near_shift > parallax ? near_shift : parallax;
+    return ge_3ds_stereo_max_shift_px(config, slider,
+        GE_3DS_STEREO_LAYER_WORLD, near_depth);
 }

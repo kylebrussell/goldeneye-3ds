@@ -137,11 +137,48 @@ static void test_culling_margin(void)
     config.convergence = 180.0f;
     /* Far-only geometry: the margin is the far parallax itself. */
     assert(near_equal(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 10000.0f), 8.0f));
-    /* Near geometry is bounded at a third of the convergence: 8 * (3 - 1). */
-    assert(near_equal(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 15.0f), 16.0f));
+    /* The real near endpoint must be retained, including small props. */
+    assert(near_equal(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 15.0f), 88.0f));
     assert(near_equal(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 60.0f), 16.0f));
     assert(near_equal(ge_3ds_stereo_max_world_shift_px(&config, 0.5f, 60.0f), 8.0f));
-    assert(near_equal(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 0.0f), 8.0f));
+    assert(isinf(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 0.0f)));
+    assert(isinf(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, NAN)));
+    assert(isinf(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, INFINITY)));
+    assert(near_equal(ge_3ds_stereo_max_shift_px(&config, 1.0f,
+        GE_3DS_STEREO_LAYER_FIRST_PERSON, 15.0f), 6.0f));
+    config.parallax_px = 0.0f;
+    assert(ge_3ds_stereo_max_world_shift_px(&config, 1.0f, 0.0f) == 0.0f);
+    /* Independently configured weapons can exceed world disparity. */
+    config.first_person_parallax_px = 20.0f;
+    config.first_person_convergence = 300.0f;
+    assert(near_equal(ge_3ds_stereo_max_shift_px(&config, 1.0f,
+        GE_3DS_STEREO_LAYER_FIRST_PERSON, 15.0f), 380.0f));
+}
+
+static void test_bound_contains_both_eyes(void)
+{
+    Ge3dsStereoConfig config;
+    ge_3ds_stereo_config_defaults(&config);
+    for (int layer = GE_3DS_STEREO_LAYER_WORLD;
+            layer <= GE_3DS_STEREO_LAYER_FIRST_PERSON; ++layer) {
+        for (float slider = 0.0f; slider <= 1.25f; slider += 0.25f) {
+            for (float near_depth = 0.5f; near_depth < 20000.0f;
+                    near_depth *= 2.0f) {
+                const float margin = ge_3ds_stereo_max_shift_px(&config,
+                    slider, (Ge3dsStereoLayer)layer, near_depth);
+                for (int eye = -1; eye <= 1; eye += 2) {
+                    float constant, coefficient;
+                    ge_3ds_stereo_pixel_shift(&config, slider, eye,
+                        (Ge3dsStereoLayer)layer, &constant, &coefficient);
+                    for (float depth = near_depth; depth < 100000.0f;
+                            depth *= 1.7f) {
+                        const float shift = fabsf(constant / depth + coefficient);
+                        assert(shift <= margin + 0.0001f * (1.0f + margin));
+                    }
+                }
+            }
+        }
+    }
 }
 
 int main(void)
@@ -152,6 +189,7 @@ int main(void)
     test_uniform_mapping();
     test_config_parsing();
     test_culling_margin();
+    test_bound_contains_both_eyes();
     puts("3DS stereo: off-axis clip shift, layer depths, config and culling margin");
     return 0;
 }

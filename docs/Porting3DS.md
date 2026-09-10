@@ -1,5 +1,10 @@
 # Nintendo 3DS native port
 
+Current completion audit: [remaining requirements and acceptance gates](CompletionRoadmap.md).
+The September 9 pass adds touch controls/settings, a wireless connection-test
+lobby, corrected near stereo culling, and strict frame/presentation gates.
+It does not certify perfect fidelity, hardware 60 fps or wireless matches.
+
 Status note: much of this document records early bring-up milestones and is
 not a current missing-systems checklist. For the current single-player target,
 menu/objective/audio fixes, validation limits and remaining acceptance work,

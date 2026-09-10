@@ -195,16 +195,62 @@ def comparison_gate(before, after):
             'limit': 'Matching recorded fields does not prove identical intermediate gameplay or hardware performance.'}
 
 
+def sustained_60hz_gate(summary, min_samples=3600):
+    """Require both frame work and uninterrupted presentation in this capture.
+
+    Passing certifies only the recorded route on the device that produced it.
+    In particular, an emulator trace cannot certify physical hardware FPS.
+    """
+    if min_samples < 2:
+        raise ValueError('min_samples must be at least 2')
+    reasons = []
+    if summary['status'] != 'complete':
+        reasons.append('incomplete probe')
+    if summary['samples'] < min_samples:
+        reasons.append(f'fewer than {min_samples} measured frames')
+    if summary['work_over_60hz_budget']:
+        reasons.append('frame work exceeded the exact 60 Hz budget')
+    if summary['multiple_retrace_frames'] is None:
+        reasons.append('missing trustworthy retrace counts')
+    elif summary['multiple_retrace_frames']:
+        reasons.append('simulation advanced across multiple retraces')
+    presents = summary['submission_intervals']
+    if presents is None or presents['samples'] != summary['samples'] - 1:
+        reasons.append('missing complete presentation intervals')
+    else:
+        if presents['skipped_vblank']:
+            reasons.append('presentation skipped VBlanks')
+        if presents['repeated_vblank']:
+            reasons.append('multiple submissions in one VBlank')
+    return {'passed': not reasons, 'reasons': reasons,
+            'minimum_samples': min_samples,
+            'limit': 'Applies only to this captured route and environment; '
+                     'does not certify other stages, stereo settings, fidelity, '
+                     'or physical hardware from emulator measurements.'}
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('results', type=Path, nargs='+')
     parser.add_argument('--warmup', type=int, default=120)
     parser.add_argument('--compare', action='store_true', help='gate a pair by recorded input and gameplay state')
+    parser.add_argument('--require-60hz', action='store_true',
+                        help='exit unsuccessfully unless all captures sustain measured 60 Hz')
+    parser.add_argument('--min-samples', type=int, default=3600,
+                        help='minimum post-warmup frames for --require-60hz (default: 3600)')
     args = parser.parse_args()
     if args.warmup < 0:
         parser.error('--warmup must be nonnegative')
     if args.compare and len(args.results) != 2:
         parser.error('--compare requires exactly two results')
+    if args.min_samples < 2:
+        parser.error('--min-samples must be at least 2')
     summaries = [summarize(path, args.warmup) for path in args.results]
+    if args.require_60hz:
+        for summary in summaries:
+            summary['sustained_60hz'] = sustained_60hz_gate(summary, args.min_samples)
     output = {'comparison': comparison_gate(*args.results), 'results': summaries} if args.compare else summaries
     print(json.dumps(output, indent=2))
+    if args.require_60hz and (any(not item['sustained_60hz']['passed'] for item in summaries)
+            or (args.compare and not output['comparison']['recorded_state_matches'])):
+        raise SystemExit(1)

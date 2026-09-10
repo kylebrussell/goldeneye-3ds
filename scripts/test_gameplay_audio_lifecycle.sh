@@ -54,5 +54,5 @@ cc -fsanitize=address,undefined "${dead_strip[@]}" \
     "${work_dir}/test.o" -lm -o "${work_dir}/test"
 
 "${work_dir}/test" \
-    "${repo_dir}/assets/music/sfx.ctl" \
-    "${repo_dir}/assets/music/sfx.tbl"
+    "${GE_AUDIO_TEST_ASSETS:-${repo_dir}/assets/music}/sfx.ctl" \
+    "${GE_AUDIO_TEST_ASSETS:-${repo_dir}/assets/music}/sfx.tbl"

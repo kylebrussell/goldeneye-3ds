@@ -17,7 +17,7 @@ test = r'''
 #include <string.h>
 #include <stdio.h>
 typedef enum { GPU_TEXTURE0, GPU_CONSTANT, GPU_PRIMARY_COLOR } GPU_TEVSRC;
-typedef enum { GPU_REPLACE, GPU_MODULATE, GPU_MULTIPLY_ADD } GPU_COMBINEFUNC;
+typedef enum { GPU_REPLACE, GPU_MODULATE, GPU_MULTIPLY_ADD, GPU_ADD } GPU_COMBINEFUNC;
 enum { C3D_RGB, C3D_Alpha };
 typedef struct { GPU_TEVSRC src[2][3]; GPU_COMBINEFUNC op[2]; uint32_t color; } C3D_TexEnv;
 static C3D_TexEnv env;

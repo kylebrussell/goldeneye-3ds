@@ -50,6 +50,11 @@
 #include <snd.h>
 #include <ultra64.h>
 
+#if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+#include "ge_original_stage_objective_live.h"
+#endif
+
 #if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER)
 #include "ge_original_dam_mission_exit_services.h"
 #ifndef PLAYERFLAG_LOCKCONTROLS
@@ -4092,6 +4097,23 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_CameraSwitch:
                 {
                     AiCameraSwitchRecord *ai  = AiListp + Offset;
+#if defined(GE_PORT_FULL_CAMPAIGN_INTERPRETER) \
+        || defined(GE_PORT_FACILITY_MISSION_FLOW_SLICE)
+                    /* Native tags are sidecars, so their address cannot be
+                     * found by walking serialized propDefs. Resolve the same
+                     * authored tag-relative command through its native owner. */
+                    CutsceneRecord *cdef =
+                        ge_original_stage_objective_live_camera_by_tag(
+                            ai->OBJECT_TAG);
+                    if (cdef)
+                    {
+                        g_CameraLookAtBondPad = NULL;
+                        gBondViewCutscene = cdef;
+                        dword_CODE_bss_80079A18 = ntohs(ai->LOOK_AT_BOND_FLAG);
+                        dword_CODE_bss_80079A1C = ntohs(ai->UNUSED_FLAG);
+                        bondviewSetCameraMode(CAMERAMODE_POSEND);
+                    }
+#else
                     TagObjectRecord      *tag = sub_GAME_7F057080(ai->OBJECT_TAG);
                     if (tag)
                     {
@@ -4111,6 +4133,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                             bondviewSetCameraMode(CAMERAMODE_POSEND);
                         }
                     }
+#endif
                     Offset += AI_CameraSwitch_LENGTH;
                     break;
                 }

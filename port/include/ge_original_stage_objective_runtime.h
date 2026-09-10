@@ -68,6 +68,8 @@ typedef struct GeOriginalStageObjectiveRuntime {
      * Kept opaque here so 3DS-facing users do not need bondtypes.h. */
     void *native_tags;
     size_t native_tag_count;
+    void *native_cameras;
+    size_t native_camera_count;
     uint8_t displayed_status[GE_ORIGINAL_STAGE_OBJECTIVE_MAX];
     uint8_t bound;
 } GeOriginalStageObjectiveRuntime;
@@ -79,6 +81,13 @@ ge_original_stage_objective_runtime_begin(
     const GeOriginalStageObjectiveRuntimeProviders *providers);
 void ge_original_stage_objective_runtime_close(
     GeOriginalStageObjectiveRuntime *runtime);
+
+/* Resolves the authored tag-relative CAMERAPOS command to an owned native
+ * CutsceneRecord with the original proplvreset2 fixed-point conversion.
+ * Camera tags intentionally are not ObjectRecords and carry no health bits.
+ * The returned pointer is valid only while this runtime remains bound. */
+void *ge_original_stage_objective_runtime_camera_by_tag(
+    GeOriginalStageObjectiveRuntime *runtime, uint16_t tag_id);
 
 /* Unchanged cleanupObjectives rule over the native displayed-status cache. */
 GeOriginalStageObjectiveRuntimeStatus

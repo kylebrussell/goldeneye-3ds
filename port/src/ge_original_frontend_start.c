@@ -90,6 +90,27 @@ static void ge_frontend_play_sfx(
         frontend->services.play_sfx(frontend->services.context,sfx);
 }
 
+static void ge_frontend_update_mode_selection(GeOriginalFrontendStart *frontend)
+{
+    /* interface_menu06_modesel checks Previous before the authored 243-pixel
+     * multiplayer row. Platform setup owns player/controller availability. */
+    frontend->cursor_previous_tab=(uint8_t)
+        ge_original_frontend_cursor_on_previous_tab(&frontend->cursor);
+    if(!frontend->cursor_previous_tab)
+        frontend->mode_index=frontend->cursor.y>=243.0f
+            ?GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER
+            :GE_ORIGINAL_FRONTEND_MODE_SOLO;
+}
+
+static void ge_frontend_set_mode_selection(
+    GeOriginalFrontendStart *frontend,GeOriginalFrontendMode mode)
+{
+    /* Exact setCursorPOSforMode coordinates, shared by key fallback. */
+    frontend->cursor.x=126.0f;
+    frontend->cursor.y=(float)(mode*0x20+0xe2);
+    ge_frontend_update_mode_selection(frontend);
+}
+
 static void ge_frontend_refresh_folder_summaries(
     GeOriginalFrontendStart *frontend)
 {
@@ -146,6 +167,8 @@ static void ge_frontend_init_current(GeOriginalFrontendStart *frontend)
             frontend->services.play_music(
                 frontend->services.context,M_FOLDERS);
         ge_original_frontend_cursor_set_next_tab(&frontend->cursor);
+    }else if(frontend->current_menu==MENU_MODE_SELECT){
+        ge_frontend_update_mode_selection(frontend);
     }else if(frontend->current_menu==MENU_MISSION_SELECT){
         if(ge_frontend_mission(frontend)==NULL)
             frontend->mission=GE_FRONTEND_DAM_MISSION;
@@ -241,6 +264,7 @@ int ge_original_frontend_start_tick(
 {
     int highest;
     if(frontend==NULL)return 0;
+    if(frontend->multiplayer_requested)return 1;
     ge_frontend_menu_init(frontend);
     if(frontend->menu_timer<UINT32_MAX)++frontend->menu_timer;
     switch(frontend->current_menu){
@@ -433,22 +457,33 @@ int ge_original_frontend_start_tick(
                     frontend->services.play_sfx(frontend->services.context,
                         PAPER_TURN_SFX);
                 ge_frontend_front_change_menu(frontend,MENU_MODE_SELECT);
-                frontend->cursor.x=126.0f;
-                frontend->cursor.y=226.0f;
+                ge_frontend_set_mode_selection(
+                    frontend,GE_ORIGINAL_FRONTEND_MODE_SOLO);
             }
         }
         if(frontend->menu_timer>=1801U)
             ge_frontend_front_change_menu_reload(frontend,MENU_LEGAL_SCREEN);
         break;
     case MENU_MODE_SELECT:
+        ge_frontend_update_mode_selection(frontend);
         if(input&GE_ORIGINAL_FRONTEND_INPUT_BACK){
             ge_frontend_play_sfx(frontend,DOOR_METAL_CLOSE2_SFX);
             ge_frontend_front_change_menu(frontend,MENU_FILE_SELECT);
+        }else if(input&GE_ORIGINAL_FRONTEND_INPUT_UP){
+            ge_frontend_set_mode_selection(frontend,GE_ORIGINAL_FRONTEND_MODE_SOLO);
+        }else if(input&GE_ORIGINAL_FRONTEND_INPUT_DOWN){
+            ge_frontend_set_mode_selection(
+                frontend,GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER);
         }else if(input&(GE_ORIGINAL_FRONTEND_INPUT_CONFIRM
                     |GE_ORIGINAL_FRONTEND_INPUT_START)){
             if(frontend->cursor_previous_tab){
                 ge_frontend_play_sfx(frontend,DOOR_METAL_CLOSE2_SFX);
                 ge_frontend_front_change_menu(frontend,MENU_FILE_SELECT);
+            }else if(frontend->mode_index==GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER){
+                frontend->multiplayer_requested=1U;
+                ge_frontend_play_sfx(frontend,DOOR_METAL_CLOSE_SFX);
+                if(frontend->services.request_multiplayer!=NULL)
+                    frontend->services.request_multiplayer(frontend->services.context);
             }else{
                 ge_frontend_play_sfx(frontend,DOOR_METAL_CLOSE_SFX);
                 ge_frontend_front_change_menu(frontend,MENU_MISSION_SELECT);
@@ -461,6 +496,7 @@ int ge_original_frontend_start_tick(
         if(input&GE_ORIGINAL_FRONTEND_INPUT_BACK){
             ge_frontend_play_sfx(frontend,DOOR_METAL_CLOSE2_SFX);
             ge_frontend_front_change_menu(frontend,MENU_MODE_SELECT);
+            ge_frontend_set_mode_selection(frontend,GE_ORIGINAL_FRONTEND_MODE_SOLO);
         }
         else if(input&GE_ORIGINAL_FRONTEND_INPUT_LEFT)
             ge_frontend_select_adjacent_mission(frontend,-1);
@@ -476,8 +512,8 @@ int ge_original_frontend_start_tick(
             if(frontend->cursor_previous_tab){
                 ge_frontend_play_sfx(frontend,DOOR_METAL_CLOSE2_SFX);
                 ge_frontend_front_change_menu(frontend,MENU_MODE_SELECT);
-                frontend->cursor.x=126.0f;
-                frontend->cursor.y=226.0f;
+                ge_frontend_set_mode_selection(
+                    frontend,GE_ORIGINAL_FRONTEND_MODE_SOLO);
                 break;
             }
             const GeFrontendMissionContract *mission=
@@ -643,6 +679,14 @@ int ge_original_frontend_start_tick(
     return 1;
 }
 
+int ge_original_frontend_start_take_multiplayer_request(
+    GeOriginalFrontendStart *frontend)
+{
+    if(frontend==NULL||!frontend->multiplayer_requested)return 0;
+    frontend->multiplayer_requested=0U;
+    return 1;
+}
+
 int ge_original_frontend_start_cursor_tick(
     GeOriginalFrontendStart *frontend,int8_t stick_x,int8_t stick_y,
     float timer_delta)
@@ -678,7 +722,9 @@ int ge_original_frontend_start_cursor_tick(
     }
     frontend->cursor_previous_tab=(uint8_t)
         ge_original_frontend_cursor_on_previous_tab(&frontend->cursor);
-    if(frontend->current_menu==MENU_MISSION_SELECT){
+    if(frontend->current_menu==MENU_MODE_SELECT){
+        ge_frontend_update_mode_selection(frontend);
+    }else if(frontend->current_menu==MENU_MISSION_SELECT){
         for(index=0;index<20;++index)
             unlocked[index]=(uint8_t)(frontend->services
                 .highest_unlocked_difficulty(frontend->services.context,index)
@@ -1013,6 +1059,8 @@ int ge_original_frontend_start_snapshot(
     snapshot->stage=frontend->stage;snapshot->difficulty=frontend->difficulty;
     snapshot->briefing_page=frontend->briefing_page;
     snapshot->stage_requested=frontend->stage_requested;
+    snapshot->multiplayer_requested=frontend->multiplayer_requested;
+    snapshot->mode_index=frontend->mode_index;
     snapshot->result_valid=frontend->result_valid;
     snapshot->file_action=frontend->file_action;
     snapshot->erase_pending=frontend->erase_pending;
@@ -1099,8 +1147,12 @@ int ge_original_frontend_start_snapshot(
     case MENU_MODE_SELECT:
         /* constructor_menu06_modesel uses the full SELECT MISSION label;
          * TITLE_STR_26 is only the file-card "Mission " prefix. */
-        ge_line(snapshot,getStringID(LTITLE,TITLE_STR_29_SELECTMISSION),1,0);
-        ge_line(snapshot,getStringID(LTITLE,TITLE_STR_30_MULTIPLAYER),0,0);
+        ge_line(snapshot,getStringID(LTITLE,TITLE_STR_29_SELECTMISSION),
+            !frontend->cursor_previous_tab
+                &&frontend->mode_index==GE_ORIGINAL_FRONTEND_MODE_SOLO,0);
+        ge_line(snapshot,getStringID(LTITLE,TITLE_STR_30_MULTIPLAYER),
+            !frontend->cursor_previous_tab
+                &&frontend->mode_index==GE_ORIGINAL_FRONTEND_MODE_MULTIPLAYER,0);
         ge_tab_line(snapshot,getStringID(LTITLE,TITLE_STR_06_PREVIOUS),3U,
             frontend->cursor_previous_tab);break;
     case MENU_MISSION_SELECT:

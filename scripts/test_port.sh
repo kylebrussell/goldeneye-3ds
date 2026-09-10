@@ -49,6 +49,10 @@ bash "${repo_dir}/scripts/test_mp_state_inventory.sh"
 bash "${repo_dir}/scripts/test_mp_state_props.sh"
 bash "${repo_dir}/scripts/test_mp_state_guns.sh"
 bash "${repo_dir}/scripts/test_mp_state_players.sh"
+bash "${repo_dir}/scripts/test_mp_state_session.sh"
+bash "${repo_dir}/scripts/test_mp_state_effects.sh" -fno-short-enums
+bash "${repo_dir}/scripts/test_mp_state_effects.sh" -fshort-enums
+bash "${repo_dir}/scripts/test_effect_runtime.sh"
 bash "${repo_dir}/scripts/test_original_prop_stage_end.sh"
 bash "${repo_dir}/scripts/test_multiplayer_main_state_lifecycle.sh"
 bash "${repo_dir}/scripts/test_multiplayer_players.sh"
@@ -76,6 +80,10 @@ bash "${repo_dir}/scripts/test_multiplayer_hud.sh"
 bash "${repo_dir}/scripts/test_player_held_items.sh"
 bash "${repo_dir}/scripts/test_texture_hit_type.sh"
 bash "${repo_dir}/scripts/test_multiplayer_runtime.sh"
+bash "${repo_dir}/scripts/test_multiplayer_fog.sh" "${test_dir}/multiplayer-fog"
+# These fixtures share the native gameplay archive and must run sequentially.
+bash "${repo_dir}/scripts/test_full_runtime_animation_refs.sh"
+bash "${repo_dir}/scripts/test_multiplayer_render_semantics.sh"
 bash "${repo_dir}/scripts/test_original_multiplayer_frontend.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_multiplayer_stage_pipeline.py"
 bash "${repo_dir}/scripts/test_original_reverb_filter.sh"
@@ -2189,6 +2197,9 @@ bash "${repo_dir}/scripts/test_bg_geometry_room_coverage.sh" \
     "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 bash "${repo_dir}/scripts/test_mp_state_bg.sh" \
     "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+bash "${repo_dir}/scripts/test_mp_state_visibility.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+python3 "${repo_dir}/scripts/test_mp_state_visibility_mutations.py"
 python3 "${repo_dir}/scripts/tests/test_bondview_input_dependencies.py"
 python3 "${repo_dir}/scripts/tests/test_bond_input_live_state_exact.py"
 python3 "${repo_dir}/scripts/tests/test_bond_move_runtime_slice_exact.py"

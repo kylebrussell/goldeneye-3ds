@@ -63,6 +63,9 @@ GeMpStateStatus ge_mp_state_props_begin(GeMpStatePropsOwner *,GeMpRegistry *);
  * and observed allocation history before retiring residual IDs. End unbinds
  * even on error; missed lifecycle events still return INCOMPLETE. */
 GeMpStateStatus ge_mp_state_props_end(GeMpStatePropsOwner *);
+/* Checks the bound stage epoch, observation fault and allocation serial.
+ * It does not replace full E3/E5 field/list validation during export. */
+GeMpStateStatus ge_mp_state_props_check_lifetime(const GeMpStatePropsOwner *);
 GeMpStateStatus ge_mp_state_props_export(const GeMpStatePropsOwner *,
     const GeMpStatePropsProviders *,GeMpStatePropsSnapshot *);
 /* Adapter usable directly by the inventory domain's prop_actor callback. */

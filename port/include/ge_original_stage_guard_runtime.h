@@ -250,6 +250,19 @@ typedef struct GeOriginalStagePlayerItemSnapshot {
 struct ChrRecord *ge_original_stage_guard_runtime_chr_pool(
     GeOriginalStageGuardRuntime *runtime,size_t *capacity);
 
+/* Read-only physical containers, including free records. Borrowed until this
+ * runtime is destroyed; close any state exporter before runtime destruction. */
+int ge_original_stage_guard_runtime_player_item_definition(
+    const GeOriginalStageGuardRuntime *runtime,size_t slot,
+    const void **definition,size_t *bytes);
+int ge_original_stage_guard_runtime_weapon_definition(
+    const GeOriginalStageGuardRuntime *runtime,size_t slot,
+    const void **definition,size_t *bytes);
+/* Port owner allocation order is future-affecting metadata outside the native
+ * ObjectRecord. A complete aggregate must also represent these two values. */
+int ge_original_stage_guard_runtime_player_item_allocator_state(
+    const GeOriginalStageGuardRuntime *runtime,uint32_t *next,uint32_t *generation);
+
 size_t ge_original_stage_guard_runtime_player_item_count(
     const GeOriginalStageGuardRuntime *runtime);
 int ge_original_stage_guard_runtime_player_item_snapshot(

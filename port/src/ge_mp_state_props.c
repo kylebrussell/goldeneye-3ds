@@ -35,6 +35,8 @@ static GeMpStateStatus native_valid(const GeMpStatePropsOwner *owner,GeOriginalP
     if(s->allocations_now!=owner->allocations_observed)return GE_MP_STATE_INCOMPLETE;
     return GE_MP_STATE_OK;
 }
+GeMpStateStatus ge_mp_state_props_check_lifetime(const GeMpStatePropsOwner *owner)
+{GeOriginalPropPoolStorage storage;return native_valid(owner,&storage);}
 GeMpStateStatus ge_mp_state_props_begin(GeMpStatePropsOwner *owner,GeMpRegistry *registry)
 {
     GeMpStatePropsOwner next={0};

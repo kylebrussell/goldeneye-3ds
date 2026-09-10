@@ -219,6 +219,144 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(manifest['source_tree'], package.git(self.root, 'rev-parse', 'HEAD^{tree}'))
         with self.assertRaisesRegex(ValueError, 'incomplete'):
             package.verify(self.stage_args.output, True)
+        self.assertEqual(manifest['completion_status'], 'incomplete')
+        self.assertEqual(manifest['runtime_prerequisites']['dsp_component']['status'], 'external-required')
+        self.assertIn('hb:ndsp launcher support required', manifest['runtime_prerequisites']['dsp_component']['remaining'])
+        self.assertFalse((self.stage_args.output / 'sd' / package.DSP_SD_PATH).exists())
+
+    def component(self):
+        path = self.root / 'build/supplied-component.bin'
+        path.write_bytes(b'bounded component fixture, not real firmware\n' * 8)
+        self.stage_args.dsp_component = path
+        return path
+
+    def test_supplied_component_roundtrip_is_separate_from_build_identity(self):
+        component = self.component()
+        original = component.read_bytes()
+        manifest = self.stage()
+        identity = manifest['runtime_prerequisites']['dsp_component']
+        staged = self.stage_args.output / 'sd' / package.DSP_SD_PATH
+        self.assertEqual(identity['status'], 'supplied')
+        self.assertEqual(identity['file'], package.file_record(component))
+        self.assertEqual(identity['source_sha256'], package.digest(component))
+        self.assertEqual(staged.read_bytes(), original)
+        self.assertFalse(staged.samefile(component))
+        self.assertEqual(manifest['completion_status'], 'incomplete')
+        self.assertIn('authenticity and physical behavior require separate evidence', identity['validation'])
+        receipt = json.loads(self.stage_args.build_receipt.read_text())
+        self.assertNotIn('dsp_component', receipt)
+        component.write_bytes(b'source changes do not change packaged bytes')
+        self.assertEqual(package.verify(self.stage_args.output), manifest)
+        with self.assertRaisesRegex(ValueError, 'incomplete'):
+            package.verify(self.stage_args.output, True)
+
+    def test_source_mutation_during_staging_cannot_change_component_receipt(self):
+        component = self.component()
+        original = component.read_bytes()
+        original_hash = package.digest(component)
+        self.build()
+        copyfile = package.shutil.copyfile
+        def mutate_source(source, destination, **kwargs):
+            if source == self.pack:
+                component.write_bytes(b'changed after initial component read')
+            return copyfile(source, destination, **kwargs)
+        with mock.patch.object(package.shutil, 'copyfile', side_effect=mutate_source):
+            manifest = package.stage(self.stage_args)
+        self.assertEqual((self.stage_args.output / 'sd' / package.DSP_SD_PATH).read_bytes(), original)
+        self.assertEqual(manifest['runtime_prerequisites']['dsp_component']['source_sha256'], original_hash)
+        self.assertNotEqual(package.digest(component), original_hash)
+
+    def test_component_mutation_removal_and_hle_marker_fail_even_after_reindex(self):
+        self.component()
+        self.stage()
+        staged = self.stage_args.output / 'sd' / package.DSP_SD_PATH
+        original = staged.read_bytes()
+        for changed in (b'x' * len(original), b'', None):
+            with self.subTest(changed=changed):
+                if changed is None: staged.unlink()
+                else: staged.write_bytes(changed)
+                with self.assertRaisesRegex(ValueError, 'inventory/hash mismatch'):
+                    package.verify(self.stage_args.output)
+                self.reindex()
+                with self.assertRaisesRegex(ValueError, 'DSP component'):
+                    package.verify(self.stage_args.output)
+                staged.write_bytes(original)
+                self.reindex()
+                package.verify(self.stage_args.output)
+
+    def test_undeclared_component_addition_and_missing_prerequisite_metadata_fail(self):
+        self.stage()
+        staged = self.stage_args.output / 'sd' / package.DSP_SD_PATH
+        staged.write_bytes(b'undeclared fixture')
+        self.reindex()
+        with self.assertRaisesRegex(ValueError, 'undeclared DSP component'):
+            package.verify(self.stage_args.output)
+        staged.unlink()
+        self.reindex()
+        path = self.stage_args.output / 'manifest.json'
+        manifest = json.loads(path.read_text())
+        del manifest['runtime_prerequisites']
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'explicitly record'):
+            package.verify(self.stage_args.output)
+
+    def test_component_hash_and_marker_metadata_cannot_be_forged_by_reindexing(self):
+        self.component()
+        self.stage()
+        path = self.stage_args.output / 'manifest.json'
+        original = json.loads(path.read_text())
+        for key, value in (('source_sha256', '0' * 64), ('status', 'azahar-hle-dsp-marker'),
+                           ('sd_path', '../elsewhere'), ('file', {'size': 1, 'sha256': '0' * 64})):
+            changed = copy.deepcopy(original)
+            changed['runtime_prerequisites']['dsp_component'][key] = value
+            path.write_text(json.dumps(changed))
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'DSP component'):
+                package.verify(self.stage_args.output)
+
+    def test_component_input_rejects_zero_oversize_symlink_and_directory(self):
+        component = self.component()
+        self.build()
+        for data in (b'', b'x' * (package.MAX_DSP_COMPONENT_BYTES + 1)):
+            component.write_bytes(data)
+            with self.assertRaisesRegex(ValueError, 'HLE markers are forbidden'):
+                package.stage(self.stage_args)
+            self.assertFalse(self.stage_args.output.exists())
+        component.unlink()
+        component.symlink_to(self.pack)
+        with self.assertRaisesRegex(ValueError, 'non-symlink'):
+            package.stage(self.stage_args)
+        component.unlink()
+        component.mkdir()
+        with self.assertRaisesRegex(ValueError, 'regular non-symlink'):
+            package.stage(self.stage_args)
+        self.assertFalse(self.stage_args.output.exists())
+
+    def test_complete_physical_acceptance_can_establish_external_launcher_support(self):
+        acceptance = json.loads(self.stage_args.acceptance.read_text())
+        for area, row in acceptance['areas'].items():
+            evidence = {'artifact': 'run.log', 'result': 'passed', 'scope': 'schema fixture only',
+                        'environment': ('physical' if area in package.PHYSICAL
+                                        else 'reference' if area == 'original_fidelity' else 'host')}
+            if evidence['environment'] == 'physical':
+                evidence['device'] = 'schema fixture, not a real device measurement'
+            row.update(status='passed', remaining='', evidence=[evidence])
+        self.stage_args.acceptance.write_text(json.dumps(acceptance))
+        self.build()
+        self.stage_args.require_complete = True
+        manifest = package.stage(self.stage_args)
+        self.assertEqual(manifest['completion_status'], 'complete')
+        self.assertEqual(manifest['runtime_prerequisites']['dsp_component']['status'], 'external-required')
+        self.assertFalse((self.stage_args.output / 'sd' / package.DSP_SD_PATH).exists())
+        package.verify(self.stage_args.output, True)
+
+    def test_supplied_component_does_not_replace_physical_acceptance(self):
+        self.component()
+        self.build()
+        acceptance = json.loads(self.stage_args.acceptance.read_text())
+        acceptance['areas']['release'].update(status='passed', remaining='')
+        self.stage_args.acceptance.write_text(json.dumps(acceptance))
+        with self.assertRaisesRegex(ValueError, 'physical acceptance'):
+            package.stage(self.stage_args)
 
     def test_untracked_source_rejected_before_build(self):
         self.write('platform/3ds/source/untracked.c', 'new compile input\n')
@@ -297,6 +435,7 @@ class CandidateTests(unittest.TestCase):
         edits = [('source_commit', 'b' * 40), ('source_tree', 'b' * 40),
                  ('toolchain_image', 'image@sha256:' + 'b' * 64),
                  ('build_command', ['make']),
+                 ('completion_status', 'complete'),
                  ('asset_source', dict(original['asset_source'], pack_sha256='b' * 64))]
         for key, value in edits:
             with self.subTest(key=key):

@@ -4,9 +4,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from verify_3ds_asset_pack import pack_entries
@@ -21,6 +23,10 @@ BINARIES = {'goldeneye-3ds.3dsx': b'3DSX', 'goldeneye-3ds.smdh': b'SMDH'}
 PRIVATE_ROOTS = ('assets', 'include', 'src', 'port', 'platform/3ds/source',
                  'platform/3ds/include', 'platform/3ds/data')
 PRIVATE_REQUIRED = ('build/u/src/game/chraidata.o',)
+DSP_SD_PATH = '3ds/dspfirm.cdc'
+MAX_DSP_COMPONENT_BYTES = 1024 * 1024
+DSP_VALIDATION = 'nonempty bounded file and byte identity only; authenticity and physical behavior require separate evidence'
+DSP_REMAINING = 'External DSP component or hb:ndsp launcher support required; not established by package.'
 
 
 def immutable_toolchain(value):
@@ -39,6 +45,53 @@ def digest(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             h.update(chunk)
     return h.hexdigest()
+
+
+def read_dsp_component(path):
+    """Capture supplied bytes once; reject HLE markers and concurrent changes."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('DSP component must be a regular non-symlink file')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+    with os.fdopen(os.open(path, flags), 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= MAX_DSP_COMPONENT_BYTES:
+            raise ValueError('DSP component must be nonempty and at most 1 MiB; HLE markers are forbidden')
+        data = stream.read(MAX_DSP_COMPONENT_BYTES + 1)
+        after = os.fstat(stream.fileno())
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                              value.st_mtime_ns, value.st_ctime_ns)
+    if len(data) != before.st_size or identity(before) != identity(after):
+        raise ValueError('DSP component changed while reading')
+    return data, {'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+
+
+def dsp_prerequisite(record):
+    return {'status': 'supplied' if record is not None else 'external-required',
+            'sd_path': DSP_SD_PATH, 'file': record,
+            'source_sha256': record['sha256'] if record is not None else None,
+            'validation': DSP_VALIDATION,
+            'remaining': '' if record is not None else DSP_REMAINING}
+
+
+def validate_dsp_prerequisite(manifest, root):
+    prerequisites = manifest.get('runtime_prerequisites')
+    if not isinstance(prerequisites, dict) or set(prerequisites) != {'dsp_component'}:
+        raise ValueError('candidate must explicitly record its DSP component prerequisite')
+    entry = prerequisites['dsp_component']
+    component = root / 'sd' / DSP_SD_PATH
+    if isinstance(entry, dict) and entry.get('status') == 'supplied':
+        if component.is_symlink() or not component.is_file():
+            raise ValueError('declared DSP component is missing or not a regular file')
+        if not 0 < component.stat().st_size <= MAX_DSP_COMPONENT_BYTES:
+            raise ValueError('packaged DSP component must be nonempty and at most 1 MiB; HLE markers are forbidden')
+        if entry != dsp_prerequisite(file_record(component)):
+            raise ValueError('DSP component identity does not match packaged bytes')
+    elif entry == dsp_prerequisite(None):
+        if component.exists() or component.is_symlink():
+            raise ValueError('undeclared DSP component in candidate')
+    else:
+        raise ValueError('invalid DSP component prerequisite metadata; HLE markers are forbidden')
+    return entry['status'] == 'supplied'
 
 
 def files(root):
@@ -194,6 +247,10 @@ def stage(args):
         if settings.is_symlink() or any(p.is_symlink() or not p.is_file() or p.name not in SETTINGS
                                       for p in settings.iterdir()):
             raise ValueError('settings directory may contain only regular controls.cfg and stereo.cfg')
+    dsp_data, dsp_record = None, None
+    dsp_source = getattr(args, 'dsp_component', None)
+    if dsp_source is not None:
+        dsp_data, dsp_record = read_dsp_component(dsp_source)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.candidate-', dir=args.output.parent) as temporary:
         out = Path(temporary)
@@ -206,6 +263,9 @@ def stage(args):
                     raise ValueError(f'invalid executable/metadata magic: {name}')
             shutil.copyfile(source, install / name)
         shutil.copyfile(args.pack, install / 'goldeneye.u.gepack')
+        if dsp_data is not None:
+            with (out / 'sd' / DSP_SD_PATH).open('xb') as stream:
+                stream.write(dsp_data)
         if settings:
             for source in settings.iterdir():
                 shutil.copyfile(source, install / source.name)
@@ -237,6 +297,9 @@ def stage(args):
                              'conversion': 'copied preconverted inputs; converter hashes identify candidate source, not proof of regeneration',
                              'candidate_converter_sha256': {p.relative_to(root).as_posix(): digest(p) for p in sorted(converters)}},
             'settings_policy': 'explicit files below; omitted settings use compiled defaults; no saves or diagnostic overrides',
+            'runtime_prerequisites': {'dsp_component': dsp_prerequisite(dsp_record)},
+            'completion_status': ('complete'
+                if all(row['status'] == 'passed' for row in acceptance['areas'].values()) else 'incomplete'),
             'files': files(out)}
         (out / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
         verify(out, args.require_complete)
@@ -254,9 +317,12 @@ def verify(root, require_complete=False):
     actual.pop('manifest.json', None)
     if actual != manifest['files']:
         raise ValueError('candidate inventory/hash mismatch')
+    dsp_supplied = validate_dsp_prerequisite(manifest, root)
     install = root / 'sd/3ds/goldeneye-3ds'
     allowed = set(BINARIES) | SETTINGS | {'goldeneye.u.gepack'}
     allowed_paths = {'3ds/goldeneye-3ds/' + name for name in allowed}
+    if dsp_supplied:
+        allowed_paths.add(DSP_SD_PATH)
     directories = {'3ds', '3ds/goldeneye-3ds'}
     if any((p.is_file() and p.relative_to(root / 'sd').as_posix() not in allowed_paths)
            or (p.is_dir() and p.relative_to(root / 'sd').as_posix() not in directories)
@@ -276,8 +342,12 @@ def verify(root, require_complete=False):
                      root / 'build-dependencies')
     if manifest.get('build_command') != receipt['command']:
         raise ValueError('manifest build command does not match receipt')
-    validate_acceptance(json.loads((root / 'acceptance.json').read_text()),
-                        root / 'evidence', require_complete)
+    acceptance = json.loads((root / 'acceptance.json').read_text())
+    validate_acceptance(acceptance, root / 'evidence', require_complete)
+    completion = ('complete'
+        if all(row['status'] == 'passed' for row in acceptance['areas'].values()) else 'incomplete')
+    if manifest.get('completion_status') != completion:
+        raise ValueError('candidate completion status does not match prerequisites and acceptance')
     return manifest
 
 
@@ -291,12 +361,16 @@ def main():
     parser.add_argument('--acceptance', type=Path)
     parser.add_argument('--evidence', type=Path)
     parser.add_argument('--settings', type=Path)
+    parser.add_argument('--dsp-component', type=Path,
+                        help='optional explicitly supplied nonempty component for private SD:/3ds/dspfirm.cdc; no HLE markers')
     parser.add_argument('--toolchain')
     parser.add_argument('--build-receipt', type=Path)
     parser.add_argument('--require-complete', action='store_true')
     args = parser.parse_args()
     try:
         if args.verify:
+            if args.dsp_component is not None:
+                raise ValueError('--dsp-component is a staging option; verification uses packaged bytes only')
             manifest = verify(args.verify, args.require_complete)
         else:
             for name in ('binaries', 'pack', 'output', 'acceptance', 'evidence', 'toolchain', 'build_receipt'):
@@ -304,7 +378,9 @@ def main():
                     parser.error(f'--{name.replace("_", "-")} required for staging')
             manifest = stage(args)
         print(json.dumps({'source_commit': manifest['source_commit'],
-                          'candidate_only': True, 'verified': True}))
+                          'candidate_only': True, 'verified': True,
+                          'completion_status': manifest['completion_status'],
+                          'dsp_component': manifest['runtime_prerequisites']['dsp_component']['status']}))
         return 0
     except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'candidate rejected: {error}\n')

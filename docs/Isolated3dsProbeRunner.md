@@ -76,8 +76,9 @@ config inventories. `environment-before.json` and `environment-after.json`
 bind that identity to the request (when present), executable and respective
 profile hash. A changed or missing staged component fails the run. Empty
 files are always rejected by `--dsp-component`; marker creation requires the
-explicit HLE option. Package tooling does not gain component/marker support
-from this runner change.
+explicit HLE option. The candidate packager has
+[separate optional support for supplied nonempty components](PrivateCandidateDspPrerequisite.md);
+it never accepts or bundles HLE markers.
 
 ## Profile provenance and stereo
 

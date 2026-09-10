@@ -1,5 +1,6 @@
 #include "ge_original_bg_visibility.h"
 #include "ge_original_bg_visibility_internal.h"
+#include "ge_original_bg_visibility_state.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -368,6 +369,9 @@ done:
 
 void ge_original_bg_visibility_program_close(GeOriginalBgVisibilityProgram *program)
 {
+#ifndef GE_RENDERER_BG_VISIBILITY_NAMESPACE_H
+    ge_original_bg_visibility_state_retire(program);
+#endif
     free(program);
 }
 
@@ -448,6 +452,9 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
         ? input->vertical_fov_degrees * 0.00872664625997164788f : 0.0f;
     float tangent;
 
+#ifndef GE_RENDERER_BG_VISIBILITY_NAMESPACE_H
+    ge_original_bg_visibility_state_begin();
+#endif
     if (input == NULL || result == NULL || input->background == NULL
             || input->room_bounds == NULL || input->room_count == 0U
             || input->room_count > MAXROOMCOUNT
@@ -592,6 +599,9 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     result->global_stream_fnv1a64 = ge_global_stream_hash;
     result->preload_request_count = ge_preload_request_count;
     result->global_visibility_used = ge_global_command_count != 0U;
+#ifndef GE_RENDERER_BG_VISIBILITY_NAMESPACE_H
+    ge_original_bg_visibility_state_publish(input);
+#endif
     return GE_ORIGINAL_BG_VISIBILITY_OK;
 }
 
@@ -691,3 +701,5 @@ int ge_original_bg_set_portal_open(int32_t portal, int open,
     portal_controls[portal] = g_BgPortals[portal].controlbytes1;
     return 1;
 }
+
+#include "ge_original_bg_visibility_state.inc"

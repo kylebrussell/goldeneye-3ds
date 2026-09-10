@@ -261,11 +261,13 @@ _Static_assert(sizeof(Vertex) == sizeof(Ge3dsOriginalAutogunBeamVertex),
 #define FIRST_PERSON_VERTEX_CAPACITY 16384U
 #define FIRST_PERSON_VERTEX_OFFSET \
     (DAM_ROOM_VERTEX_OFFSET + DAM_ROOM_VERTEX_COUNT)
+#define FIRST_PERSON_LEFT_VERTEX_OFFSET \
+    (FIRST_PERSON_VERTEX_OFFSET + FIRST_PERSON_VERTEX_CAPACITY)
 #define AUTOGUN_BEAM_VERTEX_CAPACITY \
     (GE_3DS_ORIGINAL_AUTOGUN_BEAM_CAPACITY \
         * GE_3DS_ORIGINAL_AUTOGUN_BEAM_VERTICES)
 #define AUTOGUN_BEAM_VERTEX_OFFSET \
-    (FIRST_PERSON_VERTEX_OFFSET + FIRST_PERSON_VERTEX_CAPACITY)
+    (FIRST_PERSON_LEFT_VERTEX_OFFSET + FIRST_PERSON_VERTEX_CAPACITY)
 #define GUARD_MUZZLE_FLASH_CAPACITY 256U
 #define GUARD_MUZZLE_FLASH_VERTICES 6U
 #define GUARD_MUZZLE_FLASH_VERTEX_CAPACITY \
@@ -1418,9 +1420,9 @@ static Ge3dsSceneTextureSlot dam_scene_texture_slots[
     DAM_SCENE_TEXTURE_CAPACITY];
 static Ge3dsSceneTextures dam_scene_textures;
 static C3D_FogLut dam_environment_fog_lut;
-static Ge3dsSceneTextureSlot first_person_texture_slots[
+static Ge3dsSceneTextureSlot first_person_texture_slots[2][
     FIRST_PERSON_TEXTURE_CAPACITY];
-static Ge3dsSceneTextures first_person_scene_textures;
+static Ge3dsSceneTextures first_person_scene_textures[2];
 static uint16_t guard_muzzle_flash_images[GUARD_MUZZLE_FLASH_CAPACITY];
 static C3D_Tex gun_sight_texture;
 static Tex3DS_SubTexture gun_sight_subtexture;
@@ -4127,16 +4129,23 @@ static const float runtime_eye_space_identity[4][4] = {
     {0.0f, 0.0f, 0.0f, 1.0f},
 };
 
+typedef struct RuntimeFirstPersonTextureContext {
+    GeTextureCache *cache;
+    Ge3dsSceneTextures *textures;
+} RuntimeFirstPersonTextureContext;
+
 static int ensure_first_person_scene_texture(void *context, uint16_t texture_id)
 {
+    RuntimeFirstPersonTextureContext *owner = context;
     const Ge3dsSceneTextureStatus status = ge_3ds_scene_textures_ensure_image(
-        context, &first_person_scene_textures, texture_id);
+        owner->cache, owner->textures, texture_id);
     return status == GE_3DS_SCENE_TEXTURE_OK
         || status == GE_3DS_SCENE_TEXTURE_PARTIAL;
 }
 
 static bool update_first_person_scene(RuntimeFirstPersonModels *models,
                                       RuntimeFirstPersonScene *runtime,
+                                      unsigned hand,
                                       RuntimeDamPreview *dam_preview,
                                       GeTextureCache *texture_cache,
                                       Vertex *destination,
@@ -4155,10 +4164,14 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
     size_t vertex_index;
     uint64_t phase_ticks[5];
 
-    if (models == NULL || runtime == NULL || dam_preview == NULL
+    /* Failed publication must not leave an older hand drawable. */
+    if (runtime != NULL) runtime->ready = false;
+    if (models == NULL || runtime == NULL || hand >= 2U || dam_preview == NULL
             || texture_cache == NULL || destination == NULL
             || !models->ready || !dam_preview->original_camera_ready)
         return false;
+    RuntimeFirstPersonTextureContext texture_owner = {
+        texture_cache, &first_person_scene_textures[hand]};
     if (runtime->source_vertices == NULL)
         runtime->source_vertices = calloc(
             FIRST_PERSON_SOURCE_VERTEX_CAPACITY,
@@ -4181,7 +4194,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
     ge_original_first_person_scene_cache_bind_profile_clock(
         &runtime->cache, deep_profile ? runtime_profile_clock : NULL, NULL);
     runtime->scene.status = ge_original_first_person_scene_build_cached(
-        &runtime->cache, &models->assets, 0U,
+        &runtime->cache, &models->assets, hand,
         runtime_eye_space_identity,
         &source_storage, &runtime->scene);
     if (runtime->scene.status != GE_ORIGINAL_FIRST_PERSON_SCENE_OK) {
@@ -4193,11 +4206,15 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         != unchanged_builds_before;
     runtime->vertex_count = runtime->scene.vertex_count;
     runtime->batch_count = runtime->scene.batch_count;
-    published_header = models->pose.model_header[0];
+    published_header = models->pose.model_header[hand];
     if (published_header == NULL
             || !ge_original_first_person_assets_slot_for_header(
                 &models->assets, published_header, &asset_slot)
-            || asset_slot >= 2U) return false;
+            || asset_slot >= 2U) {
+        runtime->ready = false;
+        runtime->render_vertex_count = runtime->render_batch_count = 0U;
+        return false;
+    }
     loaded_model = models->assets.loaded_model[asset_slot];
     if (runtime->cache.topology_publications != topology_publications_before) {
         /* Original reload/fire switches can change vertex order and texture
@@ -4205,17 +4222,17 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         runtime->uv_ready = false;
         if (runtime->textures_ready && runtime->loaded_model == loaded_model
                 && !ge_original_model_scene_visit_textures(
-                    runtime->batches, runtime->batch_count, texture_cache,
+                    runtime->batches, runtime->batch_count, &texture_owner,
                     ensure_first_person_scene_texture)) return false;
     }
     if (!runtime->textures_ready || runtime->loaded_model != loaded_model) {
-        ge_3ds_scene_textures_close(&first_person_scene_textures);
-        memset(first_person_texture_slots, 0,
-               sizeof(first_person_texture_slots));
+        ge_3ds_scene_textures_close(&first_person_scene_textures[hand]);
+        memset(first_person_texture_slots[hand], 0,
+               sizeof(first_person_texture_slots[hand]));
         texture_status = ge_3ds_scene_textures_load(
             texture_cache, runtime->batches, runtime->batch_count,
-            first_person_texture_slots, FIRST_PERSON_TEXTURE_CAPACITY,
-            &first_person_scene_textures);
+            first_person_texture_slots[hand], FIRST_PERSON_TEXTURE_CAPACITY,
+            &first_person_scene_textures[hand]);
         runtime->textures_ready = texture_status == GE_3DS_SCENE_TEXTURE_OK
             || texture_status == GE_3DS_SCENE_TEXTURE_PARTIAL;
         runtime->loaded_model = loaded_model;
@@ -4224,7 +4241,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
         /* Import the authored resource's inactive switch images when the
          * weapon is first published, not on the first muzzle/reload switch. */
         if (!ge_original_first_person_assets_visit_texture_ids(
-                &models->assets, asset_slot, texture_cache,
+                &models->assets, asset_slot, &texture_owner,
                 ensure_first_person_scene_texture)) {
             runtime->textures_ready = false;
             return false;
@@ -4239,7 +4256,7 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
                 ++batch_index) {
             const GeDamRoomDrawBatch *batch = &runtime->batches[batch_index];
             const Ge3dsSceneTextureSlot *slot = ge_3ds_scene_textures_find(
-                &first_person_scene_textures, batch->texture.texture_id);
+                &first_person_scene_textures[hand], batch->texture.texture_id);
             Ge3dsSceneTextureUvContext uv_context;
             if (ge_3ds_scene_texture_uv_prepare(slot, &batch->material,
                     &uv_context) != GE_TEXTURE_UV_OK) continue;
@@ -4303,10 +4320,11 @@ static bool update_first_person_scene(RuntimeFirstPersonModels *models,
     return !publication_unchanged || uv_updated;
 }
 
-static void close_first_person_scene(RuntimeFirstPersonScene *runtime)
+static void close_first_person_scene(RuntimeFirstPersonScene *runtime,
+                                     unsigned hand)
 {
-    if (runtime == NULL) return;
-    ge_3ds_scene_textures_close(&first_person_scene_textures);
+    if (runtime == NULL || hand >= 2U) return;
+    ge_3ds_scene_textures_close(&first_person_scene_textures[hand]);
     ge_original_first_person_scene_cache_close(&runtime->cache);
     free(runtime->projected_vertices);
     free(runtime->render_batches);
@@ -17354,7 +17372,7 @@ static bool renderer_init(GeAssetPack *asset_pack,
     memset((Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, 0,
            DAM_ROOM_VERTEX_COUNT * sizeof(Vertex));
     memset((Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET, 0,
-           FIRST_PERSON_VERTEX_CAPACITY * sizeof(Vertex));
+           2U * FIRST_PERSON_VERTEX_CAPACITY * sizeof(Vertex));
     memset((Vertex *)vertex_buffer + AUTOGUN_BEAM_VERTEX_OFFSET, 0,
            AUTOGUN_BEAM_VERTEX_CAPACITY * sizeof(Vertex));
     memset((Vertex *)vertex_buffer + GUARD_MUZZLE_FLASH_VERTEX_OFFSET, 0,
@@ -17436,6 +17454,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                           const RuntimeDamPreview *dam_preview,
                           const RuntimeStageOrdinaryObjects *stage_objects,
                           const RuntimeFirstPersonScene *first_person,
+                          const RuntimeFirstPersonScene *left_hand,
                           const GeOriginalDamMissionExitSnapshot *fade_snapshot,
                           unsigned eye_count,
                           C3D_RenderTarget *const eye_targets[2])
@@ -18212,61 +18231,71 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
     }
     /* The original first-person and 2D passes clear G_FOG. */
     C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
-    if (!watch_open && first_person != NULL && first_person->ready
-            && dam_preview != NULL && dam_preview->gpu_world_ready) {
-        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform,
-                          &dam_preview->gpu_first_person_projection);
-        renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_FIRST_PERSON);
-        for (i = 0U; i < first_person->batch_count;) {
-            const GeDamRoomDrawBatch *batch;
-            const Ge3dsSceneTextureSlot *slot;
-            C3D_Tex *texture;
-            Ge3dsMaterialBinding binding;
-            Ge3dsMaterialResult material_result;
-            size_t vertex_count;
-            size_t next;
-            batch = &first_person->batches[i];
-            next = first_person->batch_run_ends[i];
-            const GeDamRoomDrawBatch *last = &first_person->batches[next - 1U];
-            vertex_count = last->first_vertex + last->vertex_count - batch->first_vertex;
-            if (first_person_material_cache.valid
-                    && memcmp(&first_person_material_cache.material,
-                              &batch->material,
-                              sizeof(batch->material)) == 0) {
-                texture = first_person_material_cache.texture;
-            } else {
-                slot = ge_3ds_scene_textures_find(
-                    &first_person_scene_textures,
-                    batch->texture.texture_id);
-                texture = slot != NULL ? (C3D_Tex *)&slot->texture : NULL;
-                fine_profile.first_person_texture_lookups++;
+    const RuntimeFirstPersonScene *hand_scenes[2] = {first_person, left_hand};
+    const bool hands_hidden = multiplayer_view
+        ? captured_hud.watch_animation_state == WATCH_ANIMATION_0x5
+            || captured_hud.watch_animation_state == WATCH_ANIMATION_0xc
+        : watch_open;
+    for (unsigned hand = 0U; hand < 2U; ++hand) {
+        const RuntimeFirstPersonScene *hand_scene = hand_scenes[hand];
+        first_person_material_cache.valid = false;
+        if (!hands_hidden && hand_scene != NULL && hand_scene->ready
+                && dam_preview != NULL && dam_preview->gpu_world_ready) {
+            C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform,
+                              &dam_preview->gpu_first_person_projection);
+            renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_FIRST_PERSON);
+            for (i = 0U; i < hand_scene->batch_count;) {
+                const GeDamRoomDrawBatch *batch;
+                const Ge3dsSceneTextureSlot *slot;
+                C3D_Tex *texture;
+                Ge3dsMaterialBinding binding;
+                Ge3dsMaterialResult material_result;
+                size_t vertex_count;
+                size_t next;
+                batch = &hand_scene->batches[i];
+                next = hand_scene->batch_run_ends[i];
+                const GeDamRoomDrawBatch *last = &hand_scene->batches[next - 1U];
+                vertex_count = last->first_vertex + last->vertex_count - batch->first_vertex;
+                if (first_person_material_cache.valid
+                        && memcmp(&first_person_material_cache.material,
+                                  &batch->material,
+                                  sizeof(batch->material)) == 0) {
+                    texture = first_person_material_cache.texture;
+                } else {
+                    slot = ge_3ds_scene_textures_find(
+                        &first_person_scene_textures[hand],
+                        batch->texture.texture_id);
+                    texture = slot != NULL ? (C3D_Tex *)&slot->texture : NULL;
+                    fine_profile.first_person_texture_lookups++;
+                }
+                binding = (Ge3dsMaterialBinding){
+                    texture,
+                    GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE,
+                };
+                if (renderer_apply_material_cached(
+                        &first_person_material_cache,
+                        &first_person_prepared_materials,
+                        &batch->material, &binding,
+                        &material_result,
+                        &fine_profile.first_person_material_apply_calls,
+                        &fine_profile.first_person_material_apply_reuses,
+                        &fine_profile.first_person_material_prepare_hits,
+                        &fine_profile.first_person_material_prepare_misses)
+                        == GE_3DS_MATERIAL_OK
+                        && material_result.state.draw_enabled != 0U) {
+                    /* Material application restores the display-list depth mode,
+                     * so apply the original first-person ModelRenderData override
+                     * immediately before every hand draw. */
+                    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+                    C3D_DrawArrays(GPU_TRIANGLES,
+                        FIRST_PERSON_VERTEX_OFFSET + hand * FIRST_PERSON_VERTEX_CAPACITY
+                            + batch->first_vertex,
+                        vertex_count);
+                    fine_profile.first_person_draw_calls++;
+                    fine_profile.first_person_authored_batches += next - i;
+                }
+                i = next;
             }
-            binding = (Ge3dsMaterialBinding){
-                texture,
-                GE_3DS_MATERIAL_TEXTURE_FALLBACK_SHADE,
-            };
-            if (renderer_apply_material_cached(
-                    &first_person_material_cache,
-                    &first_person_prepared_materials,
-                    &batch->material, &binding,
-                    &material_result,
-                    &fine_profile.first_person_material_apply_calls,
-                    &fine_profile.first_person_material_apply_reuses,
-                    &fine_profile.first_person_material_prepare_hits,
-                    &fine_profile.first_person_material_prepare_misses)
-                    == GE_3DS_MATERIAL_OK
-                    && material_result.state.draw_enabled != 0U) {
-                /* Material application restores the display-list depth mode,
-                 * so apply the original first-person ModelRenderData override
-                 * immediately before every hand draw. */
-                C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
-                C3D_DrawArrays(GPU_TRIANGLES,
-                    FIRST_PERSON_VERTEX_OFFSET + batch->first_vertex,
-                    vertex_count);
-                fine_profile.first_person_draw_calls++;
-                fine_profile.first_person_authored_batches += next - i;
-            }
-            i = next;
         }
     }
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &projection);
@@ -19195,7 +19224,7 @@ static void print_status(const GePortState *port,
 typedef struct RuntimeMultiplayerFrame {
     RuntimeDamPreview *preview;
     RuntimeStageOrdinaryObjects *objects;
-    RuntimeFirstPersonScene *first_person_scene;
+    RuntimeFirstPersonScene *first_person_scene[2];
     GeTextureCache *texture_cache;
     uint8_t local_portal_controls[GE_DAM_WORLD_MAX_PORTALS];
 } RuntimeMultiplayerFrame;
@@ -19296,6 +19325,7 @@ static int runtime_multiplayer_view_capture(void *context, uint32_t slot,
 {
     RuntimeMultiplayerFrame *frame = context;
     RuntimeDamPreview *preview = frame->preview;
+    (void)slot;
     (void)config;
     update_dam_renderer_visibility(preview);
     if (!stream_dam_renderer_camera(preview, camera,
@@ -19303,10 +19333,6 @@ static int runtime_multiplayer_view_capture(void *context, uint32_t slot,
         return 0;
     if (!refresh_stage_live_overlays(frame->objects,
             (Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET)) return 0;
-    if (update_first_person_scene(multiplayer.models[slot], frame->first_person_scene,
-            preview, frame->texture_cache, (Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET, false))
-        GSPGPU_FlushDataCache((Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET,
-            frame->first_person_scene->render_vertex_count * sizeof(Vertex));
     multiplayer.local_autogun_beam_vertices = update_stage_autogun_beam_vertices(
         frame->objects, preview, (Vertex *)vertex_buffer + AUTOGUN_BEAM_VERTEX_OFFSET);
     if (preview->gpu_dirty_vertex_count != 0U) {
@@ -19355,8 +19381,20 @@ static int runtime_multiplayer_prepare_renderer(void *context, uint32_t slot,
     const GeOriginalBondCameraConfig *config, const GeOriginalBondCameraResult *camera)
 {
     RuntimeMultiplayerFrame *frame = context;
-    (void)slot; (void)config; (void)camera;
-    return prepare_dam_guard_renderer_visibility(frame->preview, frame->objects);
+    RuntimeDamPreview *preview = frame->preview;
+    (void)config; (void)camera;
+    /* Native hand state is still the state produced by this gun tick.
+     * Capture it before death/respawn can replace that player's loadout. */
+    for (unsigned hand = 0U; hand < 2U; ++hand) {
+        Vertex *destination = (Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET
+            + hand * FIRST_PERSON_VERTEX_CAPACITY;
+        if (update_first_person_scene(multiplayer.models[slot],
+                frame->first_person_scene[hand], hand, preview,
+                frame->texture_cache, destination, false))
+            GSPGPU_FlushDataCache(destination,
+                frame->first_person_scene[hand]->render_vertex_count * sizeof(Vertex));
+    }
+    return prepare_dam_guard_renderer_visibility(preview, frame->objects);
 }
 
 /* Shared production/host runner owns every gameplay operation. These
@@ -19436,6 +19474,7 @@ int main(void)
     RuntimeBondAnimations bond_animations = {0};
     RuntimeFirstPersonModels first_person_models = {0};
     RuntimeFirstPersonScene first_person_scene = {0};
+    static RuntimeFirstPersonScene left_hand_scene;
     RuntimeInputProbe input_probe = {0};
     RuntimeOriginalFrontend original_frontend_runtime = {0};
     GeOriginalFrontendStart original_frontend = {0};
@@ -20461,7 +20500,7 @@ start_stage_runtime:
                 if (multiplayer.running) {
                     RuntimeMultiplayerFrame multiplayer_frame = {
                         .preview = &dam_preview, .objects = &stage_ordinary_objects,
-                        .first_person_scene = &first_person_scene,
+                        .first_person_scene = {&first_person_scene, &left_hand_scene},
                         .texture_cache = texture_cache_ready ? &texture_cache : NULL,
                     };
                     if (multiplayer.failed || !dyn_frame_active
@@ -21340,7 +21379,7 @@ finish_original_player_tick:
         if (!multiplayer.running && texture_cache_ready) {
             const u64 first_person_start = osGetTime();
             const bool first_person_updated = update_first_person_scene(
-                    &first_person_models, &first_person_scene,
+                    &first_person_models, &first_person_scene, 0U,
                     &dam_preview, &texture_cache,
                     (Vertex *)vertex_buffer + FIRST_PERSON_VERTEX_OFFSET,
                     input_probe.deep_profile);
@@ -21369,7 +21408,8 @@ finish_original_player_tick:
             fine_start = svcGetSystemTick();
             renderer_draw(&rareware_mesh, &blotter_preview,
                           &dam_preview, &stage_ordinary_objects,
-                          &first_person_scene, &fade_snapshot,
+                          &first_person_scene,
+                          multiplayer.running ? &left_hand_scene : NULL, &fade_snapshot,
                           stereo_active ? 2U : 1U, eye_targets);
             fine_profile.renderer_draw_ticks +=
                 svcGetSystemTick() - fine_start;
@@ -21716,7 +21756,8 @@ cleanup_runtime:
         multiplayer.count = 0U;
     }
     ge_original_stage_multiplayer_setup_close(&multiplayer.prepared);
-    close_first_person_scene(&first_person_scene);
+    close_first_person_scene(&first_person_scene, 0U);
+    close_first_person_scene(&left_hand_scene, 1U);
     close_first_person_models(&first_person_models);
     close_bond_animations(&bond_animations);
     close_original_sfx_bank(&original_sfx);
@@ -21774,6 +21815,7 @@ cleanup_runtime:
         memset(&bond_animations, 0, sizeof(bond_animations));
         memset(&first_person_models, 0, sizeof(first_person_models));
         memset(&first_person_scene, 0, sizeof(first_person_scene));
+        memset(&left_hand_scene, 0, sizeof(left_hand_scene));
         memset(&input_probe, 0, sizeof(input_probe));
         memset(&visual_probe_tour, 0, sizeof(visual_probe_tour));
         memset(&frame_profile, 0, sizeof(frame_profile));

@@ -17,7 +17,8 @@ text=['#include <ultra64.h>','#include <bondconstants.h>','#include <bondtypes.h
 text += [extract_function(source,name) for name in ('set_cur_player','get_cur_playernum')]
 Path(sys.argv[2]).write_text('\n'.join(text))
 PY
-cc -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces \
+for enum in -fno-short-enums -fshort-enums; do
+cc "$enum" -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces \
 -Wno-logical-not-parentheses -Wno-empty-body -Wno-unused-variable \
 -Wno-unused-parameter -fsanitize=address,undefined -fno-omit-frame-pointer \
 -ffunction-sections -fdata-sections \
@@ -39,3 +40,4 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-missing-braces \
 "${repo_dir}/src/game/quaternion.c" \
 "${repo_dir}/port/tests/test_ge_port_multiplayer_tick.c" "${strip[@]}" -lm -o "${test_dir}/test"
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "${test_dir}/test"
+done

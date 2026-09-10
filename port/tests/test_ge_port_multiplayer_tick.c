@@ -141,22 +141,28 @@ static void roster(unsigned count)
     assert(subsystems[GE_ORIGINAL_LEVEL_SUBSYSTEM_CHRPROP]==64);
     /* These are observed no-world dispatch boundaries, not fabricated props. */
     rejected(&state,pads,1);rejected(&state,pads,5);rejected(&state,NULL,count);
-    paused=1;rejected(&state,pads,count);paused=0;
-    ge_original_level_set_controls_locked(1);
-    assert(ge_port_advance_multiplayer_tick(&state,pads,count)==1);
-    assert(consumes==65&&tlb_ticks==65&&state.simulation_ticks==65);
-    assert(currentFrameCounter==frame_before+65&&speedgraphframes==1);
-    /* The original locked branch dispatches but sets gameplay clock/delta0;
-     * it cannot be replaced by dropping the whole committed simulation tick. */
-    assert(state.original_clock_timer==0&&state.original_global_timer_delta==0);
-    assert(state.original_global_timer==64&&state.original_active_frame_updates==64);
-    {GeOriginalLevelTimerState timers;ge_original_level_timer_snapshot(&timers);assert(timers.controls_locked==1);}
-    assert(g_randomSeed==rng);
-    ge_original_level_set_controls_locked(0);
+    for(unsigned reason=0;reason<2;++reason) {
+        paused=reason==0;
+        ge_original_level_set_controls_locked(reason==1);
+        for(slot=0;slot<count;++slot) pads[slot][0].buttons=reason?A_BUTTON:START_BUTTON;
+        assert(ge_port_advance_multiplayer_tick(&state,pads,count)==1);
+        assert(consumes==65+reason&&tlb_ticks==65+reason&&state.simulation_ticks==65+reason);
+        assert(currentFrameCounter==frame_before+65+(s32)reason&&speedgraphframes==1);
+        /* Both native pause branches dispatch watch input at real cadence
+         * while stopping only the gameplay clock, elapsed time and movement. */
+        assert(state.original_clock_timer==0&&state.original_global_timer_delta==0);
+        assert(state.original_global_timer==64&&state.original_active_frame_updates==64);
+        GeOriginalLevelTimerState timers;ge_original_level_timer_snapshot(&timers);
+        assert(timers.controls_locked==(int32_t)(reason==1));
+        for(slot=0;slot<count;++slot)
+            assert(joyGetButtonsPressedThisFrame((s8)slot,A_BUTTON|START_BUTTON)==(reason?A_BUTTON:START_BUTTON));
+        assert(g_randomSeed==rng);
+    }
+    paused=0;ge_original_level_set_controls_locked(0);
     set_cur_player(0);assert(ge_original_input_select_player(1));rejected(&state,pads,count);
     assert(ge_original_input_select_player(0));
     g_playerPointers[1]=g_playerPointers[0];rejected(&state,pads,count);g_playerPointers[1]=pointers[1];
-    state.simulation_ticks=UINT64_MAX;rejected(&state,pads,count);state.simulation_ticks=65;
+    state.simulation_ticks=UINT64_MAX;rejected(&state,pads,count);state.simulation_ticks=66;
     assert(ge_original_input_configure_players(1));rejected(&state,pads,count);
     assert(ge_original_input_configure_players(count));
     assert(ge_original_input_ramrom_bind(2));rejected(&state,pads,count);
@@ -169,6 +175,6 @@ int main(void)
 {
     conversion();roster(2);roster(4);
     assert(!ge_port_advance_multiplayer_tick(NULL,NULL,2));
-    puts("multiplayer port boundary: 2/4-player exact pad mapping, 64 ring ticks, one timer/sample per tick, held/edge ownership, locked dispatch, transactional rejection; no world simulation fixture");
+    puts("multiplayer port boundary: 2/4-player exact pad mapping, 64 ring ticks, one timer/sample per tick, held/edge ownership, paused/locked input dispatch, transactional rejection; no world simulation fixture");
     return 0;
 }

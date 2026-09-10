@@ -11,8 +11,14 @@ def render(repo):
     source = (repo / "src/game/chrprop.c").read_text()
     bodies = "\n\n".join(function_text(source, name) for name in
                          ("propFindForInteract", "bond_interact_object"))
-    viewport = extract_function((repo / "src/game/bondview2.c").read_text(),
+    bondview = (repo / "src/game/bondview2.c").read_text()
+    viewport = extract_function(bondview,
                                 "bondviewMovePlayerUpdateViewport")
+    start = bondview.index("#if defined(VERSION_JP) || defined(VERSION_EU)",
+                           bondview.index("s32 mission_timer;"))
+    end = bondview.index("#endif", start) + len("#endif")
+    watch_declaration = bondview[start:end]
+    assert "f32 watch_time_0;" in watch_declaration and "s32 watch_time_0;" in watch_declaration
     condition = "    if ((g_CameraMode == CAMERAMODE_NONE) || ((g_CameraMode == CAMERAMODE_FP) && (is_timer_active != 0)) || (g_CameraMode == CAMERAMODE_FADE_TO_TITLE))"
     start = viewport.index(condition)
     move = viewport.index("        MoveBond(stick_x", start)
@@ -53,6 +59,7 @@ static bool native_door_test(PropRecord *prop)
 #define propobjInteract ge_original_mp_runtime_interact_object
 #define propdoorInteract ge_original_mp_runtime_interact_door
 """ + bodies + "\n/* canonical sha256 " + hashlib.sha256(bodies.encode()).hexdigest() + " */\n" + \
+        watch_declaration + "\n" + \
         "/* The committed clock is a typed external read. Native mission/watch\n" \
         " * scalar ownership and the original selected-viewport order remain. */\n" \
         "void ge_original_mp_runtime_mission_clock_exact(s32 g_ClockTimer)\n{\n" + mission + "\n}\n" + \

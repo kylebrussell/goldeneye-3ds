@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts.verify_dam_end_to_end_result import verify
+from scripts.verify_dam_end_to_end_result import verify_route
 
 
 GOOD = """GE_INPUT_PROBE_RESULT 1
@@ -58,10 +59,40 @@ class EndToEndVerifierTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "result"
             path.write_text(text)
-            return verify(path)
+            return verify_route(path)
 
     def test_accepts_complete_authored_flow(self) -> None:
-        self.assertIn("Dam end-to-end verified", self.check(GOOD))
+        self.assertIn("Dam controller route verified", self.check(GOOD))
+
+    def run_cli(self, *args: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "result"
+            path.write_text(GOOD)
+            return subprocess.run(
+                [sys.executable, str(ROOT / "scripts/verify_dam_end_to_end_result.py"),
+                 str(path), *args], capture_output=True, text=True)
+
+    def test_cli_requires_save_or_explicit_route_only(self) -> None:
+        result = self.run_cli()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--save", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_route_only_cannot_claim_durable_acceptance(self) -> None:
+        result = self.run_cli("--route-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Route-only check; retained-save persistence not verified.",
+                      result.stdout)
+        self.assertIn("Dam controller route verified", result.stdout)
+        self.assertNotIn("Retained save verified", result.stdout)
+        self.assertNotIn("durable Dam", result.stdout)
+
+    def test_route_only_rejects_save_and_folder_arguments(self) -> None:
+        for args in (("--save", "unused.sav"), ("--folder", "0")):
+            with self.subTest(args=args):
+                result = self.run_cli("--route-only", *args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
 
     def test_requires_00_agent_at_setup_and_result(self) -> None:
         for key in ("setup_difficulty", "difficulty"):
@@ -131,7 +162,7 @@ class EndToEndVerifierTests(unittest.TestCase):
     def test_accepts_canonical_paused_frames_without_actor_advancement(self) -> None:
         # Watch and exit-flow pauses intentionally make actor_ticks smaller
         # than simulation_frames; the scheduler must resume and remain live.
-        self.assertIn("Dam end-to-end verified", self.check(
+        self.assertIn("Dam controller route verified", self.check(
             GOOD.replace("actor_ticks=6760", "actor_ticks=124")))
 
     def test_rejects_implausibly_short_or_overrun_actor_history(self) -> None:
@@ -146,8 +177,8 @@ class EndToEndVerifierTests(unittest.TestCase):
                 "mission_exit=2,1,10,1.0,-1.0,-1.0,500,1,1,0",
                 "mission_exit=2,1,10,1.0,-1.0,-1.0,500,1,0,0"))
 
-    def test_rejects_unpersisted_success(self) -> None:
-        with self.assertRaisesRegex(ValueError, "persisted canonically"):
+    def test_rejects_missing_result_callback_dispatch(self) -> None:
+        with self.assertRaisesRegex(ValueError, "dispatch.*provider callbacks"):
             self.check(GOOD.replace("mission_result=1,0,1",
                                     "mission_result=1,1,0"))
 

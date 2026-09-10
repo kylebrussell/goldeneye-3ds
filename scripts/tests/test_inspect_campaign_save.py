@@ -4,10 +4,13 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from scripts.tests.test_verify_dam_end_to_end_result import GOOD
 
 
 class SaveInspectorTests(unittest.TestCase):
@@ -92,6 +95,82 @@ int main(int argc, char **argv) {
                  for p in self.path.parent.iterdir() if p.is_file()}
         self.assertEqual(before, after)
         return json.loads(result.stdout) if result.stdout else None
+
+    def verify_combined(self, expected, route=GOOD, folder="0"):
+        result_path = self.path.parent / "controller.result"
+        result_path.write_text(route)
+        before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in self.path.parent.iterdir() if p.is_file()}
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/verify_dam_end_to_end_result.py"),
+             str(result_path), "--save", str(self.path), "--folder", folder],
+            capture_output=True, text=True, env=self.environment)
+        self.assertEqual(result.returncode, expected, result.stderr)
+        after = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in self.path.parent.iterdir() if p.is_file()}
+        self.assertEqual(before, after)
+        if expected != 0:
+            # Even complete callback/route telemetry must not print a success
+            # label before a missing, incomplete or corrupt save is rejected.
+            self.assertEqual(result.stdout, "")
+            self.assertNotIn("Retained save verified", result.stderr)
+            self.assertNotIn("durable Dam", result.stderr)
+        return result
+
+    def test_complete_route_with_00_save_verifies_durable_progress(self):
+        self.generate()
+        report = self.verify_combined(0).stdout
+        self.assertIn("Dam controller route verified", report)
+        self.assertIn("Retained save verified: durable Dam 00 Agent completion "
+                      "(123 s) and Facility 00 Agent access in folder 0", report)
+        self.assertIn("CRC valid, 1 reload, 0 writes", report)
+        self.assertIn(str(self.path.resolve()), report)
+        self.assertIn(f"{self.path.stat().st_size} bytes", report)
+        self.assertIn(hashlib.sha256(self.path.read_bytes()).hexdigest(), report)
+
+    def test_complete_route_with_incomplete_save_rejects_durable_progress(self):
+        for difficulty in (-1, 0, 1, 3):
+            with self.subTest(difficulty=difficulty):
+                if self.path.exists():
+                    self.path.unlink()
+                self.generate(difficulty)
+                self.assertIn("retained save did not verify",
+                              self.verify_combined(1).stderr)
+
+    def test_complete_route_with_missing_save_rejects_durable_progress(self):
+        self.assertIn("retained save could not be read",
+                      self.verify_combined(1).stderr)
+        self.assertFalse(self.path.exists())
+
+    def test_complete_route_with_corrupt_save_rejects_durable_progress(self):
+        self.generate()
+        original = self.path.read_bytes()
+        corrupt = bytearray(original)
+        corrupt[19] ^= 1
+        for contents in (bytes(corrupt), original[:-1], original + b"extra"):
+            with self.subTest(length=len(contents)):
+                self.path.write_bytes(contents)
+                self.assertIn("retained save did not verify",
+                              self.verify_combined(1).stderr)
+
+    def test_complete_route_requires_the_retained_save_folder(self):
+        self.generate(folder=2)
+        self.assertIn("retained save did not verify",
+                      self.verify_combined(1).stderr)
+        self.assertIn("Facility 00 Agent access in folder 2",
+                      self.verify_combined(0, folder="2").stdout)
+
+    def test_completed_save_cannot_bypass_route_requirements(self):
+        self.generate()
+        for old, new, error in (
+                ("status=complete", "status=failed", "route did not complete"),
+                ("route_targets=124,124", "route_targets=123,124", "every stop"),
+                ("2:1:0:0", "2:0:0:0", "not all four"),
+                ("setup_difficulty=2", "setup_difficulty=0", "requires 00 Agent"),
+                ("mission_result=1,0,1", "mission_result=1,1,0", "provider callbacks")):
+            with self.subTest(field=old):
+                self.assertIn(error, self.verify_combined(
+                    1, route=GOOD.replace(old, new)).stderr)
 
     def test_reload_00_completion_and_unlock(self):
         self.generate()

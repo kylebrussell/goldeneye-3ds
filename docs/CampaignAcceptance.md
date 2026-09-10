@@ -127,18 +127,40 @@ file with its private route inputs and remove it after the run. Mode 007 uses
 the existing custom slider values; selecting it does not certify any specific
 slider configuration.
 
-After a controller run, retain its private `goldeneye.sav` bytes and inspect
-that copy with `bash scripts/inspect_campaign_save.sh /path/to/goldeneye.sav 0`.
+After a controller run, retain its private result and `goldeneye.sav` bytes.
+Complete acceptance requires both artifacts:
+
+```sh
+python3 scripts/verify_dam_end_to_end_result.py /path/to/retained/result \
+    --save /path/to/retained/goldeneye.sav --folder 0
+```
+
+The command preserves every route requirement and invokes the read-only
+`inspect_campaign_save.sh` companion. It prints durable completion/access
+acceptance only after both checks pass, along with the save's absolute path,
+byte count and SHA-256. A save that changes during inspection is rejected.
+Missing, corrupt, wrong-folder or incomplete saves fail even with successful
+route and callback telemetry. A completed save cannot bypass route failures.
+Use `--route-only` for explicitly labeled controller diagnostics; this cannot
+certify saved completion or unlock. The CLI requires either `--save` or
+`--route-only`. The stock runner passes `GE_DAM_END_TO_END_RETAINED_SAVE` and
+optional `GE_DAM_END_TO_END_SAVE_FOLDER` to the combined check when supplied;
+otherwise it runs the explicitly labeled route-only check. Retaining the
+correct private save from that run remains the runner operator's responsibility.
+
+For save-only diagnostics, use
+`bash scripts/inspect_campaign_save.sh /path/to/goldeneye.sav 0`.
 The inspector reloads the real provider and its CRC checks with write access
 disabled, then reports Dam 00 Agent completion/time and Facility 00 Agent
 access as JSON. Exit status is 0 when those conditions pass, 1 for a valid
 save without the required progress, and 2 for a missing/corrupt/wrong-folder
 save or invalid argument. Folder IDs are 0–3; the default is 0. The original
 10-bit time is reported as stored, with a flag when it is capped at 1023.
-The probe's `briefing_commits` counter only means the result body invoked its
-provider callbacks: those callbacks cannot return a disk-write failure to
-the caller. This separate reload closes that evidence gap, but still requires
-an isolated starting save and does not establish a physical reboot test.
+The probe's `briefing_commits` counter (`mission_result[2]`) only means the
+result body invoked its provider callbacks: those callbacks cannot return a
+disk-write failure to the caller. The combined verifier requires the separate
+reload to close that evidence gap, but still requires an isolated starting
+save and does not establish a physical reboot test.
 
 The unresolved routes must exercise live NPC timing and survival, object
 interaction/destruction, pickups and gadgets, moving vehicles, special room

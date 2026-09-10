@@ -58,7 +58,7 @@ coordinate, then exports selected named members for:
 | Tag/opcode | RW interpretation |
 | --- | --- |
 | 1 | `ModelRwData_HeaderRecord`: three signed bytes, ground, positions, angles and interpolation floats. |
-| 101 (explicit alias tag) | `modeldata_root`: U16/byte prefix and U32 `unk1c`, with named float/coordinate members. Its first word and `unk1c` differ from the Header C view; an owner must classify this alias rather than treating all words as floats. |
+| 0x101 (explicit alias tag) | `modeldata_root`: U16/byte prefix and U32 `unk1c`, with named float/coordinate members. Its first word and `unk1c` differ from the Header C view; an owner must classify this alias rather than treating all words as floats. |
 | 4 | DisplayList `unk00` I32 (the original declaration remains only partially understood). |
 | 7 | Op07 index I32. |
 | 8, 9, 18 | LOD/BSP/Switch visibility, preserving the native signed 32-bit representation. |

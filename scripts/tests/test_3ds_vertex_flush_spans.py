@@ -5,8 +5,8 @@ from pathlib import Path
 import re
 
 
-def function_body(source: str, name: str) -> str:
-    match = re.search(rf"\b{name}\s*\([^;]*?\)\s*\{{", source, re.S)
+def statement_body(source: str, pattern: str, name: str) -> str:
+    match = re.search(pattern, source, re.S)
     assert match is not None, f"missing {name}"
     start = source.index("{", match.start())
     depth = 0
@@ -18,6 +18,10 @@ def function_body(source: str, name: str) -> str:
             if depth == 0:
                 return source[start:index + 1]
     raise AssertionError(f"unterminated {name}")
+
+
+def function_body(source: str, name: str) -> str:
+    return statement_body(source, rf"\b{name}\s*\([^;]*?\)\s*\{{", name)
 
 
 repo = Path(__file__).resolve().parents[2]
@@ -38,9 +42,8 @@ assert re.search(
 )
 assert "TOTAL_VERTEX_COUNT * sizeof(Vertex)" not in renderer_draw
 
-# The sole scene publication flushes only the dirty authored/dynamic range,
-# not the 65,536-vertex allocation backing it. The canonical camera-matrix
-# publication does not rewrite renderer vertices at all.
+# Simulation publication and a slider-only visibility refresh each flush
+# their dirty authored/dynamic range, after the corresponding upload succeeds.
 camera_flush = re.compile(
     r"GSPGPU_FlushDataCache\(\s*"
     r"\(Vertex \*\)vertex_buffer \+ DAM_ROOM_VERTEX_OFFSET\s*"
@@ -50,7 +53,55 @@ camera_flush = re.compile(
     r"DAM_ROOM_VERTEX_COUNT\)\s*\)",
     re.S,
 )
-assert len(camera_flush.findall(source)) == 1
+publication_paths = {
+    "simulation publication": (
+        r"if\s*\(\s*dam_intro\.player\.initialized\s*&&\s*"
+        r"dam_intro\.player\.publication_generation\s*!=\s*rendered_player_generation\s*\)\s*\{",
+        r"if\s*\(\s*camera_updated\s*\)\s*\{"),
+    "stereo slider publication": (
+        r"if\s*\(\s*dam_preview\.original_camera_ready\s*&&\s*"
+        r"dam_preview\.renderer_visibility_slider\s*!=\s*stereo_slider\s*\)\s*\{",
+        r"if\s*\(\s*stream_dam_renderer_camera\([^{}]*?\)\s*\)\s*\{"),
+}
+
+
+def assert_publication_flushes(source: str) -> None:
+    assert len(camera_flush.findall(source)) == len(publication_paths)
+    for name, (path_pattern, success_pattern) in publication_paths.items():
+        path = statement_body(source, path_pattern, name)
+        successful = statement_body(path, success_pattern, f"{name} successful upload")
+        dirty = statement_body(successful,
+            r"if\s*\(\s*dam_preview\.gpu_dirty_vertex_count\s*!=\s*0U\s*\)\s*\{",
+            f"{name} nonempty dirty span")
+        flushes = list(camera_flush.finditer(dirty))
+        clears = list(re.finditer(r"dam_preview\.gpu_dirty_vertex_count\s*=\s*0U\s*;", dirty))
+        assert len(flushes) == len(clears) == 1, name
+        assert clears[0].start() > flushes[0].end(), f"{name} must clear after flushing"
+        assert len(re.findall(r"GSPGPU_FlushDataCache\s*\(", path)) == 1, name
+        assert "TOTAL_VERTEX_COUNT * sizeof(Vertex)" not in path, name
+
+
+assert_publication_flushes(source)
+
+# Each path is independently required: duplicating one flush cannot substitute
+# for the other. These mutations also prove the assertions detect regressions
+# in its nonempty guard, bounded conversion, start offset and post-flush clear.
+for name, (path_pattern, _) in publication_paths.items():
+    path = statement_body(source, path_pattern, name)
+    for original, replacement in (
+        ("dam_preview.gpu_dirty_vertex_count != 0U", "1"),
+        ("DAM_ROOM_VERTEX_COUNT", "TOTAL_VERTEX_COUNT"),
+        ("+ dam_preview.gpu_dirty_vertex_offset", ""),
+        ("dam_preview.gpu_dirty_vertex_count = 0U;", "/* omitted clear */"),
+    ):
+        changed_path = path.replace(original, replacement, 1)
+        assert changed_path != path, (name, original)
+        try:
+            assert_publication_flushes(source.replace(path, changed_path, 1))
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"{name}: regression not detected: {original}")
 
 # The helper makes every byte conversion capacity-checked at runtime and the
 # allocation itself is checked against size_t at compile time.
@@ -59,4 +110,4 @@ assert "assert(vertex_count <= vertex_capacity);" in helper
 assert "assert(vertex_capacity <= TOTAL_VERTEX_COUNT);" in helper
 assert "TOTAL_VERTEX_COUNT <= SIZE_MAX / sizeof(Vertex)" in source
 
-print("3DS cache flush spans: full init, 6-vertex sight, exact Dam projection")
+print("3DS cache flush spans: full init, 6-vertex sight, independently bounded simulation/slider publication")

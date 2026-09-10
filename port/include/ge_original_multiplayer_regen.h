@@ -15,8 +15,25 @@ typedef enum GeOriginalMultiplayerRegenStatus {
     GE_ORIGINAL_MP_REGEN_INVALID_ARGUMENT,
     GE_ORIGINAL_MP_REGEN_UNSUPPORTED_OBJECT,
     GE_ORIGINAL_MP_REGEN_MISSING_PROVIDER,
-    GE_ORIGINAL_MP_REGEN_INVALID_ROSTER
+    GE_ORIGINAL_MP_REGEN_INVALID_ROSTER,
+    GE_ORIGINAL_MP_REGEN_INVALID_POOL
 } GeOriginalMultiplayerRegenStatus;
+
+typedef struct GeOriginalMultiplayerRegenBatch {
+    uint32_t visited;
+    uint32_t ticked;
+    uint32_t unsupported;
+    int32_t failed_pool_index; /* -1 when no individual prop failed. */
+} GeOriginalMultiplayerRegenBatch;
+
+/* Native chrpropTick traversal: active tail -> prev, bounded to the 600-slot
+ * pool, including disabled pickups. Call after active_props_pre_tick_exact
+ * and before the player shuffle/passes, once per world simulation tick.
+ * Free slots are excluded even if they retain stale object/timer fields.
+ * Unsupported timer owners are counted and left to their own lifecycle;
+ * errors report any earlier completed ticks, so the caller must not retry. */
+GeOriginalMultiplayerRegenStatus ge_original_multiplayer_regen_tick_all(
+    int32_t tick60, GeOriginalMultiplayerRegenBatch *batch);
 
 /* Native resource binding: original chrpropEnable, original object room
  * publication and original positional OBJ_REGEN_SFX. The caller initializes

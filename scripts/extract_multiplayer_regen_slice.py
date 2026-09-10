@@ -72,8 +72,9 @@ if __name__ == '__main__':
 #include \"game/player.h\"
 #include \"game/propobj.h\"
 #define RUNTIMEBITFLAG_REMOVE (1u << 2)
+extern PropRecord *g_ActivePropsTail, *g_ActivePropsHead, *g_FreeProps;
 extern void objDetach(PropRecord *);
 extern void objFreeEmbedmentOrProjectile(PropRecord *);
 extern PropRecord *getCurrentPlayerProp(void);
 """ + '\n'.join(function_text(source,n) for n in
-        ('chrpropEnable','chrpropDisable','propExecuteTickOperation')))
+        ('chrpropEnable','chrpropDisable','chrpropAllocate','chrpropActivate','propExecuteTickOperation')))

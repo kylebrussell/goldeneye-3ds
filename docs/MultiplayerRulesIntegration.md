@@ -215,3 +215,22 @@ retained `chrpropEnable`, the retained original object room publication
 initialized before use. The binding supplies no silent sound fallback. Its
 resource-call regression verifies the object pointer, sound ID, bank pointer
 and three position coordinates; focused ARM compilation passes.
+
+`ge_original_multiplayer_regen_tick_all(tick60, &batch)` now provides the opaque
+native world boundary. It validates the active list against the complete
+600-slot pool, then preserves original active-tail-to-`prev` iteration. It
+includes disabled respawning pickups and excludes free slots even when they
+retain stale timer/object fields. Run it immediately after
+`ge_original_stage_active_props_pre_tick_exact` (the retained
+`chrlvAllChrTick`) and before the player shuffle and viewport passes. This is
+the original placement inside `chrpropTick`; regeneration does not belong to
+an individual viewport. The batch reports visited/ticked/unsupported counts
+and a failed pool index. Unsupported lifecycle owners remain untouched; a
+later error can follow completed ticks, so callers must not retry the batch.
+
+The sanitizer fixture now allocates and activates scattered pool slots using
+original `chrpropAllocate`/`chrpropActivate`, including slot 599. It verifies
+disabled pickup advancement, original tail ordering at the sound/room seam,
+exclusion of a stale free-slot timer, complete-list validation before mutation
+for cycles/invalid pointers, explicit unsupported ownership, and zero ticks.
+The native wrapper passes strict ARM compilation.

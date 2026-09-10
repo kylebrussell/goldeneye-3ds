@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
+PropRecord g_Props[MAX_PROPS];
+PropRecord *g_ActivePropsTail, *g_ActivePropsHead, *g_FreeProps;
 struct player *g_playerPointers[4];
 static struct player players[4];
 static PropRecord viewers[4];
@@ -103,6 +105,49 @@ static void lifecycle(int count,int type)
     assert(ge_original_multiplayer_regen_tick(&prop,-1,&providers)==GE_ORIGINAL_MP_REGEN_INVALID_ARGUMENT);
     assert(ge_original_multiplayer_regen_tick(&prop,32768,&providers)==GE_ORIGINAL_MP_REGEN_INVALID_ARGUMENT);
 }
+static void pool_lifecycle(void)
+{
+    ObjectRecord objects[3]={{0}};
+    GeOriginalMultiplayerRegenBatch batch;
+    memset(g_Props,0,sizeof(g_Props));
+    g_ActivePropsHead=g_ActivePropsTail=NULL;
+    /* Use the real allocator/activation functions with deliberately scattered
+     * free slots, including the last slot; original tail order is 599,7,0. */
+    g_FreeProps=&g_Props[0];g_Props[0].prev=&g_Props[7];g_Props[7].prev=&g_Props[599];
+    for(int i=0;i<3;++i) {
+        PropRecord *p=chrpropAllocate();assert(p);
+        p->type=PROP_TYPE_OBJ;p->obj=&objects[i];objects[i].type=PROPDEF_AMMO;
+        objects[i].prop=p;objects[i].state=PROPSTATE_RESPAWN;
+        chrpropActivate(p);propExecuteTickOperation(p,TICKOP_FREE);
+    }
+    assert(g_FreeProps==NULL && g_ActivePropsTail==&g_Props[599]);
+    /* A stale free-slot timer must never be visited. */
+    g_Props[1].type=PROP_TYPE_OBJ;g_Props[1].timetoregen=1200;g_Props[1].obj=(void *)(uintptr_t)1;
+    assert(ge_original_multiplayer_regen_tick_all(1140,&batch)==GE_ORIGINAL_MP_REGEN_OK);
+    assert(batch.visited==3 && batch.ticked==3 && !batch.unsupported);
+    assert(g_Props[599].timetoregen==60 && g_Props[7].timetoregen==60 && g_Props[0].timetoregen==60);
+    assert(g_Props[1].timetoregen==1200);
+    /* Only the tail crosses this tick: prove callback sees slot 599. */
+    g_Props[7].timetoregen=g_Props[0].timetoregen=1200;
+    expected_room_object=&objects[2];memset(expected_sound_position,0,sizeof(expected_sound_position));
+    for(int i=0;i<player_count;++i)viewers[i].pos.x=10000;
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_OK);
+    assert(g_Props[599].timetoregen==59 && (g_Props[599].flags&PROPFLAG_ENABLED));
+    assert(g_Props[0].timetoregen==1199 && !(g_Props[0].flags&PROPFLAG_ENABLED));
+    /* Corrupt list is rejected before any earlier valid timer advances. */
+    g_Props[0].prev=&g_Props[599];
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked && g_Props[599].timetoregen==59);
+    g_Props[0].prev=(void *)(uintptr_t)1;
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_INVALID_POOL);
+    assert(!batch.ticked);g_Props[0].prev=NULL;
+    objects[0].flags|=PROPFLAG_INSIDEANOTHEROBJ;
+    assert(ge_original_multiplayer_regen_tick_all(1,&batch)==GE_ORIGINAL_MP_REGEN_UNSUPPORTED_OBJECT);
+    assert(batch.ticked==2 && batch.unsupported==1 && g_Props[0].timetoregen==1199);
+    assert(ge_original_multiplayer_regen_tick_all(0,&batch)==GE_ORIGINAL_MP_REGEN_IDLE);
+    assert(batch.visited==3 && !batch.ticked);
+}
+
 int main(void)
 {
     for(int n=2;n<=4;n+=2){lifecycle(n,PROPDEF_COLLECTABLE);lifecycle(n,PROPDEF_AMMO);lifecycle(n,PROPDEF_ARMOUR);}
@@ -120,6 +165,7 @@ int main(void)
         assert(prop.flags&PROPFLAG_ENABLED);
         assert(room_updates==before_rooms+1 && sounds==before_sound+1);
     }
+    pool_lifecycle();
     puts("canonical 2/4-player pickup regeneration: FREE operation,1200 ticks,all-player proximity,400-unit boundary,armour refill and repeated collection passed");
     return 0;
 }

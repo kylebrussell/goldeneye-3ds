@@ -483,6 +483,27 @@ ChrRecord *ge_original_stage_guard_runtime_chr_pool(
     return runtime!=NULL?runtime->chrs:NULL;
 }
 
+int ge_original_stage_guard_runtime_player_item_definition(
+    const GeOriginalStageGuardRuntime *runtime,size_t slot,
+    const void **definition,size_t *bytes)
+{
+    if(!runtime || !definition || !bytes || slot>=GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY)return 0;
+    *definition=&runtime->player_items[slot].weapon;*bytes=sizeof(runtime->player_items[slot].weapon);return 1;
+}
+int ge_original_stage_guard_runtime_weapon_definition(
+    const GeOriginalStageGuardRuntime *runtime,size_t slot,
+    const void **definition,size_t *bytes)
+{
+    if(!runtime || !definition || !bytes || slot>=runtime->weapon_count)return 0;
+    *definition=&runtime->weapons[slot].weapon;*bytes=sizeof(runtime->weapons[slot].weapon);return 1;
+}
+int ge_original_stage_guard_runtime_player_item_allocator_state(
+    const GeOriginalStageGuardRuntime *runtime,uint32_t *next,uint32_t *generation)
+{
+    if(!runtime || !next || !generation || runtime->player_item_next>=GE_ORIGINAL_STAGE_PLAYER_ITEM_CAPACITY)return 0;
+    *next=(uint32_t)runtime->player_item_next;*generation=runtime->player_item_generation;return 1;
+}
+
 size_t ge_original_stage_guard_runtime_player_item_count(
     const GeOriginalStageGuardRuntime *runtime)
 {

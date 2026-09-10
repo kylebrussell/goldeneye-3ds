@@ -67,7 +67,9 @@ LDFLAGS += -Wl,-u,ge_mp_state_core_capture \
            -Wl,-u,ge_mp_state_inventory_export -Wl,-u,ge_mp_state_inventory_schemas \
            -Wl,-u,ge_mp_state_props_begin -Wl,-u,ge_mp_state_props_end \
            -Wl,-u,ge_mp_state_props_export -Wl,-u,ge_mp_state_props_schemas \
-           -Wl,-u,ge_mp_state_guns_capture
+           -Wl,-u,ge_mp_state_guns_capture \
+           -Wl,-u,ge_mp_state_players_export -Wl,-u,ge_mp_state_players_schema \
+           -Wl,-u,ge_mp_state_bg_capture -Wl,-u,ge_mp_state_bg_schema
 LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_original_bond_live_initialize_multiplayer \
            -Wl,-u,ge_original_multiplayer_respawn \
@@ -484,7 +486,7 @@ ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
-ge_mp_state_props.o ge_mp_state_guns.o \
+ge_mp_state_props.o ge_mp_state_guns.o ge_mp_state_players.o ge_mp_state_bg.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
 ge_original_multiplayer_session_slice.o ge_original_multiplayer_stage_reset.o \
 ge_original_player_held_items.o \

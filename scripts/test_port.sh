@@ -51,13 +51,17 @@ bash "${repo_dir}/scripts/test_player_held_items.sh"
 bash "${repo_dir}/scripts/test_texture_hit_type.sh"
 if [[ -f "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" ]]; then
     bash "${repo_dir}/scripts/test_bg_geometry.sh" "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+    bash "${repo_dir}/scripts/test_mp_state_bg.sh" "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 else
     bash "${repo_dir}/scripts/test_bg_geometry.sh"
+    bash "${repo_dir}/scripts/test_mp_state_bg.sh"
 fi
 bash "${repo_dir}/scripts/test_multiplayer_runtime.sh"
 bash "${repo_dir}/scripts/test_original_multiplayer_frontend.sh"
 bash "${repo_dir}/scripts/test_mp_state.sh"
 bash "${repo_dir}/scripts/test_mp_state_core.sh"
+bash "${repo_dir}/scripts/test_mp_state_players.sh"
+bash "${repo_dir}/scripts/test_multiplayer_main_state_lifecycle.sh"
 bash "${repo_dir}/scripts/test_mp_state_inventory.sh"
 bash "${repo_dir}/scripts/test_mp_state_props.sh"
 bash "${repo_dir}/scripts/test_mp_state_guns.sh"
@@ -946,7 +950,10 @@ if [[ -f "${repo_dir}/build/3ds-models/first-person-pp7/GwppkZ.bin" \
         --extra-dir "converted/models/first-person-pp7=${repo_dir}/build/3ds-models/first-person-pp7" \
         --output "${first_person_pack}"
     bash "${repo_dir}/scripts/test_multiplayer_gun_producer.sh" "${first_person_pack}"
-    bash "${repo_dir}/scripts/test_multiplayer_gun_gameplay.sh" "${first_person_pack}"
+    if [[ -f "${repo_dir}/build/3ds-assets/goldeneye.u.gepack" ]]; then
+        bash "${repo_dir}/scripts/test_multiplayer_gun_gameplay.sh" "${first_person_pack}" \
+            "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+    fi
     cc -std=c11 -Wall -Wextra -Werror -pedantic -Wconversion \
         -Wsign-conversion -Wshadow \
         -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE \

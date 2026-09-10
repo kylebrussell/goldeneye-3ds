@@ -39,7 +39,10 @@ static uint16_t ge_port_n64_buttons(const GePortInput *input,
         buttons |= A_BUTTON;
     }
     if ((actions & GE_PORT_ACTION_PREV_WEAPON) != 0U) {
-        buttons |= D_JPAD;
+        /* Both 1.1 and 2.2 backstep on inventory + a rising fire trigger.
+         * The canonical body suppresses firing while inventory is held.
+         * D-pad Down only moves/crouches in 1.x and is ignored by 2.2. */
+        buttons |= A_BUTTON | Z_TRIG;
     }
     if ((actions & GE_PORT_ACTION_PAUSE) != 0U) {
         buttons |= START_BUTTON;

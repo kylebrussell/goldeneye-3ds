@@ -34,6 +34,7 @@
 #include "ge_3ds_frontend_probe.h"
 #include "ge_3ds_stereo.h"
 #include "ge_3ds_controls.h"
+#include "ge_original_inventory.h"
 #include "ge_3ds_wireless.h"
 #include "ge_3ds_original_frontend_cast.h"
 #include "ge_3ds_original_hud.h"
@@ -12684,6 +12685,25 @@ static bool load_rareware_textures(GeAssetPack *asset_pack,
 
 static Ge3dsControls controls;
 static bool controls_gameplay;
+static GeOriginalInventorySnapshot touch_inventory;
+
+static void update_touch_inventory(void)
+{
+    Ge3dsTouchInventoryItem items[GE_3DS_TOUCH_INVENTORY_MAX];
+    size_t index;
+    if (ge_original_inventory_snapshot(&touch_inventory) != GE_ORIGINAL_INVENTORY_OK) {
+        ge_3ds_controls_set_inventory(&controls, NULL, 0U);
+        return;
+    }
+    for (index = 0U; index < touch_inventory.count
+            && index < GE_3DS_TOUCH_INVENTORY_MAX; ++index) {
+        const GeOriginalInventoryEntry *entry = &touch_inventory.entries[index];
+        items[index] = (Ge3dsTouchInventoryItem){
+            entry->name, entry->selected != 0U,
+            touch_inventory.selection_allowed && entry->selectable};
+    }
+    ge_3ds_controls_set_inventory(&controls, items, index);
+}
 
 static void update_touch_objectives(void)
 {
@@ -12692,6 +12712,7 @@ static void update_touch_objectives(void)
     const int count = ge_original_stage_objective_live_count();
     const int selected_difficulty = lvlGetSelectedDifficulty();
     int menu;
+    ge_3ds_controls_set_difficulty(&controls, selected_difficulty);
     /* Same difficulty/text providers as the original watch. Evaluation is
      * read-only: it does not consume the objective-change HUD notification. */
     for (menu = 0; menu < count && menu < GE_ORIGINAL_STAGE_OBJECTIVE_MAX
@@ -19345,7 +19366,18 @@ start_stage_runtime:
         && ge_retrace_scheduler_start(&scheduler, 16667U) == 0;
     controls_gameplay = !input_probe.enabled && !visual_probe_tour.enabled
         && !original_frontend_runtime.ramrom_active && !GE_3DS_LIVE_DIAGNOSTICS;
+    ge_original_input_set_full_stick_range(controls_gameplay);
+    ge_original_inventory_invalidate();
+    memset(&touch_inventory, 0, sizeof(touch_inventory));
     if (controls_gameplay) {
+        hidScanInput();
+        const u32 held_on_entry = hidKeysHeld();
+        ge_3ds_controls_resume(&controls, map_actions(held_on_entry),
+            (held_on_entry & KEY_TOUCH) != 0U);
+        ge_3ds_controls_set_inventory(&controls, NULL, 0U);
+        controls.inventory_refresh_pending = true;
+        if (ge_3ds_controls_inventory_due(&controls, osGetTime()))
+            update_touch_inventory();
         ge_3ds_controls_set_objectives(&controls, NULL, 0U);
         controls.objectives_refresh_pending = true;
         if (ge_3ds_controls_objectives_due(&controls, osGetTime()))
@@ -19360,6 +19392,14 @@ start_stage_runtime:
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (controls_gameplay) {
+            /* Consume the captured snapshot before refreshing. The provider
+             * rechecks actual player/item identity and idle gameplay state;
+             * a pickup/removal while touching cannot select a different row. */
+            const int selection = ge_3ds_controls_take_inventory_selection(&controls);
+            if (selection >= 0)
+                (void)ge_original_inventory_select(&touch_inventory, (size_t)selection);
+            if (ge_3ds_controls_inventory_due(&controls, osGetTime()))
+                update_touch_inventory();
             if (ge_3ds_controls_objectives_due(&controls, osGetTime()))
                 update_touch_objectives();
             ge_3ds_controls_draw_panel(&controls, stdout);
@@ -20718,6 +20758,7 @@ start_stage_runtime:
     }
 
     controls_gameplay = false;
+    ge_original_input_set_full_stick_range(false);
     if (gameplay_stage_ended
             && !input_probe.enabled && !visual_probe_tour.enabled) {
         GeOriginalMissionResultSnapshot completed_mission = {0};
@@ -20737,6 +20778,9 @@ start_stage_runtime:
 
 cleanup_runtime:
     controls_gameplay = false;
+    ge_original_input_set_full_stick_range(false);
+    ge_original_inventory_invalidate();
+    ge_3ds_controls_set_inventory(&controls, NULL, 0U);
     if (controls.settings_dirty
             && !ge_3ds_controls_save(&controls, CONTROLS_CONFIG_PATH))
         printf("Could not save control settings.\n");

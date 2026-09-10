@@ -40,6 +40,11 @@ void ge_original_input_tick(const GeOriginalInputSample *sample);
 void ge_original_input_set_dual_analog(int enabled);
 int ge_original_input_dual_analog(void);
 
+/* Human gameplay needs the original +/-80 stick travel: manual aim begins
+ * turning the camera beyond +/-60. Legacy scripted routes/frontends retain
+ * their +/-60 calibration when disabled. RAMROM raw samples bypass this. */
+void ge_original_input_set_full_stick_range(int enabled);
+
 float ge_original_input_move_x(void);
 float ge_original_input_move_y(void);
 float ge_original_input_look_x(void);

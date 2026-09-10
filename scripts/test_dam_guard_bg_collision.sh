@@ -55,10 +55,8 @@ for source_key, name in (
     ("chrprop", "chraiUpdateOnscreenPropCount"),
     ("lightfixture", "check_if_imageID_is_light"),
     ("bg", "addToByteSetMaxSize15"),
-    ("bg", "bgTestRayIntersectionInRoom"),
     ("bg", "bgFindRoomsAlongSegment"),
     ("bg", "bgCopyVisibleRoomsToList"),
-    ("bg", "bgTestBulletHitBackground"),
     ("bg", "get_room_data_float2"),
     ("stan", "stanFindTileBelowPos"),
 ):
@@ -66,6 +64,8 @@ for source_key, name in (
     assert module.function_text(source, name) in full_support
 assert "extern bool stanTileHasZeroArea(StandTile *tile);" in full_support
 assert "extern void getTileMidPoint(StandTile *tile, coord3d *out);" in full_support
+assert 'bool bgTestBulletHitBackground(' not in full_support
+assert 'bool bgTestRayIntersectionInRoom(' not in full_support
 print("Dam scheduler visibility/background/STAN exactness: canonical STAN owner plus unchanged test bodies retained")
 PY
 

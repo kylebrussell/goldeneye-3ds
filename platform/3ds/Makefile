@@ -289,6 +289,7 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_bond_move_state_slice.c \
             ge_original_multiplayer_players_slice.c \
             ge_original_multiplayer_rules_slice.c \
+            ge_original_multiplayer_regen_slice.c \
             ge_original_door_collision_slice.c \
             ge_original_door_character_collision_slice.c \
             ge_original_player_gait_model_slice.c \
@@ -455,7 +456,8 @@ ge_original_bond_move_state_slice.o ge_original_bond_move_state.o: CFLAGS += \
     -Wno-incompatible-pointer-types -Wno-pointer-to-int-cast \
     -Wno-missing-braces -Wno-comment -Wno-error
 ge_original_multiplayer_players.o ge_original_multiplayer_players_slice.o \
-ge_original_stage_multiplayer_setup.o \
+ge_original_stage_multiplayer_setup.o ge_original_multiplayer_regen.o \
+ge_original_multiplayer_regen_slice.o \
 ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DPLAYERFLAG=int -Wno-unused-variable -Wno-unused-parameter \
@@ -1112,6 +1114,11 @@ ge_original_multiplayer_players_slice.c: \
         $(TOPDIR)/../../src/game/unk_092E50.c \
         $(TOPDIR)/../../scripts/extract_multiplayer_players_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_players_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_multiplayer_regen_slice.c: \
+        $(TOPDIR)/../../src/game/chrprop.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_regen_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_regen_slice.py \
 		$(TOPDIR)/../.. $@
 ge_original_multiplayer_rules_slice.c: \
         $(TOPDIR)/../../src/game/bondview.c $(TOPDIR)/../../src/game/bondview2.c \

@@ -204,3 +204,14 @@ player, the exact 400-unit boundary, one enable/room/sound event, armour
 refill, final visibility flag restoration, repeated collection and rejection
 without mutation for missing resources, malformed rosters and unsupported
 owners. Both adapter and generated countdown pass focused ARM compilation.
+
+The opaque native binding is now available as
+`ge_original_multiplayer_regen_native_providers(&providers)`. It calls the
+retained `chrpropEnable`, the retained original object room publication
+(`ge_original_setup_update_object_room_position_slice`, the OBJ/WEAPON arm of
+`sub_GAME_7F03E134`), and the exact positional sound sequence
+`sndPlaySfx(g_musicSfxBufferPtr, OBJ_REGEN_SFX, NULL)` followed by
+`chrobjSndCreatePostEventDefault`. Normal world/model/audio resources must be
+initialized before use. The binding supplies no silent sound fallback. Its
+resource-call regression verifies the object pointer, sound ID, bank pointer
+and three position coordinates; focused ARM compilation passes.

@@ -25,6 +25,22 @@ PropRecord *getCurrentPlayerProp(void) { assert(!"FREE does not select a player"
 static void enable(void *context,void *prop) { (void)context;chrpropEnable(prop);++enabled; }
 static void update_rooms(void *context,void *prop) { (void)context;assert(prop);++room_updates; }
 static void play_sound(void *context,const float p[3]) { (void)context;assert(isfinite(p[0]));++sounds; }
+ALBank *g_musicSfxBufferPtr;
+static ObjectRecord *expected_room_object;
+static float expected_sound_position[3];
+static ALSoundState *sound_token=(ALSoundState *)(uintptr_t)1;
+ALSoundState *sndPlaySfx(struct ALBankAlt_s *bank,s16 sound,ALSoundState *pending)
+{
+    assert((void *)bank==(void *)g_musicSfxBufferPtr && sound==OBJ_REGEN_SFX && pending==NULL);
+    return sound_token;
+}
+void chrobjSndCreatePostEventDefault(ALSoundState *state,coord3d *position)
+{
+    assert(state==sound_token && memcmp(position->f,expected_sound_position,sizeof(position->f))==0);
+    ++sounds;
+}
+void ge_original_setup_update_object_room_position_slice(ObjectRecord *object)
+{assert(object==expected_room_object);++room_updates;}
 static const GeOriginalMultiplayerRegenProviders providers={NULL,enable,update_rooms,play_sound};
 extern void propExecuteTickOperation(PropRecord *,TICKOP);
 
@@ -90,6 +106,20 @@ static void lifecycle(int count,int type)
 int main(void)
 {
     for(int n=2;n<=4;n+=2){lifecycle(n,PROPDEF_COLLECTABLE);lifecycle(n,PROPDEF_AMMO);lifecycle(n,PROPDEF_ARMOUR);}
+    {
+        GeOriginalMultiplayerRegenProviders native;
+        ObjectRecord object={0};PropRecord prop={0};
+        assert(!ge_original_multiplayer_regen_native_providers(NULL));
+        assert(ge_original_multiplayer_regen_native_providers(&native));
+        for(int i=0;i<player_count;++i)viewers[i].pos.x=10000.0f;
+        object.type=PROPDEF_AMMO;object.prop=&prop;prop.obj=&object;prop.type=PROP_TYPE_OBJ;
+        prop.pos.x=17;prop.pos.y=23;prop.pos.z=29;prop.timetoregen=60;
+        expected_room_object=&object;memcpy(expected_sound_position,prop.pos.f,sizeof(prop.pos.f));
+        const unsigned before_rooms=room_updates,before_sound=sounds;
+        assert(ge_original_multiplayer_regen_tick(&prop,1,&native)==GE_ORIGINAL_MP_REGEN_OK);
+        assert(prop.flags&PROPFLAG_ENABLED);
+        assert(room_updates==before_rooms+1 && sounds==before_sound+1);
+    }
     puts("canonical 2/4-player pickup regeneration: FREE operation,1200 ticks,all-player proximity,400-unit boundary,armour refill and repeated collection passed");
     return 0;
 }

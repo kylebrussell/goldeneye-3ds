@@ -113,6 +113,13 @@ deployed; later multiplayer body, effect, visibility and session work remains
 outside that frozen checkpoint. See the
 [integration acceptance record](IntegrationAcceptance20260910.md).
 
+The newer `e7031cc4` checkpoint also passes a complete same-source host suite
+and pinned ARM build, including reviewed visibility/fog ownership and native
+hand-selection repairs. It is not packaged and does not close any physical or
+complete-state acceptance area. Subsequent clean native Caves tests run 480
+frames for two/four players through authored pickup, firing, reload and ten
+background impacts; player-hit/death/respawn/results progression remains open.
+
 ## Reproducible checks
 
 ```sh

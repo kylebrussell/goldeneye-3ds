@@ -262,3 +262,32 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   diagnostic overrides or DSP firmware; external DSP support is explicit.
   It has not been deployed. Later body/effect/fog/visibility/session and host
   callback changes are outside this checkpoint and need their own closure.
+- A newer common-source checkpoint at `e7031cc4` passes the complete host
+  aggregate and forced pinned ARM build. It adds native effects/fog/render
+  ordering, typed session and visibility owners, wide host animation/callback
+  references, and the reviewed float-alias, visibility-publication, fog-identity
+  and opposite-hand repairs. All 9,181 staged inputs were verified; only two
+  copied Cuba metadata files changed during regeneration. Its executable
+  SHA-256 is
+  `67dc65d7633c7a23e3751bc2698455450287b33044487f2969af850b0d94251b`,
+  and the ELF retains 45 checked native definitions. The actual generated ARM
+  hand-selection sites use the bounded expression. Evidence is retained in
+  `build/integration/candidate-build-e7031cc4` and
+  `build/integration/aggregate-host-evidence-e7031cc4`; the host closure hash is
+  `7c190c669b10762d4a8938662c6d96c6445c44668dbb20346d5b7a79bc0114db`.
+  This checkpoint is not a new package or complete-state acceptance.
+- The preceding `99f7bf7e` full host run failed a source-text assertion that
+  confused initialization calls in separate ABI branches. Both native paths
+  retained correct ordering. Repair `09ef4402` checks each branch separately;
+  the later complete `e7031cc4` run passes. The failed run and its separately
+  passing unexecuted-tail diagnostics remain immutable and are not combined
+  into a claimed full-suite pass.
+- Later integration at `a660a001` passes a clean 362-unit native Caves graph
+  for two and four players: 480 shared frames, 26 authored supplies, a PP7
+  pickup, ten shots and background impacts, one reload, and ammo depletion.
+  The bullet-impact accessor borrows exact origins from the bound BG owner.
+  This extends the earlier Temple bootstrap without establishing player-hit,
+  death/respawn, score/results, synchronized state, audio output or hardware
+  behavior. Evidence is under `build/integration/mp-watch-caves-a660a001`.
+  The newer watch/awards cohort and effects teardown strengthening are outside
+  the frozen `e7031cc4` checkpoint and require their own review closure.

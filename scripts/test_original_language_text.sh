@@ -8,7 +8,7 @@ trap 'rm -rf "${test_dir}"' EXIT
 language_sources=(
     LdamE LarkE LrunE LsevxE LsevE LsiloE LdestE LsevxbE LsevbE
     LstatE LarchE LpeteE LdepoE LtraE LjunE LarecE LcaveE LcradE
-    LaztE LcrypE LlenE LgunE LmiscE LoptionsE LpropobjE LtitleE
+    LaztE LcrypE LlenE LmpweaponsE LgunE LmiscE LoptionsE LpropobjE LtitleE
 )
 source_paths=()
 for source in "${language_sources[@]}"; do

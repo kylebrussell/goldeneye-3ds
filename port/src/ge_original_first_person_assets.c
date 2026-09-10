@@ -790,6 +790,14 @@ void ge_original_first_person_assets_close(GeOriginalFirstPersonAssets *assets)
     memset(assets, 0, sizeof(*assets));
 }
 
+void ge_original_first_person_assets_select_loader(
+    GeOriginalFirstPersonAssets *assets,
+    GeOriginalFirstPersonLoaderState *state)
+{
+    loader_assets = assets;
+    loader_state = state;
+}
+
 void ge_original_first_person_assets_bind_loader(
     GeOriginalFirstPersonAssets *assets,
     GeOriginalFirstPersonLoaderState *state)

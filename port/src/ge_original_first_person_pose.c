@@ -252,6 +252,12 @@ static GeOriginalFirstPersonPoseStatus pose_one_hand(
     return GE_ORIGINAL_FIRST_PERSON_POSE_OK;
 }
 
+void ge_original_first_person_pose_select(
+    GeOriginalFirstPersonPoseState *state)
+{
+    pose_state = state;
+}
+
 void ge_original_first_person_pose_bind(GeOriginalFirstPersonPoseState *state)
 {
     pose_state = state;

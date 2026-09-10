@@ -239,6 +239,11 @@ typedef struct GeOriginalFirstPersonLoaderState {
 /* Binds the platform asset-pack loader used by the exact on-demand gun body.
  * Texture decoding remains owned by the native renderer, so a non-null texpool
  * is recorded as a renderer handoff rather than rewriting N64 display lists. */
+/* Select an initialized per-player resource owner without clearing it. */
+void ge_original_first_person_assets_select_loader(
+    GeOriginalFirstPersonAssets *assets,
+    GeOriginalFirstPersonLoaderState *state);
+
 void ge_original_first_person_assets_bind_loader(
     GeOriginalFirstPersonAssets *assets,
     GeOriginalFirstPersonLoaderState *state);

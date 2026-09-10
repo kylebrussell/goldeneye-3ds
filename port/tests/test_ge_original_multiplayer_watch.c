@@ -103,7 +103,7 @@ static void reference_awards(void)
     assert(ge_original_multiplayer_watch_snapshot(&expected));
     for(unsigned i=0;i<active_count;++i)for(unsigned a=0;a<2;++a)
         assert(ge_original_multiplayer_watch_award_text(i,a,&expected_text[i][a]));
-    assert(expected_text[0][0] && !strcmp(expected_text[0][0],(const char *)langGet(0xa010)));
+    assert(expected_text[0][0] && !strcmp(expected_text[0][0],"Quad Kill (Doh!)"));
     for(unsigned i=0;i<active_count;++i)*g_playerPointers[i]=copy[i];
     memcpy(g_playerPlayerData,permanent,sizeof(permanent));g_randomSeed=seed;
     assert(ge_original_multiplayer_session_reset(0,0)==GE_ORIGINAL_MP_SESSION_OK);

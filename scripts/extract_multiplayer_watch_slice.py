@@ -30,6 +30,8 @@ def render(root):
 #include "boss.h"
 #include "assets/obseg/text/LmpmenuE.h"
 extern s32 g_pausedFlag;
+u8 *ge_original_mp_watch_language(s32 id);
+#define langGet ge_original_mp_watch_language
 void pauseAndLockControls(void);
 void ge_original_mp_watch_quit_exact(bool delay);
 void ge_original_mp_watch_publish_award(s32 player,s32 award,const char *text);

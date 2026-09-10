@@ -53,6 +53,7 @@ extern void bondviewUpdatePlayerRoom(struct player *player);
 /* Canonical bondview.c / bondview2.c state omitted by their bounded port
  * slices.  Initial values are the original data/BSS initializers. */
 s32 cameraBufferToggle = 0;
+s32 cameraFrameCounter1 = 0;
 s32 cameraFrameCounter2 = 0;
 enum CAMERAMODE g_CameraAfterCinema = CAMERAMODE_NONE;
 s32 stop_time_flag = 0;
@@ -774,6 +775,7 @@ void ge_original_dam_mission_exit_services_reset(void)
 {
     memset(&ge_exit_snapshot, 0, sizeof(ge_exit_snapshot));
     cameraBufferToggle = 0;
+    cameraFrameCounter1 = 0;
     cameraFrameCounter2 = 0;
     g_CameraAfterCinema = CAMERAMODE_NONE;
     stop_time_flag = 0;

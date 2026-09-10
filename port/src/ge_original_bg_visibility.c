@@ -623,6 +623,20 @@ int ge_original_bg_visibility_room_snapshot(
     return 1;
 }
 
+int ge_original_bg_visibility_render_rooms(GeOriginalBgRenderRoom *rooms,
+    size_t capacity,size_t *count)
+{
+    if(!count || g_BgNumberOfRoomsDrawn<0
+            || (size_t)g_BgNumberOfRoomsDrawn>GE_ORIGINAL_BG_VISIBILITY_MAX_VISIBLE
+            || (size_t)g_BgNumberOfRoomsDrawn>capacity
+            || (!rooms && g_BgNumberOfRoomsDrawn))return 0;
+    for(s32 i=0;i<g_BgNumberOfRoomsDrawn;++i) {
+        rooms[i].room=dword_CODE_bss_8007FFA0[i].roomid;
+        rooms[i].depth=dword_CODE_bss_8007FFA0[i].unk1;
+    }
+    *count=(size_t)g_BgNumberOfRoomsDrawn;return 1;
+}
+
 const char *ge_original_bg_visibility_status_name(
     GeOriginalBgVisibilityStatus status)
 {

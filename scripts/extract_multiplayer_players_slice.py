@@ -25,7 +25,7 @@ def generate(repo):
     for src, name in [(hand, 'D_8003FDA0'), (player, 'random_byte'), (bond, 'obj_collision_flag')]:
         body = extract_variable(src, name)
         sections += [f'/* {name} sha256={digest(body)} */', body]
-    for src, name in [(player, 'initBONDdataforPlayer'), (bond, 'init_player_BONDdata')]:
+    for src, name in [(player, 'reset_play_data_ptrs'), (player, 'initBONDdataforPlayer'), (bond, 'init_player_BONDdata')]:
         body = extract_function(src, name)
         sections += [f'/* {name} sha256={digest(body)} */', body]
     return '\n\n'.join(sections) + '\n'

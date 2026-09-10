@@ -10,10 +10,10 @@ from pathlib import Path
 root=Path(sys.argv[1]);sys.path.insert(0,str(root/'scripts'))
 from extract_bond_move_state_slice import extract_function,extract_variable
 p=(root/'src/game/player.c').read_text()
-s=['#include <ultra64.h>','#include <bondconstants.h>','#include <bondtypes.h>','#include "game/player.h"', 's32 g_VisibleToGuardsFlag;']
-for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num'):
+s=['#include <ultra64.h>','#include <bondconstants.h>','#include <bondtypes.h>','#include "game/player.h"', 's32 g_VisibleToGuardsFlag;', '#include <random.h>']
+for name in ('g_playerPointers','g_CurrentPlayer','g_playerPlayerData','g_playerPerm','player_num','array_PLAYER_IDs'):
     s.append(extract_variable(p,name))
-for name in ('set_cur_player','get_cur_playernum','getPlayerCount','default_player_perspective_and_height'):
+for name in ('set_cur_player','get_cur_playernum','getPlayerCount','default_player_perspective_and_height','shuffle_player_ids'):
     s.append(extract_function(p,name))
 Path(sys.argv[2]).write_text('\n'.join(s))
 PY
@@ -32,7 +32,9 @@ sources=("${test_dir}/players.c" "${test_dir}/support.c"
 "${repo_dir}/port/src/random_port.c" "${repo_dir}/src/joy.c"
 "${repo_dir}/port/src/ge_original_chr_obj_random.c"
 "${repo_dir}/port/tests/test_ge_original_multiplayer_players.c")
-cc "${flags[@]}" -UPLAYERFLAG -Wno-switch -DGE_PORT_BOND_INTRO_SPAWN_SLICE -c "${repo_dir}/src/game/bondview_r.c" -o "${test_dir}/spawn.o"
 if [[ $(uname -s) == Darwin ]]; then strip=(-Wl,-dead_strip); else strip=(-Wl,--gc-sections); fi
-cc "${flags[@]}" "${sources[@]}" "${test_dir}/spawn.o" "${strip[@]}" -lm -o "${test_dir}/test"
-ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "${test_dir}/test"
+for enum_abi in -fno-short-enums -fshort-enums; do
+    cc "${flags[@]}" "${enum_abi}" -UPLAYERFLAG -Wno-switch -DGE_PORT_BOND_INTRO_SPAWN_SLICE -c "${repo_dir}/src/game/bondview_r.c" -o "${test_dir}/spawn.o"
+    cc "${flags[@]}" "${enum_abi}" "${sources[@]}" "${test_dir}/spawn.o" "${strip[@]}" -lm -o "${test_dir}/test"
+    ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "${test_dir}/test"
+done

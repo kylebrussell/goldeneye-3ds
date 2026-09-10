@@ -24,6 +24,7 @@ typedef struct GeMultiplayerStorage {
     InvItem inventory[4][30];
     struct player *previous_players[4];
     struct player_data previous_data[4];
+    PLAYER_ID previous_shuffle[4];
     struct player *previous_current;
     struct player_data *previous_perm;
     s32 previous_number;
@@ -63,6 +64,7 @@ int ge_original_multiplayer_players_create(uint32_t count, uint32_t local_slot,
     storage->lifetime = ++g_players_lifetime;
     memcpy(storage->previous_players, g_playerPointers, sizeof(g_playerPointers));
     memcpy(storage->previous_data, g_playerPlayerData, sizeof(storage->previous_data));
+    memcpy(storage->previous_shuffle, array_PLAYER_IDs, sizeof(storage->previous_shuffle));
     storage->previous_current = g_CurrentPlayer;
     storage->previous_perm = g_playerPerm;
     storage->previous_number = player_num;
@@ -71,7 +73,9 @@ int ge_original_multiplayer_players_create(uint32_t count, uint32_t local_slot,
     storage->previous_chr_rng = g_chrObjRandomSeed;
     storage->previous_control_style = ge_original_bond_input_control_style();
     g_players = storage;
-    memset(g_playerPointers, 0, sizeof(storage->previous_players));
+    /* boss.c resets these native stage fields before constructing viewports.
+     * In particular, the prior stage shuffle must not survive construction. */
+    reset_play_data_ptrs();
     memset(g_playerPlayerData, 0, sizeof(storage->previous_data));
     default_player_perspective_and_height();
     /* Inputs are complete stream states, not the original 32-bit setter
@@ -105,6 +109,7 @@ void ge_original_multiplayer_players_destroy(void)
     ge_original_bond_input_unbind_roster();
     memcpy(g_playerPointers, storage->previous_players, sizeof(storage->previous_players));
     memcpy(g_playerPlayerData, storage->previous_data, sizeof(storage->previous_data));
+    memcpy(array_PLAYER_IDs, storage->previous_shuffle, sizeof(storage->previous_shuffle));
     g_CurrentPlayer = storage->previous_current;
     g_playerPerm = storage->previous_perm;
     player_num = storage->previous_number;

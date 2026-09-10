@@ -16,6 +16,21 @@ Each local scene is captured immediately after that player's pass. Later players
 
 Every gameplay stage now requires a complete native BG geometry owner before prop/player construction. Collision and light-fixture data cover every authored room independently of renderer residency. Held-item dispatch reads that owner’s native room table and binds its original light-break callback. Local scene capture reapplies persisted authored room colours, excluding actor overlays, and flushes the changed room prefix; remote passes never rewrite the saved local scene. Teardown unbinds BG/light callbacks after native world consumers close.
 
+Native multiplayer watch text is captured during the displayed player's local
+scene capture, while that player is still selected. The retained source lays
+out the pause, scores, awards and continuation pages in the authored 320×240
+screen and split viewport. Main centers that viewport on the 400×240 display
+by translation, builds the real Bank Gothic glyphs once, and uploads owned
+vertices into the existing frontend UI region while gameplay owns it. Both
+eye draws consume those vertices after the ordinary HUD and before the final
+fade, matching the original watch display order. This adds no linear vertex
+allocation and does not change native VI, camera, selection, menu state or RNG.
+Missing font or failed page capture fails the local scene publication. The
+generated watch display slice is part of the production ARM build and the
+page/immutability regression is included in `test_port.sh`. See
+`MultiplayerWatchRender.md` for the source boundaries and CPU gallery evidence;
+the ARM link and CPU layout inspection do not establish hardware rendering.
+
 ## Validation and remaining acceptance
 
 Focused sanitizer checks for the constituent player/input, spawn, supplies, regeneration, session, combat, death, body, HUD, view and shared-loop owners are tracked in their individual documents and scripts. Root additionally ran the language, mission-exit, HUD, session and gun helper regressions while assembling this entrypoint. Actual two/four-player gun producer checks now execute the retained gun/model/RW/matrix/beam owners with real ROM weapon models, including distinct hands and cross-player storage persistence; preceding firing flags are fixture inputs, so this is still narrower than a complete match. Selected input providers refresh native stop-play, game-over, menu and lock gates at each live-input/MoveBond boundary; sanitizer checks cover freeze and release while ticks continue. The assembled loop, native BG/light closure, generated stage-intro reset, viewport timers and retained core/inventory/prop exports linked into the ARM ELF and 3DSX; integration performs the forced frozen build and independent aggregate checks. Main/bootstrap lifetime review and actual retained gun/world acceptance remain ongoing.

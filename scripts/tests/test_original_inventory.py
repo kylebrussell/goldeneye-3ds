@@ -23,10 +23,11 @@ FUNCTIONS = {
         "bondinvDetermineEquippedItem", "bondinvSetCurEquippedItem",
     ),
     "src/game/gun.c": (
-        "getCurrentPlayerWeaponId", "get_next_weapon_in_cycle_for_hand",
+        "get_ptr_item_statistics", "getCurrentPlayerWeaponId", "get_next_weapon_in_cycle_for_hand",
         "gunRequestHandWeaponChange", "currentPlayerUnEquipWeaponWrapper",
         "sub_GAME_7F05FB00", "advance_through_inventory", "backstep_through_inventory",
     ),
+    "src/game/gunfire.c": ("get_ammo_type_for_weapon",),
     "src/game/options.c": ("sub_GAME_7F0A8378",),
 }
 
@@ -41,6 +42,8 @@ typedef int PLAYERFLAG;
 #include "snd.h"
 #include "os_extension.h"
 extern struct player *g_CurrentPlayer;
+extern GunModelFileRecord gitem_structs[];
+extern WeaponStats default_weaponstats;
 extern int g_curWatchItemIndex, D_800409C4;
 extern ALBank *g_musicSfxBufferPtr;
 extern int getPlayerCount(void);

@@ -84,7 +84,8 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   unchanged at 20.9325 to 20.9215. All checksums matched. These are ARM64 host
   measurements, not game frame timing or ARM32 performance evidence.
 - A corrected XDG-isolated Azahar smoke completed 514 frontend and 600 Dam
-  gameplay frames, with active music telemetry. Its private pack and log paths
+  gameplay frames, with music sequence state advancing. NDSP initialization
+  failed (`d880a7fa`), so this is not evidence of working sound output. Its private pack and log paths
   were verified. It used an earlier integration executable and zero slider;
   it establishes neither final-candidate acceptance nor stereo/timing fidelity.
   The earlier portable-cwd attempt was discarded after detecting shared reads;
@@ -94,3 +95,23 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   toward an actual local match, live synchronization, and frontend/results
   transitions. The diagnostic lobby and primitive fixtures are insufficient
   evidence for playable matches or radio acceptance.
+
+- A frozen controller correctness build from `952af929` passed the pinned ARM
+  build and private-input/dependency receipt checks. Executable SHA-256:
+  `282809f92c96cbee838968e9d5922a454b88d1d5c7a5b91695355960c67f0005`.
+  The 00 Agent Dam route used explicit difficulty 2 before setup and at result,
+  maximum stereo, and the existing full pack. Both eye views were observed.
+  It failed at frame 5,895 and target 13/160 when the player died: 4 rooms,
+  55 background-tested PP7 rays, 7 guard hits, and no objective bits. Actor
+  scheduling remained healthy. The retained save reloaded with valid CRC,
+  but Dam 00 was incomplete and Facility 00 remained locked. Concurrent host
+  tests mean this route supplies no performance acceptance evidence.
+- Both isolated emulator runs lacked a DSP component at private
+  `sdmc/3ds/dspfirm.cdc`, causing NDSP initialization to fail. Music sequence
+  telemetry alone must not be reported as an active audio sink. The existing
+  shared file is a zero-byte HLE marker, not console firmware. Azahar 2126.0
+  [HLE LoadComponent](https://github.com/azahar-emu/azahar/blob/2126.0/src/audio_core/hle/hle.cpp#L470)
+  ignores DSP program bytes; any explicit private marker experiment is
+  emulator-only. No marker belongs in a physical candidate or proves physical
+  NDSP acceptance. The runner is adding an explicit, recorded HLE path while
+  retaining separate validation for user-provided real component files.

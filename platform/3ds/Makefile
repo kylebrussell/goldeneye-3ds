@@ -489,7 +489,7 @@ ge_original_bond_state_helpers_source.o: CFLAGS += \
     -I$(TOPDIR)/../../src/game -Wno-unused-parameter \
     -Wno-unused-variable -Wno-empty-body -Wno-incompatible-pointer-types \
     -Wno-int-conversion -Wno-pointer-to-int-cast -Wno-error
-ge_original_bond_live.o: CFLAGS += \
+ge_original_bond_live.o ge_original_inventory.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE -DGE_PORT_SETUP_DATA \
     -DVERSION_US -DBUGFIX_R0 -Wno-unused-parameter -Wno-error
 ge_original_gameplay_services.o ge_original_embedment_pool.o: CFLAGS += \

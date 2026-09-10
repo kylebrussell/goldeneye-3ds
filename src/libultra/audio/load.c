@@ -24,6 +24,14 @@
 #include <os.h>
 #include <R4300.h>
 
+#if defined(GE_PORT_LIBAUDIO_NATIVE)
+/* Native ABI commands carry direct addresses, including all pointer bits.
+ * N64 KSEG0 masking can corrupt a relocated book or saved decoder history. */
+#define LOAD_PHYSICAL_ADDRESS(pointer) osVirtualToPhysical(pointer)
+#else
+#define LOAD_PHYSICAL_ADDRESS(pointer) K0_TO_PHYS(pointer)
+#endif
+
 #ifndef MIN
 #   define MIN(a,b) (((a)<(b))?(a):(b))
 #endif
@@ -66,7 +74,7 @@ Acmd *alAdpcmPull(void *filter, s16 *outp, s32 outCount, s32 sampleOffset, Acmd 
 
     inp = AL_DECODER_IN;
     aLoadADPCM(ptr++, f->bookSize,
-               K0_TO_PHYS(f->table->waveInfo.adpcmWave.book->book));
+               LOAD_PHYSICAL_ADDRESS(f->table->waveInfo.adpcmWave.book->book));
 
     looped = (outCount + f->sample > f->loop.end) && (f->loop.count != 0);
     if (looped)
@@ -458,11 +466,11 @@ Acmd *_decodeChunk(Acmd *ptr, ALLoadFilter *f, s32 tsam, s32 nbytes, s16 outp, s
         dramAlign = 0;
 
     if (flags & A_LOOP){
-        aSetLoop(ptr++, K0_TO_PHYS(f->lstate));
+        aSetLoop(ptr++, LOAD_PHYSICAL_ADDRESS(f->lstate));
     }
     
     aSetBuffer(ptr++, 0, inp + dramAlign, outp, tsam<<1);
-    aADPCMdec(ptr++, flags, K0_TO_PHYS(f->state));
+    aADPCMdec(ptr++, flags, LOAD_PHYSICAL_ADDRESS(f->state));
     f->first = 0;
 
     return ptr;

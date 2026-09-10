@@ -45,7 +45,7 @@ for name in ("refresh_stage_ordinary_object_scenes", "refresh_stage_live_overlay
 
 upload = function("upload_dam_gpu_world_scene_range")
 glass = function("refresh_stage_glass_shading")
-assert glass.index("dam_visibility_contains_room(") < glass.index(
+assert glass.index("dam_renderer_visibility_contains_room(") < glass.index(
     "ge_original_stage_model_publication_glass_shading(")
 assert "ge_original_model_scene_build(" not in glass
 assert "malloc(" not in glass and "calloc(" not in glass

@@ -63,7 +63,7 @@ static const GeOriginalStageInteractiveEntry *ge_original_stage_interactive_entr
 { return index < interactive->count ? &interactive->entries[index] : NULL; }
 static int ge_original_stage_model_publication_glass_opacity(const void *ptr, uint8_t *opacity)
 { *opacity=0; return ((const Definition *)ptr)->windowed; }
-static bool dam_visibility_contains_room(const RuntimeDamPreview *preview, int room)
+static bool dam_renderer_visibility_contains_room(const RuntimeDamPreview *preview, int room)
 { return preview->visible && room==7; }
 int ge_original_door_runtime_snapshot(const void *definition, GeOriginalDoorRuntimePublication *publication)
 { (void)definition; ++snapshots; memset(publication,0,sizeof(*publication)); publication->matrix_count=3; return 1; }

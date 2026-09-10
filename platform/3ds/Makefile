@@ -891,9 +891,10 @@ stanintersection.o: CFLAGS += -DGE_PORT_STAN_GEOMETRY_SLICE \
     -DGE_PORT_BOND_MOVEMENT_SLICE
 bg.o: CFLAGS += -DGE_PORT_BG_CONNECTIVITY_SLICE -Wno-empty-body
 ge_dam_world.o: CFLAGS += -DGE_PORT_BG_VISIBILITY_AVAILABLE
-ge_original_bg_visibility.o ge_original_bg_visibility_slice.o: CFLAGS += \
+ge_renderer_bg_visibility.o ge_original_bg_visibility.o ge_original_bg_visibility_slice.o: CFLAGS += \
     -DVERSION_US -DLEFTOVERDEBUG -Wno-unused-variable -Wno-empty-body \
     -Wno-incompatible-pointer-types -Wno-return-type -Wno-unused-parameter
+ge_renderer_bg_visibility.o: ge_original_bg_visibility_slice.c
 ge_original_bg_visibility_slice.c: $(TOPDIR)/../../src/game/bg.c \
         $(TOPDIR)/../../scripts/extract_bg_visibility_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_bg_visibility_slice.py \

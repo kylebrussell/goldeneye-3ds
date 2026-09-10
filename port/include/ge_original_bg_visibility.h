@@ -46,6 +46,10 @@ typedef struct GeOriginalBgVisibilityInput {
     float far_distance;
     float vertical_fov_degrees;
     float aspect_ratio;
+    /* Optional off-axis projection in viewport pixels. Zero focal lengths
+     * retain the original symmetric-FOV path. Used by renderer instances. */
+    float projection_focal_px[2];
+    float projection_offset_px[2];
     int16_t view_left;
     int16_t view_top;
     int16_t view_width;

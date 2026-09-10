@@ -71,6 +71,7 @@ static coord3d ge_player_position;
 static Mtxf ge_world_to_screen;
 static f32 ge_near_distance;
 static f32 ge_far_distance;
+static float ge_projection_offset_px[2];
 static s16 ge_view_left;
 static s16 ge_view_top;
 static s16 ge_view_width;
@@ -401,8 +402,10 @@ void transform3Dto2DWithZScaling(coord3d *in, void *opaque_out)
 
     out->y = in->y * inverse_z * g_CurrentPlayer->c_recipscaley
         + g_CurrentPlayer->c_screentop + g_CurrentPlayer->c_halfheight;
+    if (ge_projection_offset_px[1] != 0.0f) out->y += ge_projection_offset_px[1];
     out->x = g_CurrentPlayer->c_screenleft + g_CurrentPlayer->c_halfwidth
         - in->x * inverse_z * g_CurrentPlayer->c_recipscalex;
+    if (ge_projection_offset_px[0] != 0.0f) out->x += ge_projection_offset_px[0];
 }
 
 void bbox2dCopy(bbox2d *destination, const bbox2d *source)
@@ -484,6 +487,11 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
             input->background_size, input->room_count, portal_count);
         if (status != GE_ORIGINAL_BG_VISIBILITY_OK) return status;
     }
+    /* Relocated snapshots contain geometry pointers from their creating
+     * instance. Rebind to this interpreter's own mutable polygon storage. */
+    for (room_index = 0U; room_index < portal_count; ++room_index)
+        ge_portals[room_index].offset_portal =
+            (bg_portal_entry *)&ge_portal_geometry[room_index];
     if (input->providers != NULL
             && input->providers->portal_controls != NULL
             && input->providers->portal_control_count < portal_count) {
@@ -529,6 +537,8 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     ge_view_height = input->view_height;
     ge_near_distance = input->near_distance;
     ge_far_distance = input->far_distance;
+    memcpy(ge_projection_offset_px, input->projection_offset_px,
+        sizeof(ge_projection_offset_px));
     memset(&ge_player, 0, sizeof(ge_player));
     ge_player.c_screenleft = input->view_left;
     ge_player.c_screentop = input->view_top;
@@ -538,6 +548,10 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     ge_player.c_recipscaley = ge_player.c_halfheight / tangent;
     ge_player.c_recipscalex = ge_player.c_halfwidth
         / (tangent * input->aspect_ratio);
+    if (input->projection_focal_px[0] > 0.0f)
+        ge_player.c_recipscalex = input->projection_focal_px[0];
+    if (input->projection_focal_px[1] > 0.0f)
+        ge_player.c_recipscaley = input->projection_focal_px[1];
     g_CurrentPlayer = &ge_player;
     dword_CODE_bss_8007FF90 = ge_global_command_count != 0U
         ? (s32 *)ge_global_commands : NULL;

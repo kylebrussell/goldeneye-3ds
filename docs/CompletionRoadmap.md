@@ -55,13 +55,23 @@ establish it.
   alternating stop tail in these cases; full-game speaker listening remains
   an explicit acceptance check.
 
+## September 10 renderer follow-up
+
+The renderer now has isolated per-eye portal interpretation, conservative room
+union, request-protected streaming residency, renderer-only guard/prop shading
+eligibility, and corrected world disparity for eye-coordinate guards. Authored
+model environment-alpha expressions and strict matched-state capture comparison
+tooling are also implemented. See [renderer verification](Verification20260910RendererEyes.md)
+and [material verification](Verification20260910ModelEnvironmentAlpha.md).
+Original N64 matched captures and physical stereo/GPU acceptance remain open.
+
 ## Required work, in dependency order
 
 | Area | Concrete remaining work | Acceptance evidence |
 | --- | --- | --- |
 | Original fidelity | Matched N64 reference captures for campaign, menus, watch, results, effects, audio and transitions; resolve depth/decal tolerance and remaining material/coverage differences | Same assets, camera, game state and timing; explain unavoidable N64 RDP/PICA differences instead of calling approximations exact |
 | Campaign completion | Exercise every mission at every difficulty, including objectives, failure, death, save/unlock, exit and restart; repair failures exposed by these runs | Recorded complete routes, objective/mission results and save roundtrips; room tours are insufficient |
-| Stereo room visibility | Separate renderer room visibility from the original mono gameplay visibility, preserving authored closed-door/global visibility rules and managing residency and glass shading | Doorway-edge and streaming captures of both eyes; unchanged canonical gameplay/AI visibility; slider-zero equivalence |
+| Stereo room visibility | Isolated renderer union and dependent residency/shading implemented; complete live doorway/streaming capture and failure/retry acceptance | Doorway-edge and streaming captures of both eyes; unchanged canonical gameplay/AI visibility; slider-zero equivalence |
 | Sustained 60 fps | Profile CPU and GPU on physical New 3DS XL with audible music/SFX and maximum stereo; reduce demonstrated costs, including loading transitions and busy combat | At least 3,600 measured frames per representative route after declared warmup, cold/repeat runs, complete frame/presentation records; loading hitches reported separately |
 | Control ergonomics | Test C-Stick range, sustained aiming, crouch, scoped zoom, remote-mine gestures, handedness, touch capture and saved settings on the device | Playable combat/stealth routes and observed touch accuracy, plus reboot/save checks |
 | Touchscreen | Test readability and gesture comfort; validate the implemented canonical inventory selection through live gadget/model routes | Read-only information matches the original watch; touch actions preserve authored inventory/weapon semantics |

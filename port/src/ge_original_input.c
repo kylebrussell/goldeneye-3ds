@@ -9,10 +9,10 @@
 #define GE_PRIMARY_CONTROLLER 0
 #define GE_SECONDARY_CONTROLLER 1
 #define GE_VIRTUAL_CONTROLLER_COUNT 2
-#define GE_ORIGINAL_STICK_LIMIT 60.0f
 
 static GeOriginalInputSample g_pending_sample;
 static int g_dual_analog;
+static float g_stick_limit = 60.0f;
 
 /* The original 2.x styles read walk/strafe from controller
  * (playernum + playerCount) and turn/pitch from the player's own controller,
@@ -40,7 +40,12 @@ static s8 ge_original_input_stick(float value)
     } else if (value > 1.0f) {
         value = 1.0f;
     }
-    return (s8)lroundf(value * GE_ORIGINAL_STICK_LIMIT);
+    return (s8)lroundf(value * g_stick_limit);
+}
+
+void ge_original_input_set_full_stick_range(int enabled)
+{
+    g_stick_limit = enabled ? 80.0f : 60.0f;
 }
 
 static s32 ge_original_input_playback(struct contsample *samples, s32 current)

@@ -174,7 +174,7 @@ static void test_objectives(void)
     long bytes;
     ge_3ds_controls_init(&controls);
     assert(!ge_3ds_controls_objectives_due(&controls, 1000));
-    assert(touch(&controls, 280, 12).held == 0);
+    assert(touch(&controls, 160, 12).held == 0);
     assert(controls.objectives_visible && !controls.settings_dirty);
     assert(ge_3ds_controls_objectives_due(&controls, 1000));
     assert(!ge_3ds_controls_objectives_due(&controls, 1000));
@@ -222,10 +222,10 @@ static void test_objectives(void)
     controls.panel_dirty = false;
     ge_3ds_controls_set_objectives(&controls, items, 1);
     assert(controls.panel_dirty);
-    touch(&controls, -1, 0); touch(&controls, 280, 12);
+    touch(&controls, -1, 0); touch(&controls, 40, 12);
     assert(!controls.objectives_visible);
     assert(!ge_3ds_controls_objectives_due(&controls, 2000));
-    touch(&controls, -1, 0); touch(&controls, 280, 12);
+    touch(&controls, -1, 0); touch(&controls, 160, 12);
     assert(ge_3ds_controls_objectives_due(&controls, 2001));
     ge_3ds_controls_set_objectives(&controls, NULL, 1000);
     assert(controls.objective_count == 0 && controls.objective_page == 0);
@@ -247,6 +247,111 @@ static void write_text(const char *path, const char *text)
     assert(stream != NULL);
     assert(fputs(text, stream) >= 0);
     assert(fclose(stream) == 0);
+}
+
+static void test_inventory(void)
+{
+    Ge3dsControls controls;
+    Ge3dsTouchInventoryItem items[GE_3DS_TOUCH_INVENTORY_MAX + 1];
+    FILE *stream;
+    char rendered[8192] = {0};
+    long bytes;
+    size_t index;
+    ge_3ds_controls_init(&controls);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1);
+    assert(!ge_3ds_controls_inventory_due(&controls, 1000));
+    touch(&controls, 280, 12);
+    assert(controls.inventory_visible && !controls.objectives_visible);
+    assert(!ge_3ds_controls_inventory_due(&controls, 1000)); /* Held tab. */
+    touch(&controls, -1, 0);
+    assert(ge_3ds_controls_inventory_due(&controls, 1000));
+    assert(!ge_3ds_controls_inventory_due(&controls, 1249));
+    assert(ge_3ds_controls_inventory_due(&controls, 1250));
+    for (index = 0; index < sizeof(items)/sizeof(items[0]); ++index)
+        items[index] = (Ge3dsTouchInventoryItem){"PP7 (silenced)", false, true};
+    items[0].selected = true;
+    items[1].selectable = false;
+    items[2].text = "  Covert\nmodem  ";
+    ge_3ds_controls_set_inventory(&controls, items, GE_3DS_TOUCH_INVENTORY_MAX + 1);
+    assert(controls.inventory_count == GE_3DS_TOUCH_INVENTORY_MAX);
+    assert(strcmp(controls.inventory[2].text, "Covert modem") == 0);
+    stream = tmpfile(); assert(stream != NULL);
+    ge_3ds_controls_draw_panel(&controls, stream);
+    bytes = ftell(stream); assert(bytes > 0);
+    ge_3ds_controls_set_inventory(&controls, items, GE_3DS_TOUCH_INVENTORY_MAX);
+    assert(!controls.panel_dirty);
+    ge_3ds_controls_draw_panel(&controls, stream);
+    assert(ftell(stream) == bytes);
+    rewind(stream);
+    assert(fread(rendered, 1, sizeof(rendered)-1, stream) > 0);
+    assert(strstr(rendered, "EQUIPPED") && strstr(rendered, "UNAVAILABLE"));
+    assert(strstr(rendered, "Covert modem"));
+    fclose(stream);
+    assert(touch(&controls, 80, 40).held == 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1);
+    assert(!ge_3ds_controls_inventory_due(&controls, 9000)); /* Snapshot frozen. */
+    touch(&controls, -1, 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1);
+    assert(ge_3ds_controls_inventory_due(&controls, 9001));
+    touch(&controls, 80, 72); touch(&controls, -1, 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1); /* Disabled. */
+    touch(&controls, 80, 104); touch(&controls, 80, 136);
+    touch(&controls, 80, 104); touch(&controls, -1, 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1); /* Drag cancels. */
+    touch(&controls, 80, 104);
+    ge_3ds_controls_set_inventory(&controls, items, 10);
+    touch(&controls, -1, 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1); /* Replaced snapshot. */
+    touch(&controls, 280, 220); touch(&controls, -1, 0);
+    assert(controls.inventory_page == 1);
+    touch(&controls, 80, 199); touch(&controls, -1, 0);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == 9);
+    touch(&controls, 280, 220); touch(&controls, -1, 0);
+    assert(controls.inventory_page == 1);
+    touch(&controls, 160, 220); touch(&controls, -1, 0);
+    assert(controls.inventory_page == 0);
+    assert(touch(&controls, 40, 220).held == GE_PORT_ACTION_PAUSE);
+    touch(&controls, -1, 0);
+    touch(&controls, 160, 12); touch(&controls, -1, 0);
+    assert(controls.objectives_visible && !controls.inventory_visible);
+    touch(&controls, 40, 12); touch(&controls, -1, 0);
+    assert(!controls.objectives_visible && !controls.inventory_visible);
+    ge_3ds_controls_set_inventory(&controls, NULL, 100);
+    assert(controls.inventory_count == 0 && controls.inventory_page == 0);
+}
+
+static void test_resume(void)
+{
+    Ge3dsControls controls;
+    Ge3dsControlSample pad = {0};
+    GePortInput result;
+    ge_3ds_controls_init(&controls);
+    controls.settings.swap_shoulders = true;
+    controls.inventory_visible = true;
+    controls.inventory_page = 3;
+    pad.held = GE_PORT_ACTION_FIRE | GE_PORT_ACTION_USE | GE_PORT_ACTION_PAUSE;
+    pad.touching = true; pad.touch_x = 40; pad.touch_y = 12;
+    ge_3ds_controls_resume(&controls, pad.held, true);
+    assert(controls.inventory_visible && controls.inventory_page == 3);
+    assert(controls.settings.swap_shoulders);
+    result = ge_3ds_controls_sample(&controls, &pad, true);
+    assert(result.held == 0 && result.pressed == 0);
+    assert(controls.inventory_visible); /* Held tab cannot change page. */
+    pad.held &= ~GE_PORT_ACTION_USE;
+    (void)ge_3ds_controls_sample(&controls, &pad, true);
+    pad.held |= GE_PORT_ACTION_USE;
+    result = ge_3ds_controls_sample(&controls, &pad, true);
+    assert(result.pressed == GE_PORT_ACTION_USE && result.held == GE_PORT_ACTION_USE);
+    pad.held = 0; pad.touching = false;
+    (void)ge_3ds_controls_sample(&controls, &pad, true);
+    pad.held = GE_PORT_ACTION_FIRE; pad.touching = true;
+    result = ge_3ds_controls_sample(&controls, &pad, true);
+    assert(result.pressed == GE_PORT_ACTION_AIM); /* Swap after release. */
+    assert(!controls.inventory_visible);
+    controls.inventory_request = 5;
+    ge_3ds_controls_resume(&controls, 0, false);
+    assert(ge_3ds_controls_take_inventory_selection(&controls) == -1);
 }
 
 static void test_persistence(const char *path)
@@ -315,6 +420,8 @@ int main(int argc, char **argv)
     test_touch_settings_and_context();
     test_persistence(argv[1]);
     test_objectives();
-    puts("3DS controls: analog shaping, action edges, touch capture, settings, persistence and objective pages passed");
+    test_inventory();
+    test_resume();
+    puts("3DS controls: analog, edges, capture, settings, persistence, objective/inventory pages and resume passed");
     return 0;
 }

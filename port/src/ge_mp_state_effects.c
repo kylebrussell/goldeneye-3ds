@@ -30,13 +30,54 @@ _Static_assert(sizeof(CasingRecord)==0xa0,"N64 US casing ABI");
 #endif
 static uint32_t key(unsigned component,unsigned slot)
 {return ge_mp_registry_key(GE_MP_EFFECTS_KIND,(uint8_t)component,(uint16_t)slot);}
+/* Identity/shape validation cannot depend on a still-live native stage:
+ * expired native storage must remain safely retireable. Check the entire set
+ * before releasing anything in the registry shared with other domains. */
+static GeMpStateStatus shape(const GeMpStateEffectsOwner *o)
+{
+ if(!o || !o->live)return GE_MP_STATE_STALE;
+ if(o->live!=1 || !o->registry || !o->storage.lifetime || !o->projectile_lifetime
+  || !o->count || o->count>GE_MP_EFFECTS_RECORDS
+  || o->storage.player_count<1 || o->storage.player_count>4
+  || o->storage.particle_count>200 || o->storage.shard_count>200
+  || o->storage.scorch_count>20)return GE_MP_STATE_INVALID;
+ const uint16_t counts[]={1,6,20,(uint16_t)o->storage.particle_count,100,
+  (uint16_t)o->storage.scorch_count,(uint16_t)o->storage.shard_count,20,50,20,20};
+ unsigned total=0;
+ for(unsigned c=0;c<GE_MP_EFFECTS_COMPONENTS;++c) {
+  if(o->counts[c]!=counts[c] || o->offsets[c]!=total
+   || counts[c]>GE_MP_EFFECTS_RECORDS-total)return GE_MP_STATE_INVALID;
+  for(unsigned s=0;s<counts[c];++s) {
+   uint64_t id=o->ids[total+s];
+   if(!(uint32_t)id || (uint32_t)(id>>32)!=key(c,s))return GE_MP_STATE_INVALID;
+  }
+  total+=counts[c];
+ }
+ if(o->count!=total)return GE_MP_STATE_INVALID;
+ for(unsigned i=total;i<GE_MP_EFFECTS_RECORDS;++i)
+  if(o->ids[i])return GE_MP_STATE_INVALID;
+ /* Registry validation precedes resolution; an expired generation is allowed
+  * here, while release itself must never release its live successor. */
+ if(ge_mp_registry_resolve(o->registry,o->ids[0],NULL)==GE_MP_STATE_INVALID)
+  return GE_MP_STATE_INVALID;
+ return GE_MP_STATE_OK;
+}
 static GeMpStateStatus valid(const GeMpStateEffectsOwner *o)
 {
  GeOriginalEffectRuntimeStorage s;const Projectile *p;uint32_t n;uint64_t life;
- if(!o || !o->live)return GE_MP_STATE_STALE;
+ GeMpStateStatus status=shape(o);if(status!=GE_MP_STATE_OK)return status;
+ status=ge_mp_registry_resolve(o->registry,o->ids[0],NULL);
+ if(status!=GE_MP_STATE_OK)return status;
  if(!ge_original_effect_runtime_storage(&s) || s.lifetime!=o->storage.lifetime
   || !ge_original_projectile_pool_storage(&p,&n,&life) || p!=o->projectiles
   || n!=20 || life!=o->projectile_lifetime)return GE_MP_STATE_STALE;
+ /* Captured pointers/counts must still name the native owner before export
+  * dereferences them. Compare named members, never native struct padding. */
+#define SAME(member) if(s.member!=o->storage.member)return GE_MP_STATE_INVALID
+ SAME(explosions);SAME(smoke);SAME(scorches);SAME(impacts);SAME(particles);
+ SAME(shards);SAME(sparks);SAME(moving_sparks);SAME(casings);
+ SAME(particle_count);SAME(shard_count);SAME(scorch_count);SAME(player_count);SAME(stage);
+#undef SAME
  return GE_MP_STATE_OK;
 }
 static const GeMpRegistryEntry *entry(const GeMpRegistry *r,uint32_t k)
@@ -76,8 +117,9 @@ GeMpStateStatus ge_mp_state_effects_begin(GeMpStateEffectsOwner *o,GeMpRegistry 
 }
 GeMpStateStatus ge_mp_state_effects_end(GeMpStateEffectsOwner *o)
 {
- if(!o || !o->live)return GE_MP_STATE_STALE;
+ GeMpStateStatus structural=shape(o);if(structural!=GE_MP_STATE_OK)return structural;
  GeMpStateStatus result=valid(o);
+ if(result==GE_MP_STATE_INVALID)return result;
  for(unsigned i=0;i<o->count;++i) {
   GeMpStateStatus s=ge_mp_registry_release(o->registry,o->ids[i]);
   if(s!=GE_MP_STATE_OK)result=s;

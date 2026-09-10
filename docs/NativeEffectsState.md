@@ -41,6 +41,16 @@ capacities are unchanged. Ending that stale exporter still releases its IDs
 and returns `STALE`. Epoch exhaustion prevents another valid owner; no epoch
 wrap is accepted. The getters are read-only and do not advance simulation.
 
+End validates the entire component/count/offset layout, exact
+E8/component/physical-slot identities, nonzero generations and registry shape
+before releasing any actor. Malformed identity/count metadata returns
+`INVALID` without changing the owner or registry, including when the native
+stage has expired. A stale generation cannot release a newer actor at the
+same key. Legitimate native-stage expiration still releases this owner's
+remaining live IDs and reports `STALE`. Keep the registry alive and unchanged
+as an owner until every domain using it has ended. Capture also checks each
+borrowed pointer/count against the named native storage before dereferencing.
+
 | Component | Native owner | Count |
 |---|---|---:|
 | 0 global | counters, capacities, colors, casing audio handle | 1 |

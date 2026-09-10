@@ -806,7 +806,7 @@ ge_original_model_clock_source.o: CFLAGS += \
     -Wno-unused-variable -Wno-empty-body -Wno-incompatible-pointer-types \
     -Wno-int-conversion -Wno-unused-value -Wno-error
 ge_original_player_gait.o ge_original_player_gait_data_source.o \
-ge_original_player_gait_model_slice.o: CFLAGS += \
+ge_original_player_gait_model_slice.o ge_original_model_callbacks.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -Wno-unused-parameter -Wno-unused-variable -Wno-incompatible-pointer-types \
     -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-missing-braces \

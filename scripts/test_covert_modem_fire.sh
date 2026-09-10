@@ -135,6 +135,7 @@ port_sources=(
     port/src/ge_original_model_scene.c
     port/src/ge_original_guard_bullet_hit.c
     port/src/ge_original_player_gait.c
+    port/src/ge_original_model_callbacks.c
     port/src/ge_original_player_body.c
     port/src/ge_original_animation_root.c
     port/src/ge_original_guard_animation_table.c

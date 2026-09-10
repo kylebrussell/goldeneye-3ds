@@ -24,6 +24,16 @@ def render(repo: Path) -> str:
     file_source = (repo / "src/game/file.c").read_text()
     propobj_source = (repo / "src/game/propobj.c").read_text()
     chrprop_source = (repo / "src/game/chrprop.c").read_text()
+    actor_init = function_text(chr_source, "init_GUARDdata_with_set_values")
+    callback_call = "sub_GAME_7F06FF5C(arg1, (s32) sub_GAME_7F01FC10);"
+    if actor_init.count(callback_call) != 1:
+        raise ValueError("guard root callback native-ABI adaptation drift")
+    actor_init = actor_init.replace(callback_call,
+        "#if defined(GE_PORT_MODEL_HOST_RWDATA_ABI) && UINTPTR_MAX > UINT32_MAX\n"
+        "    ge_original_model_root_callback_set(arg1, sub_GAME_7F01FC10);\n"
+        "#else\n"
+        "    sub_GAME_7F06FF5C(arg1, (s32)(uintptr_t)sub_GAME_7F01FC10);\n"
+        "#endif")
     pieces = [
         "/* Generated unchanged canonical campaign guard actor slice. */",
         "#include <ultra64.h>",
@@ -35,6 +45,7 @@ def render(repo: Path) -> str:
         '#include "game/front.h"',
         '#include "game/model.h"',
         '#include "game/propobj.h"',
+        '#include "ge_original_model_callbacks.h"',
         "",
         "ChrRecord *ge_original_stage_guard_actor_chr_slots = 0;",
         "s32 ge_original_stage_guard_actor_num_chr_slots = 0;",
@@ -77,9 +88,7 @@ def render(repo: Path) -> str:
         function_text(model_source, "modelSetScale"),
         function_text(model_source, "sub_GAME_7F06FF5C"),
         function_text(file_source, "get_007_health_mod"),
-        function_text(chr_source, "init_GUARDdata_with_set_values").replace(
-            "(s32) sub_GAME_7F01FC10",
-            "(s32)(uintptr_t)sub_GAME_7F01FC10"),
+        actor_init,
         function_text(chrprop_source, "chrpropReparent"),
         function_text(propobj_source, "propweaponSetDual"),
         function_text(propobj_source, "chrEquipWeapon"),

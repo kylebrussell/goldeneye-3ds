@@ -110,7 +110,7 @@ GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_begin_shooter(GeOr
 GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_capture_local(GeOriginalMultiplayerViews *v)
 {assert(v&&selected==local);event(CAPTURE);return GE_ORIGINAL_MULTIPLAYER_VIEW_OK;}
 GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_finish_local(GeOriginalMultiplayerViews *v)
-{assert(v);selected=local;g_CurrentPlayer=&players[local];event(FINISH);return GE_ORIGINAL_MULTIPLAYER_VIEW_OK;}
+{assert(v);event(FINISH);return GE_ORIGINAL_MULTIPLAYER_VIEW_OK;}
 static int select_player(void *context,uint32_t slot)
 {assert(context==players);selected=slot;g_CurrentPlayer=&players[slot];g_CurrentPlayer->field_D0=reload;event(SELECT);return 1;}
 static int camera(void *context,uint32_t slot,GeOriginalBondCameraConfig *c,GeOriginalBondCameraResult *r)
@@ -121,7 +121,7 @@ static int renderer(void *context,uint32_t slot,const GeOriginalBondCameraConfig
 static void expect(unsigned *cursor,unsigned id,uint32_t slot)
 {assert(*cursor<event_count);assert(events[*cursor]==id&&event_slots[*cursor]==slot);++*cursor;}
 
-static void run(uint32_t n,uint32_t display,int activation,int object)
+static void run(uint32_t n,uint32_t display,uint32_t rotation,int activation,int object)
 {
     GeOriginalMultiplayerDeathState death={0};GeOriginalMultiplayerViews views={0};
     GeOriginalMultiplayerHud hud={0};GeOriginalStageActiveProps active={0};
@@ -133,7 +133,7 @@ static void run(uint32_t n,uint32_t display,int activation,int object)
         .context=players,.select_player=select_player,
         .produce_camera=camera,.sync_gun_resources=sync_gun,.prepare_local_renderer=renderer};
     count=n;local=selected=display;reload=activation;object_present=object;held_frontier=0;
-    shuffle_rotation=display;move_ordinal=0;passed_zero=0;
+    shuffle_rotation=rotation;move_ordinal=0;passed_zero=0;
     mission_timer=mission_before=57;watch_time_0=watch_before=101;
     g_CameraMode=CAMERAMODE_NONE;is_timer_active=1;
     /* Native updateFrameCounters must replace a stale prior-stage raw delta.
@@ -166,8 +166,8 @@ static void run(uint32_t n,uint32_t display,int activation,int object)
         for(size_t i=0;i<sizeof(suffix)/sizeof(*suffix);++i)expect(&cursor,suffix[i],slot);
         if(slot==local)expect(&cursor,CAPTURE,slot);
     }
-    expect(&cursor,FINISH,display);expect(&cursor,SERVICES,display);
-    assert(cursor==event_count&&frame.tick==17&&frame.last_slot==display);
+    expect(&cursor,FINISH,rotation);expect(&cursor,SERVICES,rotation);
+    assert(cursor==event_count&&frame.tick==17&&frame.last_slot==rotation);
     assert(getMissiontimer()==58&&watch_time_0==101+(int)(3*n));
     /* A real held-item frontier is fail-closed: no subsequent interaction,
      * pickup, gun, HUD or local draw can hide or retry partial gameplay. */
@@ -203,8 +203,9 @@ static void native_clock_modes(void)
 int main(void)
 {
     for(uint32_t n=2;n<=4;n+=2)for(uint32_t display=0;display<n;++display)
-        for(int activation=0;activation<2;++activation)for(int object=0;object<3;++object)
-            run(n,display,activation,object);
+        for(uint32_t rotation=0;rotation<n;++rotation)
+            for(int activation=0;activation<2;++activation)for(int object=0;object<3;++object)
+                run(n,display,rotation,activation,object);
     native_clock_modes();
     puts("shared multiplayer runtime: 2/4-slot rotated traversal, native mission/watch timers around movement, canonical mixed interaction/TICKOP, both-hand reload, FOV, local capture, HUD/respawn and frontier abort; other observing producer doubles, not match acceptance");
     return 0;

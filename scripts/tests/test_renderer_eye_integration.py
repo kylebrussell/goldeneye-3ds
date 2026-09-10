@@ -25,6 +25,10 @@ uncached = function_text(extract_source, "build_scene_internal")
 assert "collect_scene_inputs(" in uncached
 assert "!slot->state.visible" not in uncached
 
+uncached = function_text(extract_source, "build_scene_internal")
+assert "collect_scene_inputs(" in uncached
+assert "!slot->state.visible" not in uncached
+
 main_source = (repo / "platform/3ds/source/main.c").read_text()
 for name in ("update_stage_guard_visibility", "publish_stage_ordinary_visibility"):
     body = function_text(main_source, name)

@@ -24,7 +24,7 @@ void ge_original_bondview_update_frustum_planes_exact(void)
 typedef struct Fixture {
     uint32_t count, local, selected, visible, simulation_mask, captures, restores;
     int fail_select, fail_visibility, fail_capture, fail_restore;
-    int duplicate_owner;
+    int duplicate_owner, mutate_on_restore;
     struct player *replacement_owner;
     coord3d transient[4];
     coord3d captured[4];
@@ -92,11 +92,11 @@ static int restore_local(void *context, uint32_t slot,
     const GeOriginalBondCameraResult *camera)
 {
     Fixture *f = context;
-    assert(f->captures == 1 && slot == f->local && f->selected == slot);
+    assert(f->captures == 1 && slot == f->local);
     assert(config->room == slot + 1);
-    assert(memcmp(frustum_camera.m, camera->view, sizeof(camera->view)) == 0);
+    assert(memcmp(players[slot].field_10CC->m, camera->view, sizeof(camera->view)) == 0);
     if (f->fail_restore) return 0;
-    f->visible = slot;
+    if (f->mutate_on_restore) g_CurrentPlayer = &players[slot];
     ++f->restores;
     return 1;
 }
@@ -127,6 +127,38 @@ static void camera_for(uint32_t slot, uint32_t frame,
     assert(ge_original_bond_camera_set_perspective(config,
         60.0f, 4.0f / 3.0f, 1.0f, 10000.0f) == GE_ORIGINAL_BOND_CAMERA_OK);
     assert(ge_original_bond_camera_run(config, camera) == GE_ORIGINAL_BOND_CAMERA_OK);
+}
+
+typedef struct NativeCameraBoundary {
+    struct player players[4];
+    Mtxf world_to_view[4], previous_view[4];
+    Mtxf view_to_world[4], previous_inverse[4], projection[4], frustum;
+    uint32_t selected, visible;
+} NativeCameraBoundary;
+static NativeCameraBoundary baseline[24];
+
+/* Compare actual native player/camera state across every display choice in
+ * this one process. Native pointers are compared only for owner identity;
+ * this is a regression comparison, never the portable network encoding. */
+static void check_canonical_boundary(const Fixture *f, uint32_t frame)
+{
+    NativeCameraBoundary state;
+    memset(&state, 0, sizeof(state));
+    memcpy(state.players, players, sizeof(players));
+    state.frustum = frustum_camera;
+    state.selected = f->selected;
+    state.visible = f->visible;
+    for (uint32_t slot = 0U; slot < f->count; ++slot) {
+        state.world_to_view[slot] = *players[slot].field_10CC;
+        state.view_to_world[slot] = *players[slot].viewtoworldmtxf;
+        state.projection[slot] = *players[slot].projmatrixf;
+        if (players[slot].field_10E8 != NULL)
+            state.previous_view[slot] = *players[slot].field_10E8;
+        if (players[slot].field_10EC != NULL)
+            state.previous_inverse[slot] = *players[slot].field_10EC;
+    }
+    if (f->local == 0U) baseline[frame] = state;
+    else assert(memcmp(&state, &baseline[frame], sizeof(state)) == 0);
 }
 
 static void test_match(uint32_t count, uint32_t local)
@@ -163,11 +195,16 @@ static void test_match(uint32_t count, uint32_t local)
             memset(&camera, 0xa5, sizeof(camera));
         }
         memcpy(before, players, sizeof(before));
+        const uint32_t last_slot = slot;
+        frustum_before = frustum_camera;
         assert(ge_original_multiplayer_views_finish_local(&views) == GE_ORIGINAL_MULTIPLAYER_VIEW_OK);
         assert(memcmp(before, players, sizeof(before)) == 0);
-        assert(g_CurrentPlayer == &players[local] && f.visible == local);
+        assert(g_CurrentPlayer == &players[last_slot] && f.visible == last_slot);
+        assert(views.active_slot == last_slot);
+        assert(memcmp(&frustum_before, &frustum_camera, sizeof(frustum_before)) == 0);
         assert(f.simulation_mask == (1U << count) - 1U);
         assert(f.captures == 1 && f.restores == 1);
+        check_canonical_boundary(&f, frame);
         assert(memcmp(expected, f.captured, sizeof(expected)) == 0);
         frustum_before = frustum_camera;
         ge_3ds_stereo_config_defaults(&stereo);
@@ -266,16 +303,17 @@ static void test_finish_failures(void)
         caller_props_and_guns(&f, 1);
         if (mode == 0) {
             f.fail_restore = 1;
-            expected = GE_ORIGINAL_MULTIPLAYER_VIEW_VISIBILITY_FAILED;
+            expected = GE_ORIGINAL_MULTIPLAYER_VIEW_PRESENTATION_FAILED;
         } else if (mode == 1) {
-            f.replacement_owner = &replacement;
+            g_CurrentPlayer = &replacement;
             expected = GE_ORIGINAL_MULTIPLAYER_VIEW_SELECTION_FAILED;
         } else if (mode == 2) {
-            f.fail_select = 1;
+            f.mutate_on_restore = 1;
             expected = GE_ORIGINAL_MULTIPLAYER_VIEW_SELECTION_FAILED;
         } else {
-            players[0].field_10CC = NULL;
-            expected = GE_ORIGINAL_MULTIPLAYER_VIEW_CAMERA_FAILED;
+            /* Completion never selects a device-local player. */
+            f.fail_select = 1;
+            expected = GE_ORIGINAL_MULTIPLAYER_VIEW_OK;
         }
         assert(ge_original_multiplayer_views_finish_local(&views) == expected);
         assert(ge_original_multiplayer_views_finish_local(&views)
@@ -290,6 +328,6 @@ int main(void)
         for (local = 0; local < count; ++local) test_match(count, local);
     test_failures();
     test_finish_failures();
-    puts("multiplayer views: 216 shuffled frames, original cameras, owned local capture, stereo baseline and failure ordering passed");
+    puts("multiplayer views: 216 shuffled frames, original cameras, owned local capture, canonical last-shooter preservation, stereo baseline and failure ordering passed");
     return 0;
 }

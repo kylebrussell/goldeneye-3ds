@@ -20,7 +20,7 @@ GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_begin_frame(
             || providers->select_player == NULL
             || providers->publish_visibility == NULL
             || providers->capture_local == NULL
-            || providers->restore_local_visibility == NULL)
+            || providers->restore_local_presentation == NULL)
         return GE_ORIGINAL_MULTIPLAYER_VIEW_INVALID_ARGUMENT;
     copy = *providers;
     memset(views, 0, sizeof(*views));
@@ -93,16 +93,17 @@ GeOriginalMultiplayerViewStatus ge_original_multiplayer_views_finish_local(
     if (!views->frame_active || views->failed || !views->local_captured
             || views->published_mask != (1U << views->player_count) - 1U)
         return GE_ORIGINAL_MULTIPLAYER_VIEW_INVALID_ORDER;
-    if (!views->providers.select_player(views->providers.context,
-            views->local_slot)
-            || ge_original_spawn_player_get() != views->owners[views->local_slot])
+    /* Device-local display choice must not alter the canonical tick boundary.
+     * Every peer leaves the same last shuffled shooter and shared frustum/BG
+     * publication in place. The local camera is already owned by the capture. */
+    if (views->active_slot >= views->player_count
+            || ge_original_spawn_player_get() != views->owners[views->active_slot])
         return fail(views, GE_ORIGINAL_MULTIPLAYER_VIEW_SELECTION_FAILED);
-    if (!ge_original_bond_camera_restore_live_player())
-        return fail(views, GE_ORIGINAL_MULTIPLAYER_VIEW_CAMERA_FAILED);
-    if (!views->providers.restore_local_visibility(views->providers.context,
+    if (!views->providers.restore_local_presentation(views->providers.context,
             views->local_slot, &views->local_config, &views->local_camera))
-        return fail(views, GE_ORIGINAL_MULTIPLAYER_VIEW_VISIBILITY_FAILED);
-    views->active_slot = views->local_slot;
+        return fail(views, GE_ORIGINAL_MULTIPLAYER_VIEW_PRESENTATION_FAILED);
+    if (ge_original_spawn_player_get() != views->owners[views->active_slot])
+        return fail(views, GE_ORIGINAL_MULTIPLAYER_VIEW_SELECTION_FAILED);
     views->frame_active = 0;
     return GE_ORIGINAL_MULTIPLAYER_VIEW_OK;
 }

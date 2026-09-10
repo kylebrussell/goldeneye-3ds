@@ -72,7 +72,12 @@ LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_mp_state_inventory_begin \
            -Wl,-u,ge_mp_state_inventory_end \
            -Wl,-u,ge_mp_state_inventory_export \
-           -Wl,-u,ge_mp_state_inventory_schemas
+           -Wl,-u,ge_mp_state_inventory_schemas \
+           -Wl,-u,ge_mp_state_props_begin \
+           -Wl,-u,ge_mp_state_props_end \
+           -Wl,-u,ge_mp_state_props_export \
+           -Wl,-u,ge_mp_state_props_schemas \
+           -Wl,-u,ge_mp_state_guns_capture
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3
@@ -300,7 +305,9 @@ CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) \
             ge_original_multiplayer_results_slice.c \
             ge_original_multiplayer_session_slice.c \
             ge_original_multiplayer_runtime_slice.c \
+            ge_original_multiplayer_stage_reset_slice.c \
             ge_original_player_held_items_slice.c \
+            ge_original_bg_geometry_slice.c \
             ge_original_door_collision_slice.c \
             ge_original_door_character_collision_slice.c \
             ge_original_player_gait_model_slice.c \
@@ -449,6 +456,14 @@ ge_original_bond_move_explosion_slice.o: CFLAGS += \
     -Wno-unused-variable -Wno-unused-parameter \
     -Wno-incompatible-pointer-types -Wno-int-conversion \
     -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-error
+ge_original_bg_geometry.o ge_original_bg_geometry_slice.o \
+ge_original_multiplayer_stage_reset_slice.o: CFLAGS += \
+    -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
+    -DVERSION_US -DBUGFIX_R0 -DPLAYERFLAG=int -DGE_PORT_MS_INHERITS -fms-extensions \
+    -I$(TOPDIR)/../../src/game \
+    -Wno-unused-variable -Wno-unused-parameter \
+    -Wno-incompatible-pointer-types -Wno-int-conversion \
+    -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-error
 ge_original_effect_buffers.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
     -DVERSION_US -DBUGFIX_R0 -DGE_PORT_MS_INHERITS -fms-extensions \
@@ -474,8 +489,10 @@ ge_original_multiplayer_views.o ge_original_multiplayer_regen_native.o \
 ge_original_multiplayer_results.o ge_original_multiplayer_results_slice.o \
 ge_original_multiplayer_hud.o ge_original_multiplayer_session.o \
 ge_original_texture_hit_type.o ge_mp_state_inventory.o ge_mp_state_core.o \
+ge_mp_state_props.o ge_mp_state_guns.o \
 ge_original_multiplayer_runtime.o ge_original_multiplayer_runtime_slice.o \
-ge_original_multiplayer_session_slice.o ge_original_player_held_items.o \
+ge_original_multiplayer_session_slice.o ge_original_multiplayer_stage_reset.o \
+ge_original_player_held_items.o \
 ge_original_player_held_items_slice.o \
 ge_original_multiplayer_rules.o ge_original_multiplayer_rules_slice.o mp_weapon.o: CFLAGS += \
     -DGE_PORT_USE_ORIGINAL_TYPES -DGE_PORT_SETUP_DATA -DAIPARSE \
@@ -1145,8 +1162,30 @@ ge_original_multiplayer_results_slice.c: \
         $(TOPDIR)/../../scripts/extract_multiplayer_regen_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_results_slice.py \
 		$(TOPDIR)/../.. $@
+ge_original_multiplayer_stage_reset_slice.c: \
+        $(TOPDIR)/../../src/game/bondview_r.c $(TOPDIR)/../../src/game/bondview.c \
+        $(TOPDIR)/../../src/game/bondview2.c $(TOPDIR)/../../src/game/front.c \
+        $(TOPDIR)/../../scripts/extract_multiplayer_stage_reset_slice.py \
+        $(TOPDIR)/../../scripts/extract_guard_bullet_hit_slice.py \
+        $(TOPDIR)/../../scripts/extract_bond_move_state_slice.py
+	python3 $(TOPDIR)/../../scripts/extract_multiplayer_stage_reset_slice.py \
+		$(TOPDIR)/../.. $@
+ge_original_bg_geometry_slice.o: CFLAGS += -I$(TOPDIR)/../../port/src
+ge_original_bg_geometry.o: \
+        $(TOPDIR)/../../port/src/ge_original_bg_texture_metadata.inc
+ge_original_bg_geometry_slice.c: \
+        $(TOPDIR)/../../src/game/bg.c $(TOPDIR)/../../src/game/lightfixture.c \
+        $(TOPDIR)/../../src/game/line_tri_intersect.c $(TOPDIR)/../../src/game/tex.c \
+        $(TOPDIR)/../../scripts/extract_bg_geometry_slice.py \
+        $(TOPDIR)/../../scripts/extract_bg_texture_emission.py \
+        $(TOPDIR)/../../port/src/ge_original_bg_texture_metadata.inc \
+        $(TOPDIR)/../../scripts/extract_guard_bullet_hit_slice.py \
+        $(TOPDIR)/../../port/include/ge_original_bg_geometry.h \
+        $(TOPDIR)/../../port/include/ge_original_bg_geometry_internal.h
+	python3 $(TOPDIR)/../../scripts/extract_bg_geometry_slice.py \
+		$(TOPDIR)/../.. $@
 ge_original_multiplayer_runtime_slice.c: \
-        $(TOPDIR)/../../src/game/chrprop.c \
+        $(TOPDIR)/../../src/game/chrprop.c $(TOPDIR)/../../src/game/bondview2.c \
         $(TOPDIR)/../../scripts/extract_multiplayer_runtime_slice.py
 	python3 $(TOPDIR)/../../scripts/extract_multiplayer_runtime_slice.py \
 		$(TOPDIR)/../.. $@

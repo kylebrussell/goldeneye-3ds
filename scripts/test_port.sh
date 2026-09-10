@@ -43,8 +43,11 @@ bash "${repo_dir}/scripts/test_multiplayer_protocol.sh"
 bash "${repo_dir}/scripts/test_mp_state.sh"
 bash "${repo_dir}/scripts/test_mp_state_core.sh"
 bash "${repo_dir}/scripts/test_mp_state_inventory.sh"
+bash "${repo_dir}/scripts/test_mp_state_guns.sh"
+bash "${repo_dir}/scripts/test_mp_state_props.sh"
 bash "${repo_dir}/scripts/test_multiplayer_players.sh"
 bash "${repo_dir}/scripts/test_multiplayer_input_gates.sh"
+bash "${repo_dir}/scripts/test_multiplayer_stage_reset.sh"
 bash "${repo_dir}/scripts/test_multiplayer_active_props.sh"
 bash "${repo_dir}/scripts/test_multiplayer_gun_ownership.sh"
 # The native producer consumes the full pack's converted first-person models.
@@ -954,6 +957,8 @@ if [[ -f "${repo_dir}/build/3ds-models/first-person-pp7/GwppkZ.bin" \
         --source-sha1 abe01e4aeb033b6c0836819f549c791b26cfde83 \
         --extra-dir "converted/models/first-person-pp7=${repo_dir}/build/3ds-models/first-person-pp7" \
         --output "${first_person_pack}"
+    bash "${repo_dir}/scripts/test_multiplayer_gun_producer.sh" "${first_person_pack}"
+    bash "${repo_dir}/scripts/test_multiplayer_gun_gameplay.sh" "${first_person_pack}"
     cc -std=c11 -Wall -Wextra -Werror -pedantic -Wconversion \
         -Wsign-conversion -Wshadow \
         -D_LANGUAGE_C -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE \
@@ -2171,6 +2176,8 @@ if [[ -f "${repo_dir}/build/3ds-levels/facility/collision/collision.gestan" ]]; 
         "${repo_dir}/build/3ds-levels/facility/collision/collision.gestan"
 fi
 bash "${repo_dir}/scripts/test_bg_geometry.sh" \
+    "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
+bash "${repo_dir}/scripts/test_bg_geometry_room_coverage.sh" \
     "${repo_dir}/build/3ds-assets/goldeneye.u.gepack"
 python3 "${repo_dir}/scripts/tests/test_bondview_input_dependencies.py"
 python3 "${repo_dir}/scripts/tests/test_bond_input_live_state_exact.py"

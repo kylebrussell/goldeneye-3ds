@@ -611,6 +611,9 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_restore(
 {
     GeOriginalBgVisibilityStatus status;
     const s32 saved_cycle = D_80044858;
+#ifndef GE_RENDERER_BG_VISIBILITY_NAMESPACE_H
+    ge_original_bg_visibility_state_begin();
+#endif
     if (input == NULL || (input->providers != NULL
             && input->providers->preload_room != NULL))
         return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;

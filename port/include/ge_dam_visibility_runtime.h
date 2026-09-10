@@ -72,7 +72,11 @@ int ge_dam_visibility_runtime_set_zrange(
 
 /* Feeds the exact live bondview camera view matrix and room into the exact
  * original bgDetermineVisibleRooms slice. Dam's original level scales and
- * camera near/far contract remain fixed at their source values. */
+ * camera near/far contract remain fixed at their source values.
+ * All run/restore entrypoints operate on the canonical interpreter. Any failed
+ * evaluation, including argument/camera rejection before traversal, invalidates
+ * its state-capture publication. Private eye work uses the separate
+ * ge_dam_renderer_visibility provider and cannot invalidate canonical state. */
 GeDamVisibilityRuntimeStatus ge_dam_visibility_runtime_run(
     GeDamVisibilityRuntime *runtime,
     const GeOriginalBondCameraResult *camera,

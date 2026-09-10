@@ -88,8 +88,10 @@ authored arena, and runs the shared native player/session loop through results.
 SELECT changes the locally controlled player; other players receive neutral
 pads. Focused two/four-player fixtures pass, including the actual dual-hand gun
 producer with ROM models and isolated model/matrix/flash storage. Full native
-match progression and restart acceptance remain open, as does background bullet
-collision. Both local first-person hand scenes are captured before death and
+match progression and restart acceptance remain open. Native background bullet
+collision and breakable-light state now use persistent authored geometry for
+all 21 solo stages and 11 arenas; triangle coverage and validation regressions
+pass both host ABIs. Both local first-person hand scenes are captured before death and
 respawn into independent texture/GPU storage; emulator visual acceptance is
 still required. See
 [runtime assembly](MultiplayerRuntimeAssembly.md),
@@ -100,8 +102,9 @@ still required. See
 cannot start a synchronized match. Its compatibility tag and lineage fingerprint
 are not exact executable/asset hashes; the match protocol's exact identity fields
 require a complete runtime contract and verified state coverage. Typed native
-core and inventory/permanent-player domains are exported, with explicit gaps;
-neither can attest complete game state or authorize a finish-tick digest.
+core, inventory/permanent-player, prop-pool and hand domains are exported, with
+explicit gaps. Their native entry points are retained in the ARM executable;
+they cannot attest complete game state or authorize a finish-tick digest.
 
 ## Reproducible checks
 

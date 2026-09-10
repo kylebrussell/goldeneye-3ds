@@ -178,9 +178,10 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   independent fresh-process byte/hash checks pass. The inventory/permanent
   player exporter at `e0a6b201` covers all 124 physical records and passes
   original inventory/death operations, lifetime and 2-to-4-to-2 prior-history
-  checks. Both explicitly leave full state coverage incomplete. Native prop,
-  hand, model, object/projectile and remaining singleton domains still require
-  complete typed ownership before live state hashes can be certified.
+  checks. Both explicitly leave full state coverage incomplete. The prop-pool
+  and hand domains below extend this coverage; model, object/projectile and
+  remaining singleton domains still require complete typed ownership before
+  live state hashes can be certified.
 - The full host aggregate passed on frozen `08b13ded` with copied private
   inputs and a separate positive Facility camera check against the regenerated
   pack. A later forced ARM build at `b822d6e6` retained the core capture symbol
@@ -191,3 +192,34 @@ and identity, not cryptographic authenticity or proof that an observation is tru
   Only that run's owned emulator process was stopped; its observation records
   no gameplay, mission or timing outcome. The successful corrected-route
   result and retained-save reload remain outstanding.
+- Persistent native background geometry is integrated into stage construction
+  and cleanup at `bf74d8a1`. All 21 solo stages and 11 arenas pass native and
+  short-enum triangle coverage, original light-hit and scene-colour checks.
+  Review repair `d5ea31b1` rejects aliased scene ranges, stale room origins and
+  unsupported partial vertex-cache loads, while invalid rays leave the owner
+  usable. Eight independent source mutations demonstrate these validations.
+  View completion preserves the canonical last player's native selection,
+  frustum and visibility; local presentation uses captured view fields.
+  These are host and integration checks, not matched visual acceptance.
+- Prop-pool and allocator exports at `c291f20e` include native allocation
+  generation hooks. Independent repair `23cdb833` rejects parent cycles before
+  publishing records; self, two-node and 17-node cycles, recovery, and a valid
+  600-prop chain pass sanitizer regressions in both host ABIs. Main arena
+  lifetime binding and complete actor-domain coverage remain separate work.
+- The hand exporter at `df9d5f76` describes each allocated physical hand with
+  typed fields and validated model/reference views. All 2,965 actual native
+  element mutations per ABI and fresh-process two/four-player byte/hash checks
+  pass. Core-domain review separately confirms identical native/short-enum
+  tapes after 1,418 owner mutations in each of four processes. These domains
+  explicitly withhold complete-state attestation.
+- Frozen `760e600c` passes a forced build with the pinned devkitARM image,
+  recording all 595 private compiler inputs and consumed dependencies. Its
+  copied executable SHA-256 is
+  `bee607ef57e4014b5d18c6a5c7e67da7a6863325fdd758e4f31164864ae20306`.
+  The retained ELF defines the core, inventory, prop and hand exports, native
+  BG load/bind/close, and shared runtime tick. Targeted actual native gun
+  gameplay checks fire and reload both hands in every two/four-player slot;
+  held-item tests cover original hit dispatch separately. Full native match
+  progression and live wireless state agreement remain unverified. Private
+  evidence is under `build/integration/bg-main-build-760e600c`,
+  `mp-props-review`, `mp-state-guns-final` and `mp-core-independent-review`.

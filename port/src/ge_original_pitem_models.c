@@ -1355,6 +1355,23 @@ int ge_original_pitem_model_instance_gunfire(
         gunfire_index, gunfire) == gunfire_index + 1U;
 }
 
+int ge_original_pitem_model_instance_gunfire_for_node(
+    const GeOriginalPitemModelProvider *provider,const void *model_instance,
+    const void *native_node,GeOriginalPitemModelGunfire *gunfire)
+{
+    GeOriginalPitemModelInstance *instance=find_instance(provider,model_instance);
+    size_t ordinal=0;
+    if(!instance||!instance->resource||!native_node||!gunfire)return 0;
+    for(size_t index=0;index<instance->resource->node_count;++index){
+        ModelNode *node=&instance->resource->nodes[index];
+        if((node->Opcode&0xffU)!=MODELNODE_OPCODE_GUNFIRE)continue;
+        if(node==native_node)return ge_original_pitem_model_instance_gunfire(
+            provider,model_instance,ordinal,gunfire);
+        ++ordinal;
+    }
+    return 0;
+}
+
 int ge_original_pitem_model_visit_texture_ids(
     const GeOriginalPitemModelProvider *provider, int32_t model_id,
     void *context, int (*visitor)(void *context, uint16_t image_id))

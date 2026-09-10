@@ -49,7 +49,8 @@ typedef struct GeOriginalMultiplayerRuntimeFrame {
     int (*sync_gun_resources)(void *context, uint32_t slot);
     /* Publish the local renderer eye union/margin and capture both local
      * first-person hands after gun production, before death/respawn can alter
-     * them. Runs before world matrix/flash preparation. Read-only with respect
+     * them. Runs after canonical BG render semantics, before renderer matrix
+     * copying and supplemental visual-only flashes. Read-only with respect
      * to gameplay and canonical visibility. */
     int (*prepare_local_renderer)(void *context, uint32_t slot,
         const GeOriginalBondCameraConfig *config,
@@ -58,8 +59,10 @@ typedef struct GeOriginalMultiplayerRuntimeFrame {
     GeOriginalMultiplayerRuntimeStatus status;
 } GeOriginalMultiplayerRuntimeFrame;
 
-/* Call after the one committed input/timer tick, before global music. Retains
- * the original all-chr pre-tick, pickup regeneration and one canonical shuffle.
+/* Call after the one committed input/timer/sky tick, before global music.
+ * Retains effects (sparks, casings, shards, flying particles), all-chr pre-tick,
+ * pickup regeneration and one canonical shuffle, in that exact order. The
+ * previous frame's last shuffled player remains selected across this boundary.
  * Unsupported positive-timer owners fail closed after earlier accepted
  * owners may have ticked; the caller must not retry that partial frame. */
 GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_begin_world(

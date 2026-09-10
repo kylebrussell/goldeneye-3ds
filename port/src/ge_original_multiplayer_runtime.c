@@ -7,6 +7,8 @@
 #include "ge_original_multiplayer_players.h"
 #include "ge_original_multiplayer_rules.h"
 #include "ge_original_player_held_items.h"
+#include "ge_original_effect_runtime.h"
+#include "ge_original_prop_render_semantics.h"
 #include "ge_original_stage_alarm_interaction.h"
 #include "ge_original_stage_pickup.h"
 
@@ -85,6 +87,8 @@ GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_begin_world(
     GeOriginalMultiplayerRegenStatus regen;
     if (active_props == NULL || tick60 < 0 || regeneration == NULL)
         return GE_ORIGINAL_MP_RUNTIME_INVALID_ARGUMENT;
+    if (!ge_original_effect_runtime_pre_world())
+        return GE_ORIGINAL_MP_RUNTIME_WORLD_FAILED;
     if (ge_original_stage_active_props_pre_tick_exact(active_props)
             != GE_ORIGINAL_STAGE_ACTIVE_PROP_OK) return GE_ORIGINAL_MP_RUNTIME_WORLD_FAILED;
     regen = ge_original_multiplayer_regen_tick_all(tick60, regeneration);
@@ -172,6 +176,11 @@ GeOriginalMultiplayerRuntimeStatus ge_original_multiplayer_runtime_tick(
             FAIL(GE_ORIGINAL_MP_RUNTIME_HELD_ITEMS_FAILED);
         if (!interact()) FAIL(GE_ORIGINAL_MP_RUNTIME_INTERACTION_FAILED);
         ge_original_stage_props_tick_player_exact();
+        /* bgLevelRender is before first-person gun production. Its original
+         * room/pass/node order owns render-side state, hit-list retirement
+         * and third-person muzzle RNG for every canonical viewport. */
+        if (!ge_original_prop_render_semantics_prepare(frame->guards, frame->tick, slot))
+            FAIL(GE_ORIGINAL_MP_RUNTIME_BODY_FAILED);
         if (!frame->sync_gun_resources(frame->context, slot))
             FAIL(GE_ORIGINAL_MP_RUNTIME_GUN_RESOURCE_FAILED);
         if (!ge_original_gun_live_tick()) FAIL(GE_ORIGINAL_MP_RUNTIME_GUN_FAILED);

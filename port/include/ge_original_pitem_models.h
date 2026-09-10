@@ -139,6 +139,11 @@ int ge_original_pitem_model_instance_gunfire(
     const GeOriginalPitemModelProvider *provider,
     const void *model_instance, size_t gunfire_index,
     GeOriginalPitemModelGunfire *gunfire);
+/* Resolve the exact native node visited by the original sorted draw list.
+ * Rejects nodes outside this instance's model resource. */
+int ge_original_pitem_model_instance_gunfire_for_node(
+    const GeOriginalPitemModelProvider *provider,const void *model_instance,
+    const void *native_node,GeOriginalPitemModelGunfire *gunfire);
 
 /* Visits all catalog IDs in an already loaded model's authored texture table,
  * including hidden switch parts. Does not load models or change instances.

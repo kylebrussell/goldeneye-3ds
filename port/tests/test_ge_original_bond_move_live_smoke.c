@@ -37,6 +37,10 @@ extern void chrpropDeregisterRoom(PropRecord *prop, s16 room);
 extern void ge_port_bond_movement_publish(struct player *player);
 struct player *g_CurrentPlayer;
 bg_portal_data_entry *g_BgPortals;
+/* mpmenu.c owns these zero-initialized flags in the full runtime.  This solo
+ * fixture supplies its idle state for the shared live-input provider. */
+s32 g_stopPlayFlag = 0;
+s32 g_gameOverFlag = 0;
 
 /* The smoke publishes only Bond's own PROP_TYPE_VIEWER record.  Preserve the
  * exact propIsOfCdType classification needed by the production dynamic STAN

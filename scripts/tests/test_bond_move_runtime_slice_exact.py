@@ -5,6 +5,9 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from extract_bond_move_runtime_slice import DEATH_ANIMATION_OFFSET, DEATH_ANIMATION_POINTER
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,7 +80,12 @@ def main() -> None:
         for relative, names in FUNCTIONS.items():
             source = (ROOT / relative).read_text()
             for name in names:
-                assert tokens(function(generated, name)) == tokens(
+                body = function(generated, name)
+                if name == "bondviewMoveAnimationTick":
+                    needle = "GE_PORT_BOND_DEATH_ANIMATION(" + DEATH_ANIMATION_OFFSET + ")"
+                    assert body.count(needle) == 1
+                    body = body.replace(needle, DEATH_ANIMATION_POINTER)
+                assert tokens(body) == tokens(
                     function(source, name)
                 ), name
                 assert f"/* {name} sha256=" in generated

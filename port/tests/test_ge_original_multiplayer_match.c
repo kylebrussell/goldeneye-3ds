@@ -3,7 +3,8 @@
  * they do not replace movement, props, gun, held-item hits or death rules.
  * Temple is a two-frame bootstrap gate. Optional Caves runs all authored live
  * supplies, controller pickup/equip/fire/reload and native impacts for 480
- * frames. Player hit/death/respawn/results remain subsequent acceptance gates. */
+ * frames. --combat adds controller-routed player hits, death/respawn, scoring
+ * and native timed results/menu completion. No gameplay state is assigned. */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -18,6 +19,9 @@
 #include "game/bondview_r.h"
 #include "game/initanitable.h"
 #include "game/bgroomtrans.h"
+#include "game/bg.h"
+#include "ge_original_boss.h"
+#include "ge_original_multiplayer_watch.h"
 #include "game/explosion.h"
 extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_port.h"
@@ -46,6 +50,8 @@ extern void chrpropDeregisterRoom(PropRecord *,s16);
 #include "ge_original_prop_state.h"
 #include "ge_original_stage_supplies.h"
 #include "ge_original_stage_items.h"
+
+static int combat;
 
 typedef struct PlayerResources {
     GeOriginalPlayerViewState view;
@@ -94,6 +100,8 @@ typedef struct Match {
     size_t object_count, collision_count;
     unsigned native_visible_hands[2], native_firing_frames;
     GeOriginalDefaultObjectProviders object_providers;
+    const GeStanNativeTile *route[1024];
+    size_t route_count, route_at;
 } Match;
 
 static const GeOriginalBondMovementProviders movement = {
@@ -170,7 +178,18 @@ static int camera(void *context,uint32_t slot,GeOriginalBondCameraConfig *config
 static int visibility(void *context,uint32_t slot,const GeOriginalBondCameraConfig *config,const GeOriginalBondCameraResult *camera_result)
 {
     Match *match=context;GeOriginalBgVisibilityResult result;(void)slot;
-    return ge_dam_visibility_runtime_run(&match->visibility,camera_result,config->camera_position,&result)==GE_DAM_VISIBILITY_RUNTIME_OK;
+    if(ge_dam_visibility_runtime_run(&match->visibility,camera_result,config->camera_position,&result)!=GE_DAM_VISIBILITY_RUNTIME_OK)return 0;
+    for(size_t room=0;room<match->world.room_count;++room){
+        GeOriginalBgRoomVisibilitySnapshot snapshot;
+        assert(ge_original_bg_visibility_room_snapshot((uint8_t)room,&snapshot));
+        assert(getROOMID_isRendered((s32)room)==snapshot.rendered);
+    }
+    for(size_t i=0;i<result.room_count;++i){
+        struct bbox2d box;
+        assert(bgGet2dBboxByRoomId(result.rooms[i].room,&box));
+        assert(memcmp(box.f,result.rooms[i].screen_box,sizeof(box.f))==0);
+    }
+    return 1;
 }
 static int capture(void *context,uint32_t slot,const GeOriginalBondCameraConfig *config,const GeOriginalBondCameraResult *result)
 { Match *match=context;(void)slot;(void)config;match->local_camera=*result;return 1; }
@@ -278,6 +297,54 @@ static size_t hit_player_count(void *context)
 static void *hit_player(void *context,size_t slot)
 { (void)context;return ge_original_multiplayer_player((uint32_t)slot); }
 
+/* Test controller only: reads authored adjacency, emits pads. Canonical
+ * MoveBond remains the sole owner of placement and collision. */
+static int tile_index(const GeStanNativeTile *const *tiles,size_t count,const void *tile)
+{ for(size_t i=0;i<count;++i)if(tiles[i]==tile)return (int)i;return -1; }
+static void plan_route(Match *match,unsigned walker,unsigned destination)
+{
+    const GeStanNativeTile *tiles[1024];int parent[1024],queue[1024];
+    size_t count=match->stan.tile_count;assert(count<=1024);
+    for(size_t i=0;i<count;++i){tiles[i]=ge_stan_native_tile_at(&match->stan,(uint32_t)i);parent[i]=-1;}
+    struct player *player=ge_original_multiplayer_player(walker),*target=ge_original_multiplayer_player(destination);
+    int start=tile_index(tiles,count,player->prop->stan),goal=tile_index(tiles,count,target->prop->stan);
+    assert(start>=0 && goal>=0);size_t head=0,tail=0;queue[tail++]=start;parent[start]=start;
+    while(head<tail && parent[goal]<0){
+        int current=queue[head++];const GeStanNativeTile *tile=tiles[current];
+        for(unsigned edge=0;edge<ge_stan_native_point_count(tile);++edge){
+            unsigned link=tile->points[edge].link;if(!link)continue;
+            int next=tile_index(tiles,count,match->stan.base+link*GE_STAN_NATIVE_LINK_UNIT);
+            if(next<0 || parent[next]>=0)continue;parent[next]=current;queue[tail++]=next;
+        }
+    }
+    assert(parent[goal]>=0);match->route_count=0;
+    for(int index=goal;index!=start;index=parent[index])match->route[match->route_count++]=tiles[index];
+    for(size_t i=0;i<match->route_count/2;++i){const GeStanNativeTile *tmp=match->route[i];
+        match->route[i]=match->route[match->route_count-1-i];match->route[match->route_count-1-i]=tmp;}
+    match->route_at=0;fprintf(stderr,"controller route: %zu authored STAN tiles\n",match->route_count);
+}
+static float signed_angle(float value)
+{ return value>3.14159265f?value-6.28318531f:value; }
+static void walk_route(Match *match,GeOriginalInputPad pads[4][2])
+{
+    struct player *player=ge_original_multiplayer_player(1),*target=ge_original_multiplayer_player(0);
+    if(!match->route_count)return;
+    for(size_t i=match->route_at;i<match->route_count;++i)
+        if(player->prop->stan==(void *)match->route[i]){match->route_at=i+1;break;}
+    float x=target->prop->pos.x,z=target->prop->pos.z;
+    if(match->route_at<match->route_count){
+        const GeStanNativeTile *tile=match->route[match->route_at];unsigned n=ge_stan_native_point_count(tile);
+        x=z=0;for(unsigned i=0;i<n;++i){x+=tile->points[i].x;z+=tile->points[i].z;}
+        x=x/n*match->stan.inverse_level_scale;z=z/n*match->stan.inverse_level_scale;
+    }
+    float dx=x-player->prop->pos.x,dz=z-player->prop->pos.z;const float *look=match->players[1].view.camera_look;
+    float angle=signed_angle(atan2f(dx*look[2]-dz*look[0],dx*look[0]+dz*look[2]));
+    pads[1][0].stick_x=(int8_t)fmaxf(-80,fminf(80,-angle*240));
+    float goal_dx=target->prop->pos.x-player->prop->pos.x,goal_dz=target->prop->pos.z-player->prop->pos.z;
+    if(goal_dx*goal_dx+goal_dz*goal_dz>90*90 || fabsf(target->prop->pos.y-player->prop->pos.y)>100)
+        if(fabsf(angle)<0.35f)pads[1][0].stick_y=60;
+}
+
 static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     const char *animation_dir,unsigned count,GeAssetPack *supplies)
 {
@@ -289,6 +356,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     GeOriginalStageGuardRuntimeStatus body_status;GeOriginalStageGuardWeaponBindReport weapon_report;
     GeOriginalMultiplayerConfig config={(int32_t)count,SCENARIO_NORMAL,1,stage->level_id,{0,0,1,1}};
     ge_port_init(&match->port);assert(ge_port_start_stage(&match->port,stage->level_id));
+
     match->collision=asset_bytes(arena,stage->collision_path,&size);
     assert(ge_stan_collision_open(match->collision,size,&surface)==GE_STAN_COLLISION_OK);
     assert(ge_stan_native_required_size(&surface,&storage_size)==GE_STAN_COLLISION_OK);
@@ -381,7 +449,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     size_t chr_count;ChrRecord *chrs=ge_original_stage_guard_runtime_chr_pool(match->guards,&chr_count);
     assert(ge_original_stage_active_props_compose_players(&match->active,&match->setup,player_props,count,chrs,chr_count,match->ordinary_props,match->object_count)==GE_ORIGINAL_STAGE_ACTIVE_PROP_OK);
     assert(ge_original_multiplayer_death_reset(&match->death));
-    assert(ge_original_multiplayer_session_reset(0,0)==GE_ORIGINAL_MP_SESSION_OK);
+    assert(ge_original_multiplayer_session_reset(combat&&supplies?1800:0,0)==GE_ORIGINAL_MP_SESSION_OK);
     ge_original_gun_live_reset();ge_original_gameplay_services_set_exact_gun_dispatch(1);ge_original_gameplay_services_set_exact_held_item_dispatch(1);
     GeOriginalMultiplayerRuntimeFrame frame={.count=count,.local=0,.death=&match->death,.hud=&match->hud,
         .views=&match->views,.active_props=&match->active,.guards=match->guards,.context=match,
@@ -389,9 +457,17 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
         .view_providers={match,select_player,visibility,capture,restore}};
     for(unsigned slot=0;slot<count;++slot)frame.lives[slot]=&match->players[slot].live;
     assert(select_player(match,0)); /* Initial prior viewport, then retain last shuffled. */
-    unsigned tick_count=supplies?480:2;
+    unsigned tick_count=supplies?(combat?2400:480):2;
     int last_item=-1,last_mag=-1,last_reserve=-1,reloads=0,pickup_timer=0;
     PropRecord *picked_prop=NULL;
+    unsigned victim_deaths=0,respawns=0,results=0,title=0,executed=0;
+    int last_dead=0;float last_health=1.0f;
+    struct player *victim_owner=ge_original_multiplayer_player(1);
+    PropRecord *victim_prop=victim_owner->prop;
+    void *victim_inventory=victim_owner->p_itemcur;
+    Model *victim_body=victim_owner->bodyModel;
+    GeOriginalMultiplayerInventoryStorage victim_storage;
+    assert(ge_original_multiplayer_inventory_storage(1,&victim_storage));
     for(unsigned tick=0;tick<tick_count;++tick){
         GeOriginalInputPad pads[4][2]={0};GeOriginalMultiplayerRegenBatch regen;GeOriginalMultiplayerSessionState session;
         if(supplies){
@@ -402,7 +478,33 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
             pads[0][0].stick_x=tick<30?20:0;
             pads[0][0].buttons=tick>=128 && tick%16<8?Z_TRIG:0;
             if(tick==100)pads[0][0].buttons=A_BUTTON;
+            if(combat){
+                pads[0][0].buttons=0;
+                if(tick==150)plan_route(match,1,0);
+                if(tick>=150 && victim_deaths==0)walk_route(match,pads);
+                if(victim_owner->bonddead && tick%16<8)pads[1][0].buttons|=A_BUTTON;
+                if(tick==100)pads[0][0].buttons=A_BUTTON;
+                if(tick>110 && victim_deaths==0){
+                    const struct player *p=ge_original_multiplayer_player(0),*target=ge_original_multiplayer_player(1);
+                    const float *look=match->players[0].view.camera_look;
+                    float dx=target->prop->pos.x-p->prop->pos.x,dz=target->prop->pos.z-p->prop->pos.z;
+                    float angle=atan2f(dx*look[2]-dz*look[0],dx*look[0]+dz*look[2]);
+                    if(angle>3.14159265f)angle-=6.28318531f;
+                    pads[0][0].stick_x=(int8_t)fmaxf(-80,fminf(80,-angle*240));
+                    float distance=sqrtf(dx*dx+dz*dz);
+                    if(tick>=240 && match->route_at==match->route_count && distance<400 && fabsf(target->prop->pos.y-p->prop->pos.y)<150 && tick%16<8)
+                        pads[0][0].buttons|=Z_TRIG;
+                    float desired=atan2f(target->prop->pos.y-60.0f-p->prop->pos.y,distance);
+                    float pitch=atan2f(look[1],sqrtf(look[0]*look[0]+look[2]*look[2]));
+                    if(desired>3.14159265f)desired-=6.28318531f;
+                    if(pitch>3.14159265f)pitch-=6.28318531f;
+                    if(desired-pitch>0.025f)pads[0][0].buttons|=D_CBUTTONS;
+                    if(desired-pitch< -0.025f)pads[0][0].buttons|=U_CBUTTONS;
+                }
+            }
         }
+        if(supplies && combat && results && tick%16==0)
+            for(unsigned slot=0;slot<count;++slot)pads[slot][0].buttons=START_BUTTON;
         assert(ge_port_advance_multiplayer_tick(&match->port,pads,count)==1);
         assert(ge_original_multiplayer_session_tick(match->port.original_clock_timer,(int32_t)tick,&session)==GE_ORIGINAL_MP_SESSION_OK);
         assert(ge_original_gun_live_frame_begin());
@@ -431,9 +533,53 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
                 }
             }
         }
+        if(supplies && combat){
+            struct player *target=ge_original_multiplayer_player(1);
+            assert(target==victim_owner && target->prop==victim_prop && target->p_itemcur==victim_inventory);
+            if(target->bondhealth!=last_health || target->bonddead!=last_dead){
+                fprintf(stderr,"native combat %u players tick%u health%.3f dead%d kills%d deathanim%d blood%d fade%.1f\n",count,tick,target->bondhealth,target->bonddead,g_playerPlayerData[0].kill_count,target->deathanimfinished,target->redbloodfinished,target->colourfadetimemax60);
+                if(!last_dead && target->bonddead)++victim_deaths;
+                if(last_dead && !target->bonddead){
+                    ++respawns;
+                    GeOriginalMultiplayerInventoryStorage current_storage;
+                    assert(ge_original_multiplayer_inventory_storage(1,&current_storage));
+                    assert(current_storage.player==victim_storage.player &&
+                           current_storage.items==victim_storage.items &&
+                           current_storage.capacity==victim_storage.capacity &&
+                           current_storage.lifetime==victim_storage.lifetime);
+                    assert(target->bondhealth==1.0f && target->bodyModel==victim_body);
+                    fprintf(stderr,"native respawn %u players tick%u original player/prop/inventory owners reused\n",count,tick);
+                }
+                last_health=target->bondhealth;last_dead=target->bonddead;
+            }
+            if(session.game_over && !results){
+                ++results;
+                assert(session.results_causes==GE_ORIGINAL_MP_SESSION_CAUSE_TIME);
+                for(unsigned slot=0;slot<count;++slot)for(unsigned award=0;award<2;++award){
+                    const char *text=NULL;
+                    assert(ge_original_multiplayer_watch_award_text(slot,award,&text));
+                }
+                fprintf(stderr,"native results %u players tick%u cause%u kills%d\n",count,tick,session.results_causes,g_playerPlayerData[0].kill_count);
+            }
+        }
         assert(ge_original_gun_live_frame_finalize(NULL));
+        ++executed;
+        if(supplies && combat && results){
+            GeOriginalBossState boss;ge_original_boss_snapshot(&boss);
+            if(boss.requested_stage==LEVELID_TITLE){
+                for(unsigned slot=0;slot<count;++slot)
+                    assert(((struct player*)ge_original_multiplayer_player(slot))->mpmenumode==MENU_FINISHED);
+                ++title;
+                fprintf(stderr,"native match complete %u players tick%u all MENU_FINISHED and original TITLE request\n",count,tick);
+                break;
+            }
+        }
     }
-    if(supplies){
+    if(supplies && combat){
+        assert(victim_deaths==1 && respawns==1 && results==1 && title==1);
+        assert(g_playerPlayerData[0].kill_count==1);
+    }
+    if(supplies && !combat){
         assert(picked_prop && picked_prop->timetoregen>0 && picked_prop->timetoregen<pickup_timer);
         assert(g_playerPlayerData[0].shot_count[0]==10 && g_NumImpactEntries==10 && reloads==1);
         assert(last_item==ITEM_FIST && last_mag==0 && last_reserve==0);
@@ -447,7 +593,7 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
     for(unsigned slot=0;slot<count;++slot){
         assert(ge_original_multiplayer_select_player(slot));
         GeOriginalGunLiveStats gun_stats;ge_original_gun_live_snapshot(&gun_stats);
-        assert(gun_stats.ticks==tick_count);
+        assert(gun_stats.ticks==executed);
         const void *native_animation=NULL;uint32_t animation_offset=UINT32_MAX;
         assert(ge_original_guard_animation_legacy_reference(g_CurrentPlayer->players_cur_animation,
             (uintptr_t)ptr_animation_table,&native_animation,&animation_offset));
@@ -475,12 +621,13 @@ static void run(GeAssetPack *arena,GeAssetPack *models,GeAssetPack *guns,
 }
 int main(int argc,char **argv)
 {
-    GeAssetPack arena,models,guns,supplies;assert(argc==5 || argc==6);
+    GeAssetPack arena,models,guns,supplies;assert(argc==5 || argc==6 || argc==7);
+    if(argc==7){assert(!strcmp(argv[6],"--combat"));combat=1;}
     assert(ge_asset_pack_open(&arena,argv[1])==GE_ASSET_PACK_OK);
     assert(ge_asset_pack_open(&models,argv[2])==GE_ASSET_PACK_OK);
     assert(ge_asset_pack_open(&guns,argv[3])==GE_ASSET_PACK_OK);
     run(&arena,&models,&guns,argv[4],2,NULL);run(&arena,&models,&guns,argv[4],4,NULL);
-    if(argc==6){assert(ge_asset_pack_open(&supplies,argv[5])==GE_ASSET_PACK_OK);
+    if(argc>=6){assert(ge_asset_pack_open(&supplies,argv[5])==GE_ASSET_PACK_OK);
         run(&arena,&models,&guns,argv[4],2,&supplies);run(&arena,&models,&guns,argv[4],4,&supplies);
         ge_asset_pack_close(&supplies);}
     ge_asset_pack_close(&guns);ge_asset_pack_close(&models);ge_asset_pack_close(&arena);return 0;

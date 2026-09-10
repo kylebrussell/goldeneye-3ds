@@ -6,7 +6,7 @@ python3 scripts/build_multiplayer_match_host.py
 python3 - "${1:-build/host-tests/multiplayer-assets/multiplayer.gepack}" \
     "${2:-build/host-tests/multiplayer-bodies/multiplayer.gepack}" \
     "${3:-build/multiplayer-port-tests/original-dam-setup/first-person-pp7.gepack}" \
-    "${4:-build/3ds-animations/bond}" "${5:-}" <<'PY'
+    "${4:-build/3ds-animations/bond}" "${5:-}" "${6:-}" <<'PY'
 import json,os,subprocess,sys
 from pathlib import Path
 build=Path('build/host-tests/multiplayer-match')
@@ -23,16 +23,22 @@ symbols=subprocess.check_output(['nm','-g',str(binary)],text=True)
 for name in ('MoveBond','ge_original_dam_guard_props_tick_exact',
              'ge_original_player_held_items_tick','gunTickGameplay',
              'ge_original_gun_update_and_fire_both_hands_exact','ge_original_multiplayer_death_post_gun',
-             'ge_original_multiplayer_respawn','ge_original_multiplayer_session_tick'):
+             'ge_original_multiplayer_respawn','ge_original_multiplayer_session_tick',
+             'chrTestHit','chrHandleBulletHit','bheadStartDeathAnimation','modelTickAnim',
+             'mp_respawn_handler','mpCalculateAwards','mpwatchMenuTick','bossSetLoadedStage',
+             'getROOMID_isRendered','bgGet2dBboxByRoomId'):
     assert any(line.endswith(' T _'+name) or line.endswith(' T '+name)
                for line in symbols.splitlines()),name
 (build/'bootstrap-link-symbols.txt').write_text(symbols)
 result=subprocess.run([str(binary)]+[arg for arg in sys.argv[1:] if arg],text=True,capture_output=True,
     env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'))
-(build/'bootstrap-transcript.txt').write_text(result.stdout+result.stderr)
+mode='combat' if sys.argv[6]=='--combat' else 'bootstrap'
+(build/(mode+'-transcript.txt')).write_text(result.stdout+result.stderr)
 print(result.stdout+result.stderr,end='')
 result.check_returncode()
-if sys.argv[5]:
+if sys.argv[6]=='--combat':
+    print('Native match gate: actual 2/4-player Caves pickup, controller approach, hits, death, score, respawn, timed results and all-player TITLE request; platform/radio/hash acceptance remains separate.')
+elif sys.argv[5]:
     print('Native supplies gate: fully populated Caves, pickup/equip/fire/impacts/reload; player damage/death/respawn/results remain separate acceptance gates.')
 else:
     print('Bootstrap gate only: actual Temple assets and 2/4-player shared frames; authored supplies and hit/death/respawn progression remain separate acceptance gates.')

@@ -857,3 +857,44 @@ s32 joyGetContDataIndex(void)
 {
     return (g_ContDataPtr - g_ContData);
 }
+
+#ifdef GE_PORT_ULTRA64_H
+int ge_original_joy_playback_matches(contplaybackfunc func)
+{
+    return g_ContPlaybackFunc == func;
+}
+
+int ge_original_joy_state_snapshot(GeOriginalJoyState *state)
+{
+    unsigned bank, sample, controller;
+    _Static_assert(CONTDATA_LEN == GE_ORIGINAL_JOY_STATE_BANKS &&
+        CONTSAMPLE_LEN == GE_ORIGINAL_JOY_STATE_SAMPLES &&
+        JOY_MAX_CONTROLLERS == GE_ORIGINAL_JOY_STATE_CONTROLLERS,
+        "Canonical joy snapshot dimensions must track the native owner");
+    if (state == NULL) return 0;
+    state->selected_bank = -1;
+    for (bank = 0; bank < CONTDATA_LEN; ++bank) {
+        const struct contdata *data = &g_ContData[bank];
+        if (g_ContDataPtr == data) state->selected_bank = (int32_t)bank;
+        state->curlast[bank] = data->curlast;
+        state->curstart[bank] = data->curstart;
+        state->nextlast[bank] = data->nextlast;
+        state->nextsecondlast[bank] = data->nextsecondlast;
+        state->playback_count[bank] = data->playbackcontcount;
+        for (controller = 0; controller < JOY_MAX_CONTROLLERS; ++controller) {
+            state->pressed[bank][controller] = data->buttonspressed[controller];
+            for (sample = 0; sample < CONTSAMPLE_LEN; ++sample) {
+                state->buttons[bank][sample][controller] = data->samples[sample].pads[controller].button;
+                state->stick_x[bank][sample][controller] = data->samples[sample].pads[controller].stick_x;
+                state->stick_y[bank][sample][controller] = data->samples[sample].pads[controller].stick_y;
+                state->errors[bank][sample][controller] = data->samples[sample].pads[controller].errno;
+            }
+        }
+    }
+    state->connected_controllers = g_ConnectedControllers;
+    state->controller_states = g_ControllerStates;
+    state->playback_present = g_ContPlaybackFunc != NULL;
+    state->record_present = g_ContRecordFunc != NULL;
+    return 1;
+}
+#endif

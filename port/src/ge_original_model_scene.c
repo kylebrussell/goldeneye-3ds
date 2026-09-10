@@ -1336,6 +1336,7 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
     size_t required_matrices = 0U;
     size_t input_index;
     uint64_t placement_hash = 0U;
+    const GeOriginalModelSceneInput *placement_input = NULL;
     if (cache == NULL || signature == NULL || quantization_ticks == NULL)
         return GE_ORIGINAL_MODEL_SCENE_INVALID_ARGUMENT;
     *quantization_ticks = 0U;
@@ -1425,9 +1426,12 @@ static GeOriginalModelSceneStatus cache_prepare_publication_matrices(
     for (input_index = 0U; input_index < input_count; ++input_index) {
         const GeOriginalModelSceneInput *input = &inputs[input_index];
         uint64_t input_hash;
-        placement_hash = cache_placement_hash(input,
-            input_index != 0U ? &inputs[input_index - 1U] : NULL,
-            placement_hash);
+        placement_hash = cache_placement_hash(input, placement_input,
+                                              placement_hash);
+        /* A caller-supplied vertex reader can have side effects. Do not
+         * compare a borrowed previous input after invoking such a callback:
+         * its placement may no longer describe the prefix computed above. */
+        placement_input = input->segment4_vertex_count == 0U ? input : NULL;
         input_hash = cache_hash_u64(
             placement_hash,
             cache->input_quantized_matrix_hashes[input_index]);

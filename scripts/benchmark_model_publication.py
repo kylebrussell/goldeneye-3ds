@@ -142,7 +142,9 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    # Existing timing results must remain tied to their original executable
+    # and source receipt; prepare a new directory for each experiment.
+    output.mkdir(parents=True, exist_ok=False)
     sources = {
         "baseline": subprocess.check_output([
             "git", "show", args.baseline_ref + ":port/src/ge_original_model_scene.c",

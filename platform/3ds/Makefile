@@ -60,14 +60,19 @@ ge_original_sfx_bank.o: CFLAGS += -O3
 title3.o: CFLAGS += -DGE_PORT_GUNBARREL_HOLE_SLICE
 ASFLAGS     := -g $(ARCH)
 LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
-# Keep the new multiplayer entry points in link validation while match entry
-# remains gated. Otherwise --gc-sections can hide unresolved gameplay owners.
+# Keep multiplayer transport and incomplete state-domain entry points in link
+# validation before live synchronization is wired. Otherwise --gc-sections can
+# hide unresolved native owners behind unused adapters.
 LDFLAGS += -Wl,-u,ge_original_multiplayer_players_create \
            -Wl,-u,ge_original_bond_live_initialize_multiplayer \
            -Wl,-u,ge_original_multiplayer_respawn \
            -Wl,-u,ge_original_multiplayer_end_tick \
            -Wl,-u,ge_3ds_multiplayer_transport_begin \
-           -Wl,-u,ge_mp_state_core_capture
+           -Wl,-u,ge_mp_state_core_capture \
+           -Wl,-u,ge_mp_state_inventory_begin \
+           -Wl,-u,ge_mp_state_inventory_end \
+           -Wl,-u,ge_mp_state_inventory_export \
+           -Wl,-u,ge_mp_state_inventory_schemas
 # Exact short GPU command encoding; all other cases retain libctru.
 LDFLAGS     += -Wl,--wrap=GPUCMD_Add
 ge_3ds_gpu_commands.o: CFLAGS += -O3

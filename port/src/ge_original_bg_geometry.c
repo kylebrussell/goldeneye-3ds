@@ -11,6 +11,8 @@ typedef struct GeBgScan {
     uint32_t room;
     unsigned list;
     uint32_t points[16];
+    uint32_t vertex_base;
+    uint8_t vertex_first;
     uint16_t valid;
     int ok;
 } GeBgScan;
@@ -88,6 +90,8 @@ static int scan_event(const GeGbiPipelineEvent *event, void *user)
         if (address.segment != 14U || address.offset % 16U != 0U
                 || first + count > 16U || address.offset / 16U + count > room->vertex_count)
             return scan->ok = 0;
+        scan->vertex_base = (uint32_t)(address.offset / 16U);
+        scan->vertex_first = (uint8_t)first;
         for (size_t i = 0U; i < count; ++i) {
             scan->points[first + i] = (uint32_t)(address.offset / 16U + i);
             scan->valid |= (uint16_t)(1U << (first + i));
@@ -109,9 +113,19 @@ static int scan_event(const GeGbiPipelineEvent *event, void *user)
         return scan->ok = 0;
     }
     for (size_t triangle = 0U; triangle < info->triangle_count; ++triangle) {
+        const uint8_t *indices = event->action.data.draw.triangles[triangle].vertex;
+        const int repeated = indices[0] == indices[1] || indices[1] == indices[2]
+            || indices[0] == indices[2];
         for (size_t vertex = 0U; vertex < 3U; ++vertex) {
-            const unsigned slot = event->action.data.draw.triangles[triangle].vertex[vertex];
+            const unsigned slot = indices[vertex];
             if (slot >= 16U || (scan->valid & (1U << slot)) == 0U) return scan->ok = 0;
+            /* The retained native ray algorithm uses the latest VTX base,
+             * not the persistent RSP cache. Reject streams where those
+             * interpretations disagree, before publishing collision data.
+             * Repeated-index padding never forms a native triangle. */
+            if (!repeated && (int64_t)scan->points[slot]
+                    != (int64_t)scan->vertex_base + slot - scan->vertex_first)
+                return scan->ok = 0;
             info->point_indices[triangle * 3U + vertex] = scan->points[slot];
         }
     }
@@ -389,10 +403,8 @@ bool bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 room, HitThing *h
     for (size_t i = 0U; i < 3U; ++i)
         if (!isfinite(from->f[i]) || !isfinite(to->f[i])
                 || fabsf(from->f[i] * geometry->level_scale) > 1000000.0f
-                || fabsf(to->f[i] * geometry->level_scale) > 1000000.0f) {
-            geometry->status = GE_ORIGINAL_BG_GEOMETRY_INVALID_ARGUMENT;
+                || fabsf(to->f[i] * geometry->level_scale) > 1000000.0f)
             return FALSE;
-        }
     return ge_bg_bullet_hit_exact(from, to, room, hit);
 }
 
@@ -549,6 +561,7 @@ int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
     size_t *changed_vertices)
 {
     uint8_t dirty[GE_BG_GEOMETRY_MAX_ROOMS][2] = {{0}};
+    size_t previous_end = 0U;
     if (changed_vertices != NULL) *changed_vertices = 0U;
     if (geometry == NULL || (vertex_count != 0U && vertices == NULL)
             || (batch_count != 0U && batches == NULL)
@@ -562,7 +575,9 @@ int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
                 || (unsigned)batch->list_kind > 1U || batch->command_address.segment != 13U
                 || batch->coordinate_space != GE_DAM_ROOM_COORDINATE_AUTHORED
                 || batch->first_vertex > vertex_count || batch->vertex_count > vertex_count - batch->first_vertex
+                || batch->first_vertex < previous_end
                 || batch->command_address.offset % 8U != 0U) return 0;
+        previous_end = batch->first_vertex + batch->vertex_count;
         room = &geometry->room_geometry[batch->room_id];
         if (batch->command_address.offset / 8U >= room->command_counts[batch->list_kind]) return 0;
         info = &room->commands[batch->list_kind][batch->command_address.offset / 8U];
@@ -574,6 +589,10 @@ int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
                     || source->z != canonical->v.ob[2] || source->flag != canonical->v.flag
                     || source->texture_s != canonical->v.tc[0] || source->texture_t != canonical->v.tc[1])
                 return 0;
+            for (size_t axis = 0U; axis < 3U; ++axis)
+                if (vertices[batch->first_vertex + v].world[axis]
+                        != room->blobs.origin[axis] + (float)canonical->v.ob[axis])
+                    return 0;
             if (memcmp(&source->red, canonical->v.cn, 4U) != 0)
                 dirty[batch->room_id][batch->list_kind] = 1U;
         }

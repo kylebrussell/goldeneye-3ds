@@ -66,7 +66,10 @@ int ge_original_bg_geometry_light_break(void *context, void *triangle,
  * vertex colours to retained/imported room triangles using exact GBI point
  * provenance. Pass only the room batch prefix, excluding actor/object
  * overlays. Returns0 on mismatched geometry.
- * Neither canonical collision nor visibility depends on this call. */
+ * Ranges must be ordered and nonoverlapping as emitted by ge_dam_rooms_build;
+ * authored world coordinates must match this owner's room origins. Rejection
+ * leaves all vertices unchanged. Neither canonical collision nor visibility
+ * depends on this call. */
 int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
     GeDamRoomWorldVertex *vertices, size_t vertex_count,
     const GeDamRoomDrawBatch *batches, size_t batch_count,

@@ -43,7 +43,16 @@ void cur_player_set_control_type(int p) { (void)p; }
 s32 cur_player_get_control_type(void) { return 1; }
 u32 randomGetNext(void) { rng = rng * 1664525u + 1013904223u; return rng; }
 s32 check_ramrom_flags(void) { return 0; }
+#ifdef GE_MP_FIXTURE_NATIVE_STAN
+#include "ge_stan_native.h"
+static const GeStanNativeMap *fixture_native_stan;
+f32 bondviewYPositionRelated(StandTile *s, f32 x, f32 z)
+{
+    return ge_original_stan_get_position_y(fixture_native_stan, (const GeStanNativeTile *)s, x, z);
+}
+#else
 f32 bondviewYPositionRelated(StandTile *s, f32 x, f32 z) { assert(s); (void)x; (void)z; return 40.0f; }
+#endif
 void hudmsgsSetOn(s32 x) { (void)x; }
 void bondviewClearUpperTextDisplayFlag(s32 x) { (void)x; }
 void hudMakeDamageSegments(void *p, s32 n, s32 a, f32 h) { (void)p;(void)n;(void)a;(void)h; }

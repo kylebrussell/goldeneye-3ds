@@ -99,9 +99,9 @@ static void pulse_and_optional_aim(void)
             GePortInput input = sample(frame, guard < 0 ? NULL : aim, false);
             uint32_t expected = frame % 45 == 0 ? probe.targets[0].held : 0;
             assert(input.held == expected && input.pressed == expected);
-            assert(input.move_y == 1 && input.move_x == 0);
-            if (guard >= 0) assert(input.look_x < 0 && input.look_y > 0);
-            else assert(input.look_x == 0 && input.look_y == 0);
+            assert(input.move_y == 1 && input.look_x == 0);
+            if (guard >= 0) assert(input.move_x < 0 && input.look_y > 0);
+            else assert(input.move_x == 0 && input.look_y == 0);
         }
     }
     /* A missing resolver point must not suppress aimed travel either. */

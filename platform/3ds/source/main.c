@@ -1094,7 +1094,12 @@ static void input_probe_apply_live_aim(GePortInput *input,
            - player->camera_look[2] * dx) / look_length;
     angle = atan2f(cross, dot);
     if (angle > M_PI_F) angle -= M_TAU_F;
-    input->look_x = fmaxf(-1.0f, fminf(1.0f, angle * 1.5f));
+    /* Controller routes use HONEY (1.1): analog X turns, C-left/right strafe.
+     * Send the guard-facing command through the yaw stick, preserving the
+     * navigation forward input. A dwell then turns in place instead of
+     * walking sideways with its original navigation heading. */
+    input->move_x = fmaxf(-1.0f, fminf(1.0f, angle * 1.5f));
+    input->look_x = 0.0f;
     horizontal_length = target_length;
     look_horizontal_length = sqrtf(
         player->camera_look[0] * player->camera_look[0]
@@ -1102,10 +1107,8 @@ static void input_probe_apply_live_aim(GePortInput *input,
     if (horizontal_length > 0.001f && look_horizontal_length > 0.001f) {
         target_pitch = atan2f(dy, horizontal_length);
         look_pitch = atan2f(player->camera_look[1], look_horizontal_length);
-        /* HONEY initially maps U_CBUTTONS to speedVertaDown, but the stock
-         * non-inverted-pitch branch swaps speedVertaDown/speedVertaUp before
-         * applying vertical speed.  ge_port maps positive look_y to U, so a
-         * positive target pitch error is the command that raises the view. */
+        /* Vertical commands retain the probe's C-button channel. The
+         * canonical decoder applies the current player's pitch inversion. */
         input->look_y = fmaxf(-1.0f,
             fminf(1.0f, (target_pitch - look_pitch) * 1.5f));
     }

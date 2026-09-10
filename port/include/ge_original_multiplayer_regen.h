@@ -18,6 +18,11 @@ typedef enum GeOriginalMultiplayerRegenStatus {
     GE_ORIGINAL_MP_REGEN_INVALID_ROSTER
 } GeOriginalMultiplayerRegenStatus;
 
+/* Native resource binding: original chrpropEnable, original object room
+ * publication and original positional OBJ_REGEN_SFX. The caller initializes
+ * the normal model/room/audio resources before ticking; no silent sound stub. */
+int ge_original_multiplayer_regen_native_providers(
+    GeOriginalMultiplayerRegenProviders *providers);
 /* Invoke once per simulation tick for each prop, including disabled pickups.
  * Runs the selected unchanged chrpropTick countdown and near-player gate.
  * No current-player mutation; all published players must have finite props. */

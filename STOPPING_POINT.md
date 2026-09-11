@@ -156,3 +156,30 @@ The user's untracked `platform/3ds/source/main.c.orig` remains unchanged,
 SHA256 `25a8f597c4d660ada95dfeda0b664c3fefd8a29c25d90550f853287fe39ea593`.
 These parent-preservation checks were performed by the parent coordinator;
 this integration task did not edit or recheck that checkout.
+
+## Physical hardware follow-up — 2026-09-11, Dam selection
+
+User confirmed upright intro Bond on `60c22e2f`, but reported legs extending
+outside the barrel, displaced mission-selection artwork, and a return to HBL
+when starting Dam. Saved card log: `build/hardware-boot-20260911/dam-start-exit.log`.
+It reaches gameplay geometry loading and then normal cleanup; it does not
+identify the failing initializer. No peer tasks were restarted.
+
+- Corrected wallet view translation from original `frontSetupMenuBackground`:
+  eye and target both include the 190-unit Y offset, so the camera has no pitch.
+- Added stencil coverage from the authored barrel-opening polygon to constrain
+  Bond; restores stencil state before blood/fade and at frontend entry.
+- Fixed solo fog loading before `bond_live_initialize` publishes the canonical
+  player roster. `getPlayerCount()` returns zero before publication on a fresh
+  launch, which the fog loader rejects. Multiplayer retains fog-before-effects
+  ownership order. Solo player initialization failures now stop explicitly.
+- Stage startup failure paths now persist their source location (geometry also
+  records status and room) and use the existing START-to-exit error screen.
+
+Validation: sanitized production wallet/stencil regression, Bond projection,
+empty frontend draws, original gunbarrel contract, native and short-enum fog
+selection/zero-player regression, MP fog state tests, and all 32 asset-pack BG
+geometry descriptors in both host ABIs passed. These checks do not establish
+physical rendering fidelity or successful Dam play; the next card build needs
+that hardware confirmation. Forced ARM candidate build/installation receipts
+are recorded separately under `build/releases` and `build/sd-deployment`.

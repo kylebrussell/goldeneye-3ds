@@ -73,6 +73,17 @@ static void select_stage(int32_t level, uint32_t count, int cinema, float scale)
 
 int main(void)
 {
+    /* First solo load: spawn exists before input publishes the player roster.
+     * The live startup must wait for that publication before loading fog. */
+    players=0;
+    unsigned initial_writes=vi_writes;
+    assert(!ge_original_multiplayer_fog_load(LEVELID_DAM,0,1,0.2f));
+    assert(vi_writes==initial_writes);
+    players=1;
+    assert(ge_original_multiplayer_fog_load(LEVELID_DAM,0,1,0.2f));
+    assert(vi_writes==initial_writes+1);
+    ge_original_multiplayer_fog_close();
+
     unsigned selections=0;
     for (size_t stage=0; stage<GE_STAGE_COUNT+GE_MULTIPLAYER_STAGE_COUNT; ++stage) {
         const GeStageAssetDescriptor *d=stage<GE_STAGE_COUNT

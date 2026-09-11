@@ -283,6 +283,15 @@ static bool frontend_failure(int menu, int line)
     return false;
 }
 
+static void stage_failure(const char *stage, int line)
+{
+    if (boot_failure[0] == '\0') {
+        snprintf(boot_failure, sizeof(boot_failure),
+                 "Stage stopped: %s, main.c:%d", stage, line);
+        boot_checkpoint(boot_failure, false);
+    }
+}
+
 typedef struct Vertex {
     float x;
     float y;
@@ -14986,20 +14995,12 @@ static bool prepare_original_frontend_wallet(
                     + source->world[1] * 0.37f;
                 camera_z = source->world[2] * 0.37f - 4000.0f;
             } else {
-                /* frontSetupMenuBackground: selected folder origin cancels
-                 * from the eye/target pair. The camera is 190 units above
-                 * and 700 units forward, with the model basis scaled 0.25. */
-                const float inverse_length = 1.0f
-                    / sqrtf(190.0f * 190.0f + 700.0f * 700.0f);
-                const float backward_y = 190.0f * inverse_length;
-                const float backward_z = 700.0f * inverse_length;
-                const float local_y = source->world[1] * 0.25f - 190.0f;
-                const float local_z = source->world[2] * 0.25f - 700.0f;
+                /* frontSetupMenuBackground raises BOTH eye and target by
+                 * 190: its view direction remains (0,0,-1). Selected-folder
+                 * translation cancels; there is no pitch toward the origin. */
                 camera_x = source->world[0] * 0.25f;
-                camera_y = local_y * backward_z
-                    - local_z * backward_y;
-                camera_z = local_y * backward_y
-                    + local_z * backward_z;
+                camera_y = source->world[1] * 0.25f - 190.0f;
+                camera_z = source->world[2] * 0.25f - 700.0f;
             }
             if (!(camera_z < -1.0f)) goto done;
             destination[vertex] = (Vertex){
@@ -16167,6 +16168,7 @@ static void draw_original_frontend_list(
     C3D_FrameDrawOn(top_target);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &projection);
     renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_FLAT);
+    C3D_StencilTest(false, GPU_ALWAYS, 0, 0xff, 0x00);
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0U, 0U, 0U, 0U);
     C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
@@ -16379,6 +16381,11 @@ static void draw_original_frontend_list(
                         + ORIGINAL_FRONTEND_MODEL_VERTEX_CAPACITY - 6U,
                 6U);
         }
+        /* Record the authored opening while drawing its backdrop, then
+         * constrain Bond to that coverage so his legs cannot overwrite the
+         * surrounding barrel. This is independent of material depth state. */
+        C3D_StencilTest(true, GPU_ALWAYS, 1, 0xff, 0xff);
+        C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_REPLACE);
         if (runtime->gunbarrel_hole_vertex_count != 0U) {
             size_t hole;
             C3D_TexEnvInit(texture_environment = C3D_GetTexEnv(0));
@@ -16394,6 +16401,8 @@ static void draw_original_frontend_list(
                     ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET + hole,
                     GE_ORIGINAL_GUNBARREL_HOLE_VERTEX_COUNT);
         }
+        C3D_StencilTest(true, GPU_EQUAL, 1, 0xff, 0x00);
+        C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_KEEP);
         if ((frame->layers & GE_ORIGINAL_GUNBARREL_LAYER_BOND) != 0U
                 && runtime->gunbarrel_bond_scene.vertex_count != 0U) {
             RuntimeRendererMaterialCache material_cache = {0};
@@ -16495,6 +16504,7 @@ static void draw_original_frontend_list(
              * stage 1 to Citro3D's canonical pass-through before blood/HUD. */
             C3D_TexEnvInit(C3D_GetTexEnv(1));
         }
+        C3D_StencilTest(false, GPU_ALWAYS, 0, 0xff, 0x00);
         if ((frame->layers & GE_ORIGINAL_GUNBARREL_LAYER_BLOOD_IMAGE)
                     != 0U
                 && runtime->gunbarrel_blood_texture_loaded) {
@@ -20278,16 +20288,25 @@ start_stage_runtime:
             dam_preview.visibility_runtime.room_bounds, &dam_preview.bg_geometry_report);
         if (dam_preview.bg_geometry == NULL) {
             multiplayer.failed = multiplayer.requested;
+            snprintf(boot_failure, sizeof(boot_failure),
+                "BG geometry: %s status=%u room=%lu", stage_assets->key,
+                (unsigned)dam_preview.bg_geometry_report.status,
+                (unsigned long)dam_preview.bg_geometry_report.failed_room);
+            boot_checkpoint(boot_failure, false);
             printf("BG geometry failed: %s status=%u room=%lu.\n",
                 stage_assets->key, (unsigned)dam_preview.bg_geometry_report.status,
                 (unsigned long)dam_preview.bg_geometry_report.failed_room);
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
+        boot_checkpoint("Gameplay geometry loaded", false);
         ge_original_bg_geometry_bind(dam_preview.bg_geometry);
         if (multiplayer.requested
                 && !runtime_multiplayer_state_begin_geometry(dam_preview.bg_geometry,
-                    &dam_preview.visibility_runtime))
+                    &dam_preview.visibility_runtime)) {
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
+        }
         ge_original_player_held_items_bind_lights(dam_preview.bg_geometry,
             ge_original_bg_geometry_light_break);
     }
@@ -20296,6 +20315,7 @@ start_stage_runtime:
     if (!prop_state_ready) {
         multiplayer.failed = multiplayer.requested;
         printf("Native prop pool initialization failed.\n");
+        stage_failure(stage_assets->key, __LINE__);
         goto cleanup_runtime;
     }
     if (multiplayer.requested) {
@@ -20305,33 +20325,37 @@ start_stage_runtime:
                 &packaged_stage_setup)) {
             multiplayer.failed = true;
             printf("Multiplayer player/spawn preparation failed.\n");
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
         if (!ge_original_effect_runtime_reset(multiplayer.count, selected_level_id)) {
             multiplayer.failed = true;
             printf("Multiplayer effect buffer initialization failed.\n");
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
     } else {
         if (!ge_original_effect_runtime_reset(1U, selected_level_id)) {
             printf("Native effect initialization failed.\n");
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
+        boot_checkpoint("Initializing solo spawn", false);
         initialize_original_stage_intro(&dam_collision, &dam_intro,
                                         &dam_objects.props,
                                         original_stage_setup,
                                         selected_level_id,
                                         original_frontend_runtime.ramrom_active != 0U);
     }
-    if (!ge_original_multiplayer_fog_load(selected_level_id, 0,
-            multiplayer.requested ? multiplayer.count : 1U,
-            dam_preview.visibility_runtime.visibility_scale)) {
-        multiplayer.failed = multiplayer.requested;
-        printf("Native stage fog initialization failed.\n");
-        goto cleanup_runtime;
+    if (multiplayer.requested) {
+        if (!ge_original_multiplayer_fog_load(selected_level_id, 0,
+                multiplayer.count, dam_preview.visibility_runtime.visibility_scale)
+                || !runtime_multiplayer_state_begin_fog()) {
+            multiplayer.failed = true;
+            stage_failure("multiplayer fog", __LINE__);
+            goto cleanup_runtime;
+        }
     }
-    if (multiplayer.requested && !runtime_multiplayer_state_begin_fog())
-        goto cleanup_runtime;
     if (visual_probe_tour.enabled) {
         const GeVisualProbeView *view = ge_visual_probe_tour_view_at(
             &visual_probe_tour.tour, 0U, &visual_probe_tour.current_view);
@@ -20364,8 +20388,10 @@ start_stage_runtime:
         (void)ge_original_guard_animation_table_bind(
             bond_animations.segment, bond_animations.segment_size);
     ge_original_gameplay_services_reset();
-    if (multiplayer.requested && !runtime_multiplayer_state_begin_effects())
+    if (multiplayer.requested && !runtime_multiplayer_state_begin_effects()) {
+        stage_failure(stage_assets->key, __LINE__);
         goto cleanup_runtime;
+    }
     ge_original_dam_mission_exit_services_reset();
     {
         size_t credits_count = 0U;
@@ -20420,16 +20446,22 @@ start_stage_runtime:
             original_frontend.mission)) {
         printf("Unsupported mission result index %ld.\n",
                (long)original_frontend.mission);
+        stage_failure(stage_assets->key, __LINE__);
         goto cleanup_runtime;
     }
     ge_original_gameplay_services_bind_settings_persistence(
         mission_save_provider.ready ? &mission_save_provider : NULL,
         mission_save_provider.ready
             ? original_watch_persist_settings_fields : NULL);
-    if (!multiplayer.requested && first_person_models.ready && dam_intro.spawn.player_committed)
-        (void)ge_original_bond_live_initialize(
-            first_person_models.buffers[0], first_person_models.buffers[1],
-            &first_person_models.bond_live);
+    if (!multiplayer.requested && first_person_models.ready && dam_intro.spawn.player_committed) {
+        boot_checkpoint("Registering solo player", false);
+        if (!ge_original_bond_live_initialize(
+                first_person_models.buffers[0], first_person_models.buffers[1],
+                &first_person_models.bond_live)) {
+            stage_failure("solo player", __LINE__);
+            goto cleanup_runtime;
+        }
+    }
     if (first_person_models.bond_live.initialized) {
         /* playerInit establishes g_playerPointers before any dynamic player
          * collision query.  The bounded port binds that canonical table in
@@ -20440,6 +20472,16 @@ start_stage_runtime:
         bind_first_person_loadout(&first_person_models);
         ge_original_gun_live_reset();
         ge_original_gameplay_services_set_exact_gun_dispatch(1);
+    }
+    /* Solo publishes g_playerPointers in bond_live_initialize above. The
+     * intro spawn alone does not satisfy fog's canonical roster check. */
+    if (!multiplayer.requested) {
+        boot_checkpoint("Initializing solo fog", false);
+        if (!ge_original_multiplayer_fog_load(selected_level_id, 0, 1U,
+                dam_preview.visibility_runtime.visibility_scale)) {
+            stage_failure("solo fog", __LINE__);
+            goto cleanup_runtime;
+        }
     }
     if (!multiplayer.requested) initialize_current_player_gait(&bond_animations);
     if (dam_stage) {
@@ -20527,6 +20569,7 @@ start_stage_runtime:
     if (!ge_port_start_stage(&port, selected_level_id)) {
         multiplayer.failed = multiplayer.requested;
         printf("Native stage timer initialization failed.\n");
+        stage_failure(stage_assets->key, __LINE__);
         goto cleanup_runtime;
     }
     /* This is the unchanged mp_music.c stage initializer. It chooses the
@@ -20544,6 +20587,7 @@ start_stage_runtime:
             && !ge_original_input_ramrom_bind(
                 original_frontend_runtime.ramrom_replay
                     .header.controller_count)) {
+        stage_failure(stage_assets->key, __LINE__);
         goto cleanup_runtime;
     }
     if (stage_ordinary_objects.initialized) {
@@ -20578,6 +20622,7 @@ start_stage_runtime:
                 && (!runtime_multiplayer_initialize_lives(&bond_animations))) {
             multiplayer.failed = true;
             printf("Multiplayer life/body initialization failed.\n");
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
         if (initialize_stage_active_props(
@@ -20606,6 +20651,7 @@ start_stage_runtime:
                 || ge_original_multiplayer_frontend_started(&multiplayer_frontend,
                     multiplayer.request.request_id, 1) != GE_ORIGINAL_MP_FRONTEND_OK) {
             multiplayer.failed = true;
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
         multiplayer.running = true;
@@ -20676,12 +20722,17 @@ start_stage_runtime:
             && !original_frontend_runtime.ramrom_active;
         ge_original_input_set_dual_analog(dual_analog);
         for (uint32_t slot = 0U; slot < (multiplayer.running ? multiplayer.count : 1U); ++slot) {
-            if (multiplayer.running && !runtime_multiplayer_select(slot)) goto cleanup_runtime;
+            if (multiplayer.running && !runtime_multiplayer_select(slot)) {
+                stage_failure(stage_assets->key, __LINE__);
+                goto cleanup_runtime;
+            }
             ge_original_bond_input_set_control_style(
                 dual_analog ? CONTROLLER_CONFIG_GALORE : CONTROLLER_CONFIG_HONEY);
         }
-        if (multiplayer.running && !runtime_multiplayer_select(multiplayer.local))
+        if (multiplayer.running && !runtime_multiplayer_select(multiplayer.local)) {
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
+        }
         if (!dual_analog && !original_frontend_runtime.ramrom_active
                 && !input_probe.enabled)
             printf("Controls:     single stick (1.1)\n");
@@ -20691,6 +20742,7 @@ start_stage_runtime:
         memcpy(input_probe.initial_rng, setup_initial_rng, sizeof(setup_initial_rng));
         if (!input_probe_load_retraces(&input_probe)) {
             printf("Invalid input-probe retrace replay.\n");
+            stage_failure(stage_assets->key, __LINE__);
             goto cleanup_runtime;
         }
         FILE *detail = fopen(INPUT_DETAIL_PATH, "rb");

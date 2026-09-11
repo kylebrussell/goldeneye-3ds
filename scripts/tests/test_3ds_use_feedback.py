@@ -32,7 +32,7 @@ typedef struct { size_t entry_count; GeOriginalStageInteractiveEntry *entries; }
 typedef struct { int actor_tick_status; unsigned alarm_interaction_ticks,
  alarm_interaction_activations; size_t entry_count;
  RuntimeStageOrdinaryEntry *entries; Interactive interactive;
- struct {size_t relation_count, omitted_count;} switch_runtime;
+ struct {size_t relation_count, omitted_count;} switch_runtime, padlock_runtime;
  GeOriginalDoorInteractionState door_interaction;
  GeOriginalStageAlarmInteractionResult alarm_interaction; } RuntimeStageOrdinaryObjects;
 typedef struct { float original_camera_position[3], original_camera_look[3];

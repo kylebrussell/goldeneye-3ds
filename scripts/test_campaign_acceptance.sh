@@ -14,7 +14,11 @@ if [[ $(uname -s) == Darwin ]]; then
 else
     dead_strip=(-Wl,--gc-sections)
 fi
-cc -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-pragma-pack \
+for enum_mode in native short; do
+    enum_flags=(-fno-short-enums)
+    if [[ "${enum_mode}" == short ]]; then enum_flags=(-fshort-enums); fi
+    printf 'Campaign acceptance enum layout: %s\n' "${enum_mode}"
+cc "${enum_flags[@]}" -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-pragma-pack \
     -Wno-unused-parameter -Wno-missing-braces -Wno-pointer-sign \
     -Wno-incompatible-pointer-types -Wno-int-conversion \
     -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
@@ -41,3 +45,4 @@ cc -std=gnu11 -Wall -Wextra -Werror -Wno-comment -Wno-pragma-pack \
     "${dead_strip[@]}" -lm -o "${build_dir}/test_ge_campaign_acceptance"
 UBSAN_OPTIONS="${UBSAN_OPTIONS:+${UBSAN_OPTIONS}:}halt_on_error=1" \
     "${build_dir}/test_ge_campaign_acceptance" "${pack}"
+done

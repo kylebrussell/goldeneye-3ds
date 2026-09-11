@@ -157,6 +157,7 @@
 #include "ge_original_stage_objective_runtime.h"
 #include "ge_original_stage_safe_runtime.h"
 #include "ge_original_stage_switch_runtime.h"
+#include "ge_original_stage_padlock_runtime.h"
 #include "ge_original_stage_security.h"
 #include "ge_original_sfx_bank.h"
 #include "ge_original_stage_prop_materializer.h"
@@ -2452,6 +2453,7 @@ typedef struct RuntimeStageOrdinaryObjects {
     GeOriginalStageObjectiveRuntime objective_runtime;
     GeOriginalStageSafeRuntime safe_runtime;
     GeOriginalStageSwitchRuntime switch_runtime;
+    GeOriginalStagePadlockRuntime padlock_runtime;
     GeOriginalStageMiscStatus safe_relation_status;
     GeOriginalStageObjectiveEvaluation objective_evaluations[
         GE_ORIGINAL_STAGE_OBJECTIVE_MAX];
@@ -7476,6 +7478,13 @@ static bool tick_stage_objectives(RuntimeStageOrdinaryObjects *objects)
     return true;
 }
 
+static int stage_door_padlock_free(void *context, void *definition)
+{
+    RuntimeStageOrdinaryObjects *objects = context;
+    return objects != NULL && ge_original_stage_padlock_runtime_is_free(
+        &objects->padlock_runtime, definition);
+}
+
 static void stage_alarm_play_sfx(void *context, uint32_t sfx_id)
 {
     (void)context;
@@ -7565,6 +7574,9 @@ report:
         fprintf(stream, "switch_links=%lu omitted=%lu\n",
             (unsigned long)objects->switch_runtime.relation_count,
             (unsigned long)objects->switch_runtime.omitted_count);
+        fprintf(stream, "padlock_links=%lu omitted=%lu\n",
+            (unsigned long)objects->padlock_runtime.relation_count,
+            (unsigned long)objects->padlock_runtime.omitted_count);
         /* This is the preceding rendered camera, explicitly distinguished
          * from the native interaction-time prop snapshots below. */
         fprintf(stream, "rendered_camera=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g room=%u\n",
@@ -10592,6 +10604,7 @@ static void close_stage_ordinary_objects(
     size_t index;
     if (objects == NULL) return;
     ge_original_stage_switch_runtime_close(&objects->switch_runtime);
+    ge_original_stage_padlock_runtime_close(&objects->padlock_runtime);
     /* objFree owns the canonical autogun sound-handle and PropRecord
      * teardown. Run it while the shared active list and Pitem provider are
      * still bound, then release the provider's captured model slot exactly
@@ -21007,6 +21020,14 @@ start_stage_runtime:
                     result = 1;
                     goto cleanup_runtime;
                 }
+                if (!ge_original_stage_padlock_runtime_materialize(
+                        &stage_ordinary_objects.padlock_runtime,
+                        stage_ordinary_objects.setup, &stage_ordinary_objects,
+                        stage_safe_definition_by_command)) {
+                    boot_checkpoint("Stage padlock link initialization failed", false);
+                    result = 1;
+                    goto cleanup_runtime;
+                }
                 if (initialize_stage_safe_relations(
                         &stage_ordinary_objects)) {
                     stage_ordinary_objects.init_mask |= UINT32_C(4);
@@ -21032,8 +21053,12 @@ start_stage_runtime:
         }
         if (initialize_stage_active_props(
                 &stage_ordinary_objects, &dam_intro)) {
+            const GeOriginalDoorInteractionProviders door_providers = {
+                .context = &stage_ordinary_objects,
+                .padlock_free = stage_door_padlock_free,
+            };
             ge_original_door_interaction_bind(
-                NULL, &stage_ordinary_objects.door_interaction);
+                &door_providers, &stage_ordinary_objects.door_interaction);
             publish_stage_ordinary_visibility(
                 &stage_ordinary_objects, true);
         }

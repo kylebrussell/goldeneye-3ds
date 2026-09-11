@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# This is an aggregate-fixture smoke, not a self-contained runtime build.
+# Movement/gait/table objects below must come from a current test_port run.
+# Do not treat a pass with reused objects as fresh full-runtime evidence.
 repo_dir=${1:?repository path required}
 test_dir=${2:?aggregate test directory required}
 smoke_dir="${test_dir}/bond-move-live-smoke"
@@ -61,6 +64,19 @@ compile_support() {
     cc "${common[@]}" "$@" -c "${repo_dir}/${source}" \
         -o "${smoke_dir}/${output}"
 }
+
+# Refresh these native owners instead of relying on an old aggregate partial
+# link. Their APIs evolve with live movement and HUD calls used below.
+compile_support port/src/ge_original_bond_input_provider.c provider.o
+python3 "${repo_dir}/scripts/extract_dam_mission_hud_slice.py" \
+    "${repo_dir}" "${smoke_dir}/dam_mission_hud.c"
+cc "${common[@]}" -c "${smoke_dir}/dam_mission_hud.c" \
+    -o "${smoke_dir}/dam_mission_hud.o"
+
+python3 "${repo_dir}/scripts/extract_bond_move_explosion_slice.py" \
+    "${repo_dir}" "${smoke_dir}/explosion.c"
+cc "${common[@]}" -c "${smoke_dir}/explosion.c" \
+    -o "${smoke_dir}/explosion.o"
 
 compile_support src/boss.c boss.o -DGE_PORT_BOSS_STAGE_SLICE
 compile_support src/game/lv.c lv.o -DGE_PORT_LV_STAGE_TICK_SLICE
@@ -148,11 +164,20 @@ objects=(
     "${test_dir}/bond-move-state/adapter.o"
     "${test_dir}/bond-move-collision/collision.o"
     "${test_dir}/bond-move-non-tank/non_tank.o"
-    "${test_dir}/bond-move-explosion/explosion.o"
+    "${smoke_dir}/explosion.o"
     "${test_dir}/move-model-tables/model_tables.o"
     "${test_dir}/animation-table/animation_table.o"
     "${smoke_dir}/animation_alias.o"
-    "${test_dir}/original-bond-input/provider-bound.o"
+    "${smoke_dir}/provider.o"
+    "${test_dir}/original-bond-input/body.o"
+    "${test_dir}/original-bond-input/speed-helpers.o"
+    "${test_dir}/original-bond-input/watch-helpers.o"
+    "${test_dir}/original-bond-input/state-helpers.o"
+    "${test_dir}/original-bond-input/live-state.o"
+    "${test_dir}/original-bond-input/gun-data.o"
+    "${test_dir}/original-bond-input/joy.o"
+    "${test_dir}/original-bond-input/stan-dynamic-geometry.o"
+    "${test_dir}/original-bond-input/math-angles.o"
     "${test_dir}/player-gait/model_root.o"
     "${test_dir}/player-gait/animation_root.o"
     "${test_dir}/player-gait/model_clock.o"
@@ -218,7 +243,7 @@ objects=(
     "${smoke_dir}/guard_bullet_hit.o"
     "${smoke_dir}/dam_guards.o"
     "${smoke_dir}/scheduler.o"
-    "${test_dir}/original-dam-setup/dam_mission_hud.o"
+    "${smoke_dir}/dam_mission_hud.o"
     "${test_dir}/original-dam-setup/dam_mission_object_state.o"
 )
 

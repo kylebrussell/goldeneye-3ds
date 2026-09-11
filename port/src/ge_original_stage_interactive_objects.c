@@ -215,9 +215,13 @@ static void ge_interactive_link_doors(
             }
             continue;
         }
-        /* A canonical linked pair normally points in both directions. Process
-         * its storage/link callback once, in setup-record order. */
-        if ((size_t)linked <= index) continue;
+        /* The provider publishes both directions only for reciprocal pairs.
+         * Directed groups (Bunker flexi doors, Aztec and Egyptian) also have
+         * backwards edges that close their cycles; those must be published. */
+        if ((size_t)linked < index
+                && runtime->entries[linked].record->relation_count != 0U
+                && runtime->entries[linked].record->relations[0]
+                    == entry->record) continue;
         if (!entry->constructed || !runtime->entries[linked].constructed)
             continue;
         if (runtime->providers.link_doors == NULL

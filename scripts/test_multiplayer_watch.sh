@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-test_dir="${repo_dir}/build/host-tests/multiplayer-watch"
+test_dir=${GE_WATCH_TEST_DIR:-"${repo_dir}/build/host-tests/multiplayer-watch"}
 mkdir -p "${test_dir}"
 python3 "${repo_dir}/scripts/extract_multiplayer_players_slice.py" "${repo_dir}" "${test_dir}/players.c"
 python3 "${repo_dir}/scripts/extract_mp_state_session_fixture.py" "${repo_dir}" "${test_dir}/support.c"

@@ -493,3 +493,33 @@ symbols; it is not reported as passing. New focused tests are in test_port.sh;
 the full aggregate has not been rerun. An incremental ARM compile/link passed.
 Forced candidate and single-entry SD install receipts are recorded separately.
 Hardware validation of the new fixes remains required; world rendering is open.
+
+## Campaign preflight — 2026-09-11, after 63472c9b
+
+The user requested proactive checks across the campaign and another build before
+physical retesting. Implemented native padlock registration/health-provider wiring
+for all 27 authored relations, and corrected eight omitted backward edges in
+nonreciprocal door groups across Bunker1, Surface2, Bunker2, Aztec and Egyptian.
+Lifecycle audits found no additional proven production defect; stale smoke-test
+owners were refreshed with explicit reused-object limits.
+
+The reusable `scripts/test_campaign_preflight.py` ran all 15 fresh checks, passed,
+and verified unchanged source inputs/asset bytes. Evidence is in
+`build/host-tests/campaign-preflight-20260911/final/`. Campaign setup/objective/room
+checks run native and short enums with ASan/UBSan: all 20 missions plus credits,
+1,214 authored rooms, 6,007 publication checks per layout, 80 mission/difficulty
+result/restart/save fixtures and 703 criterion perturbations per layout. The
+campaign link harness validates 10 switches, 166 door links, 27 padlocks and six
+safe relations behaviorally; tags/objective references/patrol paths structurally.
+Full mission playthroughs, vehicle navigation and hardware pixels are not claimed.
+
+The exact installed pack was read from the verified SD backup:
+`build/sd-deployment/aim-gate-depth-20260911-180125/before/3ds/goldeneye-3ds/goldeneye.u.gepack`
+with SHA256 `5fc14fae6e53a975c0b09162ee2a52e2355828b47ba58a4cbf807ce73df0221c`.
+The older staged pack (51468ccc…) has 1,618 fewer entries and an older character
+manifest. All final campaign checks use the installed pack; neither was modified.
+Preserve the installed pack, saves, settings and one-launcher layout on deployment.
+
+See `docs/CampaignPreflight20260911.md` for detailed scope and repeat command.
+Dam's hardware depth fault remains open; the completed-screen/depth diagnostics
+are retained. Candidate build and deployment receipts are recorded separately.

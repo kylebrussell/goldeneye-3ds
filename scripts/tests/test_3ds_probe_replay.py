@@ -14,7 +14,7 @@ source = (root/'platform/3ds/source/main.c').read_text()
 loader = function_text(source, 'input_probe_load_retraces')
 first_person = function_text(source, 'update_first_person_scene')
 assert '&runtime->cache, deep_profile ? runtime_profile_clock : NULL, NULL)' in first_person
-main = source[source.index('int main('):]
+main = source[source.index('run_application(void)'):]
 guard_clock = main.index('ge_original_model_scene_cache_bind_profile_clock(')
 assert main.index("input_probe.deep_profile = fgetc(detail) == '1';") < guard_clock
 assert 'input_probe.deep_profile ? runtime_profile_clock : NULL, NULL)' in main[guard_clock:guard_clock+250]

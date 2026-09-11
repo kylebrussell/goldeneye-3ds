@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "ge_asset_pack.h"
 #include "ge_blotter_model.h"
@@ -231,6 +232,32 @@ extern s32 D_800409A4;
 /* Display-list decoding and original engine calls need more than libctru's
  * 32 KiB default while the port still returns large renderer snapshots. */
 u32 __stacksize__ = 256U * 1024U;
+
+/* Startup must be observable before the runtime's large stack frame and asset
+ * loads. No per-frame logging: this file contains only boot milestones. */
+static PrintConsole boot_console;
+static bool boot_console_ready;
+static bool boot_frame_pending = true;
+
+static void boot_checkpoint(const char *phase, bool present)
+{
+    FILE *stream;
+    if (boot_console_ready && present) {
+        printf("\x1b[2J\x1b[HGoldenEye 007 3DS - starting\n\n%s\n", phase);
+        fflush(stdout);
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+        gspWaitForVBlank();
+    }
+    stream = fopen("sdmc:/3ds/goldeneye-3ds/boot.log", "a");
+    if (stream != NULL) {
+        fprintf(stream, "%llu %s\n",
+                (unsigned long long)svcGetSystemTick(), phase);
+        fflush(stream);
+        (void)fsync(fileno(stream));
+        fclose(stream);
+    }
+}
 
 typedef struct Vertex {
     float x;
@@ -17535,6 +17562,11 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
             &snapshot.presentation,
             original_frontend_page(snapshot.menu), &draw_list,
             &sprite_list, sprite_vertex_count);
+        if (boot_frame_pending) {
+            boot_checkpoint("First frontend frame submitted", false);
+            consoleClear();
+            boot_frame_pending = false;
+        }
         if (audio_active && *music_runtime != NULL && !music_failed
                 && ge_original_music_runtime_finish(*music_runtime)
                     != GE_AUDIO_ABI_OK) {
@@ -19897,10 +19929,9 @@ static void print_runtime_console_header(
     printf("START        Bond watch / pause\n");
 }
 
-int main(void)
+static int __attribute__((noinline)) run_application(void)
 {
     C3D_RenderTarget *top_target;
-    PrintConsole bottom_console;
     GeAssetPack asset_pack;
     GeTextureCatalog texture_catalog;
     GeTextureCache texture_cache;
@@ -19964,9 +19995,8 @@ int main(void)
     unsigned frame_counter = 0;
     int result = 0;
 
-    gfxInitDefault();
+    boot_checkpoint("Runtime entered", true);
     ge_3ds_lifecycle_init();
-    consoleInit(GFX_BOTTOM, &bottom_console);
     ge_3ds_controls_init(&controls);
     (void)ge_3ds_controls_load(&controls, CONTROLS_CONFIG_PATH);
     stage_assets = load_stage_selection();
@@ -20005,12 +20035,14 @@ int main(void)
         }
     }
 
+    boot_checkpoint("Initializing GPU", true);
     if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) {
         printf("\nCould not initialize citro3d.\n");
         result = 1;
         goto exit_graphics;
     }
 
+    boot_checkpoint("Creating render targets", true);
     top_target = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
     if (top_target == NULL) {
         printf("\nCould not create the top-screen target.\n");
@@ -20036,9 +20068,11 @@ int main(void)
         }
     }
 
+    boot_checkpoint("Opening asset pack", true);
     assets_mounted = ge_asset_pack_open(
                          &asset_pack, "sdmc:/3ds/goldeneye-3ds/goldeneye.u.gepack") ==
                      GE_ASSET_PACK_OK;
+    boot_checkpoint(assets_mounted ? "Loading texture catalog" : "Asset pack open FAILED", true);
     texture_catalog_mounted = assets_mounted
         && load_texture_catalog(&asset_pack, &texture_catalog,
                                 &texture_catalog_data);
@@ -20069,22 +20103,28 @@ start_stage_runtime:
     original_music_sync.track[1] = INT32_MIN;
     original_music_sync.track[2] = INT32_MIN;
     if (assets_mounted) {
+        if (boot_frame_pending) boot_checkpoint("Loading logo models", true);
         rareware_mesh = load_rareware_display_list(&asset_pack);
         (void)load_rareware_front_model(&asset_pack, &rareware_front_model);
         (void)load_rareware_body_model(&asset_pack, &rareware_body_model);
+        if (boot_frame_pending) boot_checkpoint("Loading stage collision", true);
         (void)load_stage_collision(
             &asset_pack, stage_assets, &dam_collision);
         if (dam_collision.loaded && dam_collision.original_bound) {
+            if (boot_frame_pending) boot_checkpoint("Loading stage setup", true);
             stage_setup_loaded = load_original_stage_setup(
                 &asset_pack, stage_assets, &dam_collision,
                 &packaged_stage_setup, &stage_spawn,
                 &original_stage_setup);
         }
+        if (boot_frame_pending) boot_checkpoint("Loading sound bank", true);
         (void)load_original_sfx_bank(&asset_pack, &original_sfx);
+        if (boot_frame_pending) boot_checkpoint("Loading animations and weapons", true);
         load_bond_animations(&asset_pack, &bond_animations);
         initialize_first_person_models(&first_person_models, &asset_pack);
     }
 
+    if (boot_frame_pending) boot_checkpoint("Initializing renderer", true);
     if (!renderer_init(assets_mounted ? &asset_pack : NULL,
                        texture_cache_ready ? &texture_cache : NULL,
                        stage_assets,
@@ -20095,6 +20135,7 @@ start_stage_runtime:
         goto cleanup_runtime;
     }
     renderer_ready = true;
+    if (boot_frame_pending) boot_checkpoint("Initializing audio", true);
     ge_port_init(&port);
     if (ge_audio_output_init(&audio_output, audio_ring_storage,
                              AUDIO_RING_FRAMES,
@@ -20128,6 +20169,7 @@ start_stage_runtime:
     original_frontend_runtime.rareware_front = &rareware_front_model;
     original_frontend_runtime.rareware_body = &rareware_body_model;
     if (run_start_frontend) {
+        if (boot_frame_pending) boot_checkpoint("Loading frontend", true);
         if (!assets_mounted || !texture_cache_ready
                 || !initialize_original_frontend_model(
                     &original_frontend_runtime, &asset_pack, &texture_cache,
@@ -20140,7 +20182,7 @@ start_stage_runtime:
          * original startup presentation. Keep it for diagnostic/probe runs,
          * but blank it while the normal legal/logo/gunbarrel/cast and folder
          * frontend owns the application. */
-        consoleClear();
+        boot_checkpoint("Entering frontend loop", true);
         if (!run_original_frontend(
                 top_target, cstick_available, &texture_cache,
                 &original_frontend_runtime, &original_frontend,
@@ -22461,10 +22503,23 @@ exit_citro3d:
     }
     C3D_Fini();
 exit_graphics:
+    boot_checkpoint(result == 0 ? "Application leaving runtime" : "Application startup FAILED", false);
     ge_3ds_lifecycle_close();
     if (cstick_available) {
         irrstExit();
     }
     gfxExit();
     return result;
+}
+
+int main(void)
+{
+    FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/boot.log", "w");
+    if (stream != NULL) fclose(stream);
+    boot_checkpoint("Entered main; initializing graphics", false);
+    gfxInitDefault();
+    consoleInit(GFX_BOTTOM, &boot_console);
+    boot_console_ready = true;
+    boot_checkpoint("Graphics initialized", true);
+    return run_application();
 }

@@ -27,8 +27,9 @@ assert 'reset_all_music_slots(' not in tick
 main_source = (ROOT / 'platform/3ds/source/main.c').read_text()
 # Main contains alternate preprocessor brace branches; select its unique
 # definition region instead of counting braces from mutually exclusive code.
-assert main_source.count('\nint main(void)\n{') == 1
-main = main_source.split('\nint main(void)\n{', 1)[1]
+entry = '\nstatic int __attribute__((noinline)) run_application(void)\n{'
+assert main_source.count(entry) == 1
+main = main_source.split(entry, 1)[1]
 start = main.index('if (!ge_port_start_stage(')
 reset = main.index('ge_original_multiplayer_music_stage_reset();', start)
 initialize = main.index('sub_GAME_7F0C11FC(selected_level_id);', reset)

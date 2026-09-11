@@ -11,7 +11,7 @@ sys.path.insert(0, str(root / "scripts"))
 from extract_dam_guard_chr_scheduler_slice import function_text
 
 source = (root / "platform/3ds/source/main.c").read_text()
-main = source[source.index("int main("):]
+main = source[source.index("run_application(void)"):]
 prepare = function_text(source, "input_probe_prepare_difficulty")
 assert main.index("input_probe_prepare_difficulty(") < main.index("load_original_stage_setup(")
 assert "!run_start_frontend\n                && !load_visual_probe_tour(" in main

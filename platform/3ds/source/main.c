@@ -238,6 +238,7 @@ u32 __stacksize__ = 256U * 1024U;
 static PrintConsole boot_console;
 static bool boot_console_ready;
 static bool boot_frame_pending = true;
+static unsigned boot_frontend_frames;
 
 static void boot_checkpoint(const char *phase, bool present)
 {
@@ -257,6 +258,18 @@ static void boot_checkpoint(const char *phase, bool present)
         (void)fsync(fileno(stream));
         fclose(stream);
     }
+}
+
+/* Once Citro3D owns the top-screen queue, update only the console memory;
+ * swapping gfx buffers here would race the pending GPU transfer. */
+static void boot_frontend_checkpoint(const char *phase)
+{
+    if (boot_frontend_frames >= 3U) return;
+    printf("\x1b[2J\x1b[HGoldenEye 007 3DS\nFrontend frame %u\n\n%s\n",
+           boot_frontend_frames + 1U, phase);
+    fflush(stdout);
+    gfxFlushBuffers();
+    boot_checkpoint(phase, false);
 }
 
 typedef struct Vertex {
@@ -16141,7 +16154,9 @@ static void draw_original_frontend_list(
             ORIGINAL_HUD_VERTEX_CAPACITY));
     {
         const uint64_t begin_start = svcGetSystemTick();
+        boot_frontend_checkpoint("Waiting for GPU queue");
         C3D_FrameBegin(0);
+        boot_frontend_checkpoint("GPU queue available; drawing");
         frontend_frame_begin_wait_ticks = svcGetSystemTick() - begin_start;
     }
     C3D_RenderTargetClear(top_target, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
@@ -16183,8 +16198,9 @@ static void draw_original_frontend_list(
             || menu == MENU_EYE_INTRO
             || menu == MENU_DISPLAY_CAST
             || runtime == NULL || !runtime->wallet_ready) {
-        C3D_DrawArrays(GPU_TRIANGLES, ORIGINAL_HUD_VERTEX_OFFSET,
-                       draw_list->background_vertex_count);
+        if (draw_list->background_vertex_count != 0U)
+            C3D_DrawArrays(GPU_TRIANGLES, ORIGINAL_HUD_VERTEX_OFFSET,
+                           draw_list->background_vertex_count);
     }
     if ((menu == MENU_GOLDENEYE_LOGO
                 || menu == MENU_LEGAL_SCREEN
@@ -16573,17 +16589,19 @@ static void draw_original_frontend_list(
      * boxes, sliders and erase panel. Drawing these before the wallet made
      * its opaque paper overwrite them. Keep the overlays above the model
      * and below their text, with the font's solid white texel restored. */
-    C3D_DrawArrays(GPU_TRIANGLES,
-        ORIGINAL_HUD_VERTEX_OFFSET + draw_list->background_vertex_count,
-        draw_list->box_vertex_count - draw_list->background_vertex_count);
+    if (draw_list->box_vertex_count > draw_list->background_vertex_count)
+        C3D_DrawArrays(GPU_TRIANGLES,
+            ORIGINAL_HUD_VERTEX_OFFSET + draw_list->background_vertex_count,
+            draw_list->box_vertex_count - draw_list->background_vertex_count);
     {
         const size_t normal_glyph_count=draw_list->tab_glyph_vertex_count!=0U
             ? draw_list->tab_glyph_vertex_offset-draw_list->box_vertex_count
             : draw_list->glyph_vertex_count;
-        C3D_DrawArrays(GPU_TRIANGLES,
-                       ORIGINAL_HUD_VERTEX_OFFSET
-                           + draw_list->box_vertex_count,
-                       normal_glyph_count);
+        if (normal_glyph_count != 0U)
+            C3D_DrawArrays(GPU_TRIANGLES,
+                           ORIGINAL_HUD_VERTEX_OFFSET
+                               + draw_list->box_vertex_count,
+                           normal_glyph_count);
         if(draw_list->tab_glyph_vertex_count!=0U){
             C3D_TexBind(0,&original_gameplay_hud_font_texture);
             configure_original_font_texture_environment(texture_environment);
@@ -16616,7 +16634,9 @@ static void draw_original_frontend_list(
             first_vertex += 6U;
         }
     }
+    boot_frontend_checkpoint("Submitting GPU queue");
     C3D_FrameEnd(0);
+    boot_frontend_checkpoint("GPU queue submitted");
 }
 
 static Ge3dsOriginalFrontendPage original_frontend_page(int32_t menu)
@@ -16919,6 +16939,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
     while (aptMainLoop()) {
         if (handle_runtime_resume(*music_runtime, &audio_active))
             runtime->axis_held = 0U;
+        boot_frontend_checkpoint("Ticking frontend");
         const uint64_t probe_frame_start = svcGetSystemTick();
         uint64_t probe_capture_ticks = 0U;
         uint64_t probe_phase_marks[5] = {0U, 0U, 0U, 0U, 0U};
@@ -17564,9 +17585,9 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
             &sprite_list, sprite_vertex_count);
         if (boot_frame_pending) {
             boot_checkpoint("First frontend frame submitted", false);
-            consoleClear();
             boot_frame_pending = false;
         }
+        boot_frontend_checkpoint("Waiting for music synthesis");
         if (audio_active && *music_runtime != NULL && !music_failed
                 && ge_original_music_runtime_finish(*music_runtime)
                     != GE_AUDIO_ABI_OK) {
@@ -17574,9 +17595,11 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
             music_failed = true;
         }
         if (audio_active) {
+            boot_frontend_checkpoint("Pumping DSP audio");
             ge_3ds_audio_pump();
             audio_active = ge_3ds_audio_is_active();
         }
+        boot_frontend_checkpoint("Audio service complete");
         if (frontend_probe.enabled) {
             const uint64_t draw_end = svcGetSystemTick();
             const uint64_t work = draw_end - probe_frame_start
@@ -17607,7 +17630,11 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     == GE_ORIGINAL_GUNBARREL_TICK_COMPLETE)
             (void)ge_original_frontend_start_sequence_complete(frontend);
         runtime->previous_menu = snapshot.menu;
+        boot_frontend_checkpoint("Waiting for display refresh");
         if (!frontend_probe.enabled) gspWaitForVBlank();
+        boot_frontend_checkpoint("Frontend frame complete");
+        if (boot_frontend_frames < 3U && ++boot_frontend_frames == 3U)
+            consoleClear();
     }
     return false;
 }

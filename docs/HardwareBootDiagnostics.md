@@ -8,8 +8,10 @@ was present. The cause is not yet established.
 Startup now enters through a small function before allocating the runtime's
 large stack frame. It initializes a bottom-screen console and presents named
 milestones during GPU, pack, collision, setup, sound, renderer and frontend
-initialization. The console clears after the first frontend submission. There
-is no per-frame log. Normal gameplay and asset formats are unchanged.
+initialization. A bounded trace of the first three frontend frames separates
+GPU-queue, music, DSP and VBlank waits. The console clears only after those
+three frames complete; there is no continuing per-frame log. Normal gameplay
+and asset formats are unchanged.
 
 `SD:/3ds/goldeneye-3ds/boot.log` is replaced each launch, with each checkpoint
 flushed and closed. A missing new log suggests launch failed before application
@@ -26,3 +28,13 @@ Validation: forced pinned ARM build passed; existing multiplayer music order,
 probe replay and probe difficulty wiring checks passed after updating their
 runtime entry selector. Hardware rerun and log collection are pending. Use the
 same verified asset pack; the microSD must be reconnected to install this build.
+
+The first physical diagnostic run reached `First frontend frame submitted`
+after all startup milestones, then both screens became black. Its original log
+is retained at `build/hardware-boot-20260911/first-frontend-stall.log`. This
+rules out a failure before application entry for that run, but does not identify
+which subsequent wait stalled. Optional frontend background, overlay and glyph
+draws now omit zero-vertex submissions. Production-gate sanitizer tests verify
+empty calls are omitted and nonempty ranges retained; hardware confirmation
+of a causal connection is pending. The next diagnostic keeps the bottom console
+visible while those first three frames pass through each individual wait.

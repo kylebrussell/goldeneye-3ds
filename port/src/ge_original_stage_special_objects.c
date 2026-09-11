@@ -9,6 +9,32 @@
 #include <stdint.h>
 #include <string.h>
 
+int ge_original_stage_monitor_snapshot(const void *definition,
+    size_t definition_size, GeOriginalStageMonitorSnapshot *snapshot)
+{
+    const ObjectRecord *object = definition;
+    GeOriginalStageMonitorSnapshot result = {0};
+    if (object == NULL || snapshot == NULL
+            || definition_size < sizeof(*object)) return 0;
+    if ((object->type != PROPDEF_MONITOR
+                || definition_size != sizeof(MonitorObjRecord))
+            && (object->type != PROPDEF_MULTI_MONITOR
+                || definition_size != sizeof(MultiMonitorObjRecord))) return 0;
+    if (object->prop == NULL || object->prop->obj != object) return 0;
+    memcpy(result.position, object->runtime_pos.f, sizeof(result.position));
+    memcpy(result.prop_position, object->prop->pos.f, sizeof(result.prop_position));
+    result.damage = object->damage;
+    result.maxdamage = object->maxdamage;
+    result.flags = object->flags;
+    result.flags2 = object->flags2;
+    result.runtime_bitflags = object->runtime_bitflags;
+    result.type = object->type;
+    result.state = object->state;
+    result.prop_flags = object->prop->flags;
+    *snapshot = result;
+    return 1;
+}
+
 int ge_original_stage_vehicle_snapshot(const void *definition,
     size_t definition_size, GeOriginalStageVehicleSnapshot *snapshot)
 {

@@ -2570,6 +2570,29 @@ typedef struct RuntimeStageOrdinaryObjects {
  * canonical portal/streaming state. Repeated captures identify the exact
  * camera where a physical rendering fault is visible. */
 static unsigned world_diagnostic_captures;
+static bool world_diagnostic_pending;
+static uint8_t *world_last_framebuffer;
+static float world_last_stereo_slider;
+
+/* Retain the destination used by the preceding FrameEnd. After FrameBegin
+ * waits for that transfer, this is the completed image corresponding to the
+ * retained draw runs, rather than the older gfxGetFramebuffer backbuffer. */
+static void capture_world_screen(FILE *stream, uint64_t tick)
+{
+    char path[128];
+    bool saved = false;
+    Result cache_result = -1;
+    snprintf(path, sizeof(path),
+        "sdmc:/3ds/goldeneye-3ds/render-%llu.left.ppm", (unsigned long long)tick);
+    if (world_last_framebuffer != NULL) {
+        cache_result = GSPGPU_InvalidateDataCache(world_last_framebuffer, 400U * 240U * 3U);
+        if (R_SUCCEEDED(cache_result))
+            saved = ge_3ds_frontend_probe_write_ppm(path, world_last_framebuffer);
+    }
+    fprintf(stream, "screen=left source=previous_submission path=%s saved=%u cache_result=%ld\n",
+        path, saved, (long)cache_result);
+}
+
 static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
     const Vertex *vertices, uint64_t tick);
 
@@ -2581,10 +2604,10 @@ static void capture_world_diagnostic(const RuntimeDamPreview *preview,
     if (stream == NULL) return;
     ++world_diagnostic_captures;
     const uint64_t tick = svcGetSystemTick();
-    fprintf(stream, "capture=%u tick=%llu room=%u generation=%lu slider=%.6f\n",
+    fprintf(stream, "capture=%u tick=%llu room=%u generation=%lu slider=%.6f requested_slider=%.6f\n",
         world_diagnostic_captures, (unsigned long long)tick,
         preview->original_camera_room,
-        (unsigned long)preview->dynamic_scene.generation, stereo_slider);
+        (unsigned long)preview->dynamic_scene.generation, world_last_stereo_slider, stereo_slider);
     fprintf(stream, "position=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g\n",
         preview->original_camera_position[0], preview->original_camera_position[1],
         preview->original_camera_position[2], preview->original_camera_look[0],
@@ -2659,6 +2682,7 @@ static void capture_world_diagnostic(const RuntimeDamPreview *preview,
         (long)intro->movement.last_blocking_prop_type,
         (long)intro->movement.last_blocking_object_type);
     capture_world_gpu(stream, preview, vertices, tick);
+    capture_world_screen(stream, tick);
     fflush(stream);
     (void)fsync(fileno(stream));
     fclose(stream);
@@ -7406,42 +7430,113 @@ static void stage_alarm_play_sfx(void *context, uint32_t sfx_id)
     ge_original_gameplay_services_play_sfx(sfx_id);
 }
 
-static void tick_stage_interaction(RuntimeStageOrdinaryObjects *objects)
+static void publish_stage_use_feedback(Ge3dsUseFeedback feedback);
+
+static void tick_stage_interaction(RuntimeStageOrdinaryObjects *objects,
+    const RuntimeDamPreview *preview, bool use_intent)
 {
     GeOriginalDoorInteractionResult door_result;
     GeOriginalStageAlarmInteractionProviders providers = {0};
+    Ge3dsUseFeedback feedback = GE_3DS_USE_UNAVAILABLE;
     void **object_props = NULL;
-    void *selected;
+    void *selected = NULL;
     size_t entry_index;
     size_t object_index = 0U;
+    uint32_t activate_edges;
+    long selected_command = -1;
+    int object_status = -1;
 
     if (objects == NULL || objects->actor_tick_status
             != RUNTIME_STAGE_ACTOR_TICK_READY) return;
     ++objects->alarm_interaction_ticks;
+    activate_edges = objects->door_interaction.activate_edges;
     door_result = ge_original_door_interaction_tick();
-    if (door_result != GE_ORIGINAL_DOOR_INTERACTION_RELOAD_REQUESTED
-            || objects->entry_count == 0U) return;
+    /* Native B also implements reload. Only consumed activation edges may
+     * update feedback; ordinary idle ticks must not overwrite the result. */
+    if (activate_edges == objects->door_interaction.activate_edges) return;
+    if (door_result != GE_ORIGINAL_DOOR_INTERACTION_RELOAD_REQUESTED) {
+        selected = objects->door_interaction.last_prop;
+        if (door_result == GE_ORIGINAL_DOOR_INTERACTION_ACTIVATED)
+            feedback = GE_3DS_USE_ACTIVATED;
+        else if (door_result == GE_ORIGINAL_DOOR_INTERACTION_LOCKED)
+            feedback = GE_3DS_USE_LOCKED;
+        goto report;
+    }
+    feedback = GE_3DS_USE_NO_TARGET;
+    if (objects->entry_count == 0U) goto report;
     object_props = calloc(objects->entry_count, sizeof(*object_props));
     if (object_props == NULL) {
         objects->alarm_interaction.status =
             GE_ORIGINAL_STAGE_ALARM_INTERACTION_INVALID_ARGUMENT;
-        return;
+        feedback = GE_3DS_USE_UNAVAILABLE;
+        goto report;
     }
     for (entry_index = 0U; entry_index < objects->entry_count; ++entry_index) {
         RuntimeStageOrdinaryEntry *entry = &objects->entries[entry_index];
         if (!entry->root_active || entry->prop == NULL) continue;
         object_props[object_index++] = entry->prop;
     }
-    if (object_index == 0U) { free(object_props); return; }
-    selected = ge_original_gameplay_services_find_interactable(
-        object_props, object_index);
+    if (object_index != 0U)
+        selected = ge_original_gameplay_services_find_interactable(
+            object_props, object_index);
     free(object_props);
-    if (selected == NULL) return;
+    if (selected == NULL) goto report;
     providers.play_sfx = stage_alarm_play_sfx;
-    if (ge_original_stage_object_interact_exact(
-            selected, &providers, &objects->alarm_interaction)
-            == GE_ORIGINAL_STAGE_ALARM_INTERACTION_OK)
+    object_status = ge_original_stage_object_interact_exact(
+        selected, &providers, &objects->alarm_interaction);
+    if (object_status == GE_ORIGINAL_STAGE_ALARM_INTERACTION_OK) {
         ++objects->alarm_interaction_activations;
+        feedback = GE_3DS_USE_ACTIVATED;
+    } else {
+        feedback = GE_3DS_USE_UNAVAILABLE;
+    }
+report:
+    if (use_intent) publish_stage_use_feedback(feedback);
+    for (entry_index = 0U; selected != NULL
+            && entry_index < objects->entry_count; ++entry_index)
+        if (objects->entries[entry_index].prop == selected)
+            selected_command = (long)objects->entries[entry_index].command_index;
+    for (entry_index = 0U; selected != NULL
+            && entry_index < objects->interactive.entry_count; ++entry_index) {
+        const GeOriginalStageInteractiveEntry *entry =
+            ge_original_stage_interactive_entry(&objects->interactive, entry_index);
+        if (entry != NULL && entry->prop == selected)
+            selected_command = (long)entry->command_index;
+    }
+    FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/use-audit.log", "a");
+    if (stream != NULL) {
+        fprintf(stream, "tick=%llu intent=%s edge=%lu door=%s candidates=%lu selected=%ld object_status=%d feedback=%d\n",
+            (unsigned long long)svcGetSystemTick(), use_intent ? "use" : "reload",
+            (unsigned long)objects->door_interaction.activate_edges,
+            ge_original_door_interaction_result_name(door_result),
+            (unsigned long)object_index, selected_command, object_status, feedback);
+        /* This is the preceding rendered camera, explicitly distinguished
+         * from the native interaction-time prop snapshots below. */
+        fprintf(stream, "rendered_camera=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g room=%u\n",
+            preview->original_camera_position[0], preview->original_camera_position[1],
+            preview->original_camera_position[2], preview->original_camera_look[0],
+            preview->original_camera_look[1], preview->original_camera_look[2],
+            preview->original_camera_room);
+        for (entry_index = 0U; entry_index < objects->entry_count; ++entry_index) {
+            const RuntimeStageOrdinaryEntry *entry = &objects->entries[entry_index];
+            GeOriginalStageMonitorSnapshot panel;
+            if (!entry->live || (entry->command_index != 269U
+                    && entry->command_index != 271U && entry->command_index != 273U
+                    && entry->command_index != 275U)) continue;
+            if (!ge_original_stage_monitor_snapshot(entry->definition,
+                    entry->definition_size, &panel)) continue;
+            fprintf(stream, "panel=%lu root=%u selected=%u position=%.9g,%.9g,%.9g prop_position=%.9g,%.9g,%.9g flags=%08lx flags2=%08lx runtime=%08lx type=%u state=%u prop_flags=%u damage=%.9g/%.9g\n",
+                (unsigned long)entry->command_index, entry->root_active,
+                entry->prop == selected, panel.position[0], panel.position[1],
+                panel.position[2], panel.prop_position[0], panel.prop_position[1],
+                panel.prop_position[2], (unsigned long)panel.flags,
+                (unsigned long)panel.flags2, (unsigned long)panel.runtime_bitflags,
+                panel.type, panel.state, panel.prop_flags, panel.damage, panel.maxdamage);
+        }
+        fflush(stream);
+        (void)fsync(fileno(stream));
+        fclose(stream);
+    }
 }
 
 static bool initialize_stage_active_props(
@@ -13716,6 +13811,13 @@ static bool load_rareware_textures(GeAssetPack *asset_pack,
 
 static Ge3dsControls controls;
 static bool controls_gameplay;
+static bool last_b_action_was_use;
+
+static void publish_stage_use_feedback(Ge3dsUseFeedback feedback)
+{
+    ge_3ds_controls_set_use_feedback(&controls, feedback);
+}
+
 static GeOriginalInventorySnapshot touch_inventory;
 
 static void update_touch_inventory(void)
@@ -20363,6 +20465,11 @@ static int __attribute__((noinline)) run_application(void)
 
 start_stage_runtime:
     world_diagnostic_captures = 0U;
+    world_diagnostic_pending = false;
+    world_last_framebuffer = NULL;
+    world_last_stereo_slider = 0.0f;
+    last_b_action_was_use = false;
+    publish_stage_use_feedback(GE_3DS_USE_NONE);
     stage_load_started = svcGetSystemTick();
     /* A probe bypasses the frontend, so gameplay must initialize its music
      * here just as it does on subsequent stage loads. Use the same decision
@@ -21061,8 +21168,7 @@ start_stage_runtime:
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (!multiplayer.running && controls_gameplay && (hidKeysDown() & KEY_SELECT))
-            capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects,
-                (const Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET);
+            world_diagnostic_pending = true;
         if (multiplayer.running && (hidKeysHeld() & (KEY_SELECT | KEY_START))
                 == (KEY_SELECT | KEY_START)) {
             GeOriginalMultiplayerSessionState ended;
@@ -21240,6 +21346,24 @@ start_stage_runtime:
             }
         }
 
+        if (input.pressed & (GE_PORT_ACTION_USE | GE_PORT_ACTION_RELOAD)) {
+            last_b_action_was_use = (input.pressed & GE_PORT_ACTION_USE) != 0U;
+            if (!multiplayer.running && controls_gameplay) {
+                FILE *input_log = fopen("sdmc:/3ds/goldeneye-3ds/use-audit.log", "a");
+                if (input_log != NULL) {
+                    fprintf(input_log, "input_tick=%llu source=%s intent=%s actions=%08lx held=%08lx hid_down=%08lx hid_held=%08lx\n",
+                        (unsigned long long)svcGetSystemTick(),
+                        input_probe.enabled ? "probe" : "controls",
+                        last_b_action_was_use ? "use" : "reload",
+                        (unsigned long)input.pressed, (unsigned long)input.held,
+                        (unsigned long)hidKeysDown(), (unsigned long)hidKeysHeld());
+                    fflush(input_log);
+                    (void)fsync(fileno(input_log));
+                    fclose(input_log);
+                }
+            }
+        }
+
         if (multiplayer.running) {
             GeOriginalInputPad pads[GE_ORIGINAL_MP_PLAYERS][2] = {0};
             /* One committed raw frame always means one original 60 Hz tick.
@@ -21328,6 +21452,14 @@ start_stage_runtime:
             const uint64_t frame_begin_start = svcGetSystemTick();
             const bool frame_began = C3D_FrameBegin(0);
             fine_profile.frame_begin_ticks += svcGetSystemTick() - frame_begin_start;
+            if (frame_began && world_diagnostic_pending) {
+                /* The queue is idle and the preceding framebuffer transfer
+                 * is complete. Never read GPU-owned pixels in the HID path. */
+                probe_capture_io = true;
+                capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects,
+                    (const Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET);
+                world_diagnostic_pending = false;
+            }
             if (input_probe.enabled && frame_began) {
                 previous_gpu_us_precise = C3D_GetDrawingTime() * 1000.0f;
                 previous_processing_us = C3D_GetProcessingTime() * 1000.0f;
@@ -21551,7 +21683,8 @@ start_stage_runtime:
                 }
                 if (stage_ordinary_objects.actor_tick_status
                         == RUNTIME_STAGE_ACTOR_TICK_READY) {
-                    tick_stage_interaction(&stage_ordinary_objects);
+                    tick_stage_interaction(&stage_ordinary_objects, &dam_preview,
+                        last_b_action_was_use);
                     /* Attribute the exact interaction edge before any later
                      * catch-up tick can replace last_prop. Door travel and
                      * overlap are sampled again after active-prop ticking. */
@@ -22370,6 +22503,15 @@ finish_original_player_tick:
             }
             last_submit_vblank = C3D_FrameCounter(0);
             fine_start = svcGetSystemTick();
+            {
+                u16 framebuffer_width = 0U, framebuffer_height = 0U;
+                uint8_t *destination = gfxGetFramebuffer(GFX_TOP, GFX_LEFT,
+                    &framebuffer_width, &framebuffer_height);
+                world_last_stereo_slider = stereo_slider;
+                world_last_framebuffer = gfxGetScreenFormat(GFX_TOP) == GSP_BGR8_OES
+                    && framebuffer_width == 240U && framebuffer_height == 400U
+                    ? destination : NULL;
+            }
             C3D_FrameEnd(0);
             fine_profile.frame_end_ticks +=
                 svcGetSystemTick() - fine_start;

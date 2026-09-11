@@ -411,9 +411,60 @@ static void test_persistence(const char *path)
     }
 }
 
+static void test_use_feedback(void)
+{
+    Ge3dsControls controls;
+    const char *messages[] = {"", "Face the object and move closer.",
+        "Activation sent", "Locked", "Use unavailable"};
+    ge_3ds_controls_init(&controls);
+    assert(controls.use_feedback == GE_3DS_USE_NONE);
+    ge_3ds_controls_set_use_feedback(NULL, GE_3DS_USE_LOCKED);
+    for (unsigned page = 0; page < 3; ++page) {
+        controls.objectives_visible = page == 1;
+        controls.inventory_visible = page == 2;
+        for (unsigned code = 1; code <= GE_3DS_USE_UNAVAILABLE; ++code) {
+            FILE *stream = tmpfile();
+            char output[4096] = {0};
+            Ge3dsControlSettings settings = controls.settings;
+            uint32_t held = controls.previous_held;
+            assert(stream != NULL && strlen(messages[code]) < 40U);
+            controls.panel_dirty = false;
+            ge_3ds_controls_set_use_feedback(&controls, (Ge3dsUseFeedback)code);
+            assert(controls.panel_dirty);
+            assert(memcmp(&settings, &controls.settings, sizeof(settings)) == 0);
+            assert(held == controls.previous_held);
+            ge_3ds_controls_draw_panel(&controls, stream);
+            rewind(stream);
+            assert(fread(output, 1, sizeof(output) - 1U, stream) > 0U);
+            assert(strstr(output, "\x1b[2;1H") != NULL);
+            assert(strstr(output, messages[code]) != NULL);
+            assert(!controls.panel_dirty);
+            ge_3ds_controls_set_use_feedback(&controls, (Ge3dsUseFeedback)code);
+            assert(!controls.panel_dirty);
+            fclose(stream);
+        }
+    }
+    ge_3ds_controls_set_use_feedback(&controls, (Ge3dsUseFeedback)99);
+    assert(controls.use_feedback == GE_3DS_USE_UNAVAILABLE);
+    ge_3ds_controls_set_use_feedback(&controls, GE_3DS_USE_NONE);
+    assert(controls.use_feedback == GE_3DS_USE_NONE && controls.panel_dirty);
+    {
+        FILE *stream = tmpfile();
+        char output[4096] = {0};
+        assert(stream != NULL);
+        ge_3ds_controls_draw_panel(&controls, stream);
+        rewind(stream);
+        assert(fread(output, 1, sizeof(output) - 1U, stream) > 0U);
+        assert(strstr(output, "Use unavailable") == NULL);
+        assert(strstr(output, "\x1b[2J") != NULL);
+        fclose(stream);
+    }
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
+    test_use_feedback();
     test_axes();
     test_actions();
     test_touch_boundaries();

@@ -344,6 +344,55 @@ static void assert_misc_native(
     }
 }
 
+static void test_monitor_snapshot(void)
+{
+    MultiMonitorObjRecord monitor = {0};
+    MonitorObjRecord single = {0};
+    PropRecord prop = {0};
+    GeOriginalStageMonitorSnapshot snapshot, before;
+    memset(&snapshot, 0x5a, sizeof(snapshot));
+    before = snapshot;
+    assert(!ge_original_stage_monitor_snapshot(NULL, sizeof(monitor), &snapshot));
+    assert(!ge_original_stage_monitor_snapshot(&monitor, 1U, &snapshot));
+    assert(!ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor), NULL));
+    monitor.type = PROPDEF_MULTI_MONITOR;
+    assert(!ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor)-1U, &snapshot));
+    assert(!ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor)+1U, &snapshot));
+    assert(!ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor), &snapshot));
+    monitor.prop = &prop;
+    assert(!ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor), &snapshot));
+    assert(memcmp(&snapshot, &before, sizeof(snapshot)) == 0);
+    prop.obj = (ObjectRecord *)&monitor;
+    prop.flags = PROPFLAG_ONSCREEN;
+    prop.pos = (coord3d){.f = {1.0f, 2.0f, 3.0f}};
+    monitor.runtime_pos = (coord3d){.f = {4.0f, 5.0f, 6.0f}};
+    monitor.flags = PROPFLAG_CANNOT_ACTIVATE;
+    monitor.flags2 = PROPFLAG2_INTERACTCHECKLOS;
+    monitor.runtime_bitflags = RUNTIMEBITFLAG_00000001;
+    monitor.damage = 3.0f;
+    monitor.maxdamage = 20.0f;
+    monitor.state = PROPSTATE_DESTROYED;
+    MultiMonitorObjRecord saved = monitor;
+    PropRecord saved_prop = prop;
+    assert(ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor), &snapshot));
+    assert(snapshot.type == PROPDEF_MULTI_MONITOR && snapshot.state == PROPSTATE_DESTROYED);
+    assert(snapshot.prop_flags == PROPFLAG_ONSCREEN);
+    assert(snapshot.flags == monitor.flags && snapshot.flags2 == monitor.flags2);
+    assert(snapshot.runtime_bitflags == monitor.runtime_bitflags);
+    assert(snapshot.damage == 3.0f && snapshot.maxdamage == 20.0f);
+    assert(memcmp(snapshot.position, monitor.runtime_pos.f, sizeof(snapshot.position)) == 0);
+    assert(memcmp(snapshot.prop_position, prop.pos.f, sizeof(snapshot.prop_position)) == 0);
+    assert(memcmp(&saved, &monitor, sizeof(saved)) == 0);
+    assert(memcmp(&saved_prop, &prop, sizeof(prop)) == 0);
+    monitor.type = PROPDEF_VEHICHLE;
+    assert(!ge_original_stage_monitor_snapshot(&monitor, sizeof(monitor), &snapshot));
+    single.type = PROPDEF_MONITOR;
+    single.prop = &prop;
+    prop.obj = (ObjectRecord *)&single;
+    assert(ge_original_stage_monitor_snapshot(&single, sizeof(single), &snapshot));
+    assert(snapshot.type == PROPDEF_MONITOR && snapshot.state == 0U);
+}
+
 static void test_vehicle_snapshot(void)
 {
     VehichleRecord vehicle = {0};
@@ -385,6 +434,7 @@ static void test_vehicle_snapshot(void)
 
 int main(int argc, char **argv)
 {
+    test_monitor_snapshot();
     test_vehicle_snapshot();
     GeAssetPack pack;
     GeOriginalStageSpecialAudit audit;

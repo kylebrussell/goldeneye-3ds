@@ -9,6 +9,24 @@
 typedef struct GeOriginalStagePropConstructionRequest
     GeOriginalStagePropConstructionRequest;
 
+typedef struct GeOriginalStageMonitorSnapshot {
+    float position[3];
+    float prop_position[3];
+    float damage;
+    float maxdamage;
+    uint32_t flags;
+    uint32_t flags2;
+    uint32_t runtime_bitflags;
+    uint8_t type;
+    uint8_t state;
+    uint8_t prop_flags;
+} GeOriginalStageMonitorSnapshot;
+
+/* Read-only interaction diagnostics for exact native monitor definitions.
+ * Requires a live, matching prop; leaves output untouched on failure. */
+int ge_original_stage_monitor_snapshot(const void *definition,
+    size_t definition_size, GeOriginalStageMonitorSnapshot *snapshot);
+
 typedef struct GeOriginalStageVehicleSnapshot {
     float position[3];
     float speed;

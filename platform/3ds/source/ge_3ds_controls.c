@@ -452,16 +452,44 @@ void ge_3ds_controls_set_difficulty(Ge3dsControls *controls, int difficulty)
     }
 }
 
+void ge_3ds_controls_set_use_feedback(Ge3dsControls *controls,
+    Ge3dsUseFeedback feedback)
+{
+    if (controls == NULL) return;
+    if (feedback < GE_3DS_USE_NONE || feedback > GE_3DS_USE_UNAVAILABLE)
+        feedback = GE_3DS_USE_UNAVAILABLE;
+    if (controls->use_feedback != feedback) {
+        controls->use_feedback = feedback;
+        controls->panel_dirty = true;
+    }
+}
+
+static void draw_use_feedback(const Ge3dsControls *controls, FILE *stream)
+{
+    const char *message = "";
+    switch (controls->use_feedback) {
+    case GE_3DS_USE_NONE: return;
+    case GE_3DS_USE_NO_TARGET: message = "Face the object and move closer."; break;
+    case GE_3DS_USE_ACTIVATED: message = "Activation sent"; break;
+    case GE_3DS_USE_LOCKED: message = "Locked"; break;
+    default: message = "Use unavailable"; break;
+    }
+    /* Row 2 is free on controls, objectives and inventory pages. */
+    fprintf(stream, "\x1b[2;1H%s", message);
+}
+
 void ge_3ds_controls_draw_panel(Ge3dsControls *controls, FILE *stream)
 {
     if (controls == NULL || stream == NULL || !controls->panel_dirty) return;
     if (controls->inventory_visible) {
         draw_inventory(controls, stream);
+        draw_use_feedback(controls, stream);
         controls->panel_dirty = false;
         return;
     }
     if (controls->objectives_visible) {
         draw_objectives(controls, stream);
+        draw_use_feedback(controls, stream);
         controls->panel_dirty = false;
         return;
     }
@@ -488,5 +516,6 @@ void ge_3ds_controls_draw_panel(Ge3dsControls *controls, FILE *stream)
         controls->settings.swap_shoulders ? "R/ZR" : "L/ZL",
         controls->settings.look_sensitivity,
         controls->settings.invert_look_y ? "inverted" : "normal");
+    draw_use_feedback(controls, stream);
     controls->panel_dirty = false;
 }

@@ -376,3 +376,56 @@ geometry tests passed the 21 campaign stages before the broader harness stopped
 at an optional asset missing from the current pack, so that entire harness is
 not reported as passing. A separate probe passed all 45 possible 10-to-8 room
 eviction combinations with the retained overlay.
+
+
+## Dam Use and completed-screen capture — 2026-09-11
+
+The user tried both physical B and touchscreen USE at the gate panel. Seven new
+captures and a normal runtime exit are preserved in
+`build/hardware-captures/dam-use-20260911-162736/`. Installed build was 3fcb314a;
+all seven uploaded buffers saved, 213 room installs completed without failure,
+and cleanup reports result=0/state_failed=0. There is no new crash trace in this
+run. Gate snapshots are closed and the truck is waiting; captures are not actual
+Use-attempt records, so they cannot establish why the button failed.
+
+Both inputs map through USE to native B. Dam gates 267/268 deliberately disallow
+direct activation and use linked monitor panels 269/271 and 273/275. The canonical
+interaction path remains unchanged. A new bottom-screen result distinguishes
+no target, activation sent, locked and unavailable. Explicit reload intent does
+not replace this Use feedback. `use-audit.log` records input edges separately
+from consumed native activation edges, selected setup command, exact interaction
+status and read-only live gate-panel positions/flags/damage. A previous-render
+camera is labelled as such rather than claimed to be the interaction-time camera.
+Successful object dispatch does not guarantee gate motion (locks/interlocks and
+other native conditions may still apply), hence the text "Activation sent".
+
+All seven actual submitted triangle sets cover the software reference's nearest
+visible geometry at 160x120. Uploaded vertices are finite; independent projection
+checks agree within 0.0044 pixels for onscreen XY, and 16,874 nondegenerate,
+front-of-eye triangles have no winding-sign disagreement. These tests do not
+validate the final hardware pixels. Evidence is retained beside the captures and
+in `build/host-tests/dam-gpu-projection-audit/`; no speculative depth/culling
+change is included and the rendering problems remain open.
+
+SELECT now latches a request until successful C3D_FrameBegin has waited for the
+preceding GPU transfer. It captures the retained framebuffer destination from
+that previous FrameEnd, invalidates its CPU cache and writes a 400x240 RGB PPM
+alongside the existing GPU buffer/run/matrix capture. It reuses the tested rotated
+BGR8 conversion. This avoids reading a GPU-owned buffer or capturing the older
+backbuffer returned after a swap. The previous submission's slider value is
+retained too; requested slider is logged separately. Only the left eye is saved.
+No renderer switching or extra draw submission occurs. Stage reset clears pending
+requests and retained framebuffer identity.
+
+Validation: controls/UI tests, frontend image-writing/stereo tests, vertex-flush,
+submission-cache and world regressions pass. Native monitor snapshots pass the
+685-record special-object harness under ASan/UBSan, including untouched-output
+rejection and both monitor layouts. Build and SD deployment evidence will be
+recorded separately under `build/releases` and `build/sd-deployment`. Keep one
+Homebrew Launcher entry and preserve all existing saves/config/assets/captures.
+This is a feedback and diagnostic improvement requiring physical retesting;
+Use functionality and remaining rendering defects are not claimed fixed.
+
+The extracted production Use dispatcher also passes ASan/UBSan checks for idle,
+no target, direct doors, ordinary objects, allocation failure and explicit reload
+feedback suppression. Diagnostic intent is sampled after scripted input injection.

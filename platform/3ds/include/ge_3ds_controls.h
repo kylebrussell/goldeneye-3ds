@@ -49,7 +49,16 @@ typedef struct Ge3dsTouchInventoryCache {
     bool selected, selectable;
 } Ge3dsTouchInventoryCache;
 
+typedef enum Ge3dsUseFeedback {
+    GE_3DS_USE_NONE = 0,
+    GE_3DS_USE_NO_TARGET,
+    GE_3DS_USE_ACTIVATED,
+    GE_3DS_USE_LOCKED,
+    GE_3DS_USE_UNAVAILABLE
+} Ge3dsUseFeedback;
+
 typedef struct Ge3dsControls {
+    Ge3dsUseFeedback use_feedback;
     Ge3dsControlSettings settings;
     uint32_t previous_held;
     uint32_t suppressed_shoulders;
@@ -103,6 +112,9 @@ bool ge_3ds_controls_inventory_due(Ge3dsControls *controls, uint64_t now_ms);
 void ge_3ds_controls_set_inventory(Ge3dsControls *controls,
     const Ge3dsTouchInventoryItem *items, size_t count);
 int ge_3ds_controls_take_inventory_selection(Ge3dsControls *controls);
+/* Last native Use outcome; NONE clears it. Does not alter input or settings. */
+void ge_3ds_controls_set_use_feedback(Ge3dsControls *controls,
+    Ge3dsUseFeedback feedback);
 /* 320x240 / 40x30 console panel; updates only when panel_dirty is set. */
 void ge_3ds_controls_draw_panel(Ge3dsControls *controls, FILE *stream);
 

@@ -290,3 +290,13 @@ and https://github.com/devkitPro/citro3d/blob/master/include/c3d/base.h .
 Missing Dam geometry remains unresolved; do not ask the user to use the
 removed comparison modes. Capturing at an actual missing surface can provide
 the camera/room data needed for further diagnosis.
+
+## Current SD deployment layout — one launcher entry
+
+The user requested one launcher entry. The verified recovery build remains at
+`/3ds/GoldenEye.3dsx` with `/3ds/GoldenEye.smdh`. Duplicate executable/metadata
+files were backed up locally and removed from `/3ds/goldeneye-3ds/`; that folder
+retains assets, saves, controls and logs. Future card deployments must update
+only the direct launcher files and must not recreate a second executable in
+the data folder. This supersedes the earlier two-entry deployment instruction.
+Receipt: `build/sd-deployment/single-launcher-20260911-132557/deployment-receipt.json`.

@@ -9,6 +9,24 @@
 #include <stdint.h>
 #include <string.h>
 
+int ge_original_stage_vehicle_snapshot(const void *definition,
+    size_t definition_size, GeOriginalStageVehicleSnapshot *snapshot)
+{
+    const VehichleRecord *vehicle = definition;
+    GeOriginalStageVehicleSnapshot result = {0};
+    if (vehicle == NULL || snapshot == NULL
+            || definition_size != sizeof(*vehicle)) return 0;
+    if (vehicle->type != PROPDEF_VEHICHLE || vehicle->prop == NULL) return 0;
+    memcpy(result.position, vehicle->prop->pos.f, sizeof(result.position));
+    result.speed = vehicle->speed;
+    result.speedaim = vehicle->speedaim;
+    result.nextstep = vehicle->nextstep;
+    result.aioffset = vehicle->aioffset;
+    result.path = (uintptr_t)vehicle->path;
+    *snapshot = result;
+    return 1;
+}
+
 static const uint8_t ge_special_types[GE_ORIGINAL_STAGE_SPECIAL_TYPE_COUNT] = {
     PROPDEF_ALARM,
     PROPDEF_CCTV,

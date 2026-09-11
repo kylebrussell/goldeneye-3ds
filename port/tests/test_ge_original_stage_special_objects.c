@@ -344,8 +344,48 @@ static void assert_misc_native(
     }
 }
 
+static void test_vehicle_snapshot(void)
+{
+    VehichleRecord vehicle = {0};
+    PropRecord prop = {0};
+    PathRecord path = {0};
+    GeOriginalStageVehicleSnapshot snapshot;
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    const GeOriginalStageVehicleSnapshot untouched = snapshot;
+    assert(!ge_original_stage_vehicle_snapshot(NULL, sizeof(vehicle), &snapshot));
+    assert(!ge_original_stage_vehicle_snapshot(&vehicle, 0U, &snapshot));
+    assert(!ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle)-1U, &snapshot));
+    assert(!ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle)+1U, &snapshot));
+    assert(!ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle), NULL));
+    vehicle.type = PROPDEF_AIRCRAFT;
+    assert(!ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle), &snapshot));
+    vehicle.type = PROPDEF_VEHICHLE;
+    assert(!ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle), &snapshot));
+    assert(memcmp(&snapshot, &untouched, sizeof(snapshot)) == 0);
+    vehicle.prop = &prop;
+    prop.pos.x = 12.5f; prop.pos.y = -6.25f; prop.pos.z = 900.0f;
+    vehicle.runtime_pos.x = -100.0f; /* Snapshot promises the live prop position. */
+    vehicle.speed = 2.5f; vehicle.speedaim = 7.0f;
+    vehicle.nextstep = 3; vehicle.aioffset = 400;
+    vehicle.path = &path;
+    const VehichleRecord vehicle_before = vehicle;
+    const PropRecord prop_before = prop;
+    assert(ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle), &snapshot));
+    assert(memcmp(snapshot.position, prop.pos.f, sizeof(snapshot.position)) == 0);
+    assert(snapshot.speed == 2.5f && snapshot.speedaim == 7.0f
+        && snapshot.nextstep == 3 && snapshot.aioffset == 400
+        && snapshot.path == (uintptr_t)&path);
+    assert(memcmp(&vehicle, &vehicle_before, sizeof(vehicle)) == 0);
+    assert(memcmp(&prop, &prop_before, sizeof(prop)) == 0);
+    /* End-of-path is valid diagnostic state, not a missing definition. */
+    vehicle.path = NULL; vehicle.speed = 0.0f; vehicle.nextstep = -1;
+    assert(ge_original_stage_vehicle_snapshot(&vehicle, sizeof(vehicle), &snapshot));
+    assert(snapshot.path == 0U && snapshot.speed == 0.0f && snapshot.nextstep == -1);
+}
+
 int main(int argc, char **argv)
 {
+    test_vehicle_snapshot();
     GeAssetPack pack;
     GeOriginalStageSpecialAudit audit;
     size_t stage_index;

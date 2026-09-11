@@ -9,6 +9,21 @@
 typedef struct GeOriginalStagePropConstructionRequest
     GeOriginalStagePropConstructionRequest;
 
+typedef struct GeOriginalStageVehicleSnapshot {
+    float position[3];
+    float speed;
+    float speedaim;
+    int32_t nextstep;
+    uint16_t aioffset;
+    uintptr_t path;
+} GeOriginalStageVehicleSnapshot;
+
+/* Read-only live prop position and native vehicle AI/path state. Requires an
+ * exact-sized vehicle definition with a live prop; leaves output untouched
+ * on failure. The path value is diagnostic identity, never dereferenced. */
+int ge_original_stage_vehicle_snapshot(const void *definition,
+    size_t definition_size, GeOriginalStageVehicleSnapshot *snapshot);
+
 enum { GE_ORIGINAL_STAGE_SPECIAL_TYPE_COUNT = 17 };
 
 typedef struct GeOriginalStageSpecialTypeAudit {

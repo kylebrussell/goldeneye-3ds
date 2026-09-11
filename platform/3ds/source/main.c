@@ -2613,14 +2613,14 @@ static void capture_world_diagnostic(const RuntimeDamPreview *preview,
         const RuntimeStageOrdinaryEntry *entry = &objects->entries[i];
         if ((uintptr_t)entry->prop == intro->movement.last_blocking_prop
                 && entry->prop != NULL) blocking_command = (long)entry->command_index;
-        if (entry->command_index == 321U && entry->live && entry->prop != NULL
-                && entry->definition != NULL && entry->type == PROPDEF_VEHICHLE
-                && entry->definition_size >= sizeof(VehichleRecord)) {
-            const VehichleRecord *truck = entry->definition;
-            const PropRecord *prop = entry->prop;
+        GeOriginalStageVehicleSnapshot truck;
+        if (entry->command_index == 321U && entry->live
+                && ge_original_stage_vehicle_snapshot(entry->definition,
+                    entry->definition_size, &truck)) {
             fprintf(stream, "truck=321 position=%.9g,%.9g,%.9g speed=%.9g target=%.9g next=%ld ai=%u path=%p\n",
-                prop->pos.x, prop->pos.y, prop->pos.z, truck->speed, truck->speedaim,
-                (long)truck->nextstep, truck->aioffset, (void *)truck->path);
+                truck.position[0], truck.position[1], truck.position[2],
+                truck.speed, truck.speedaim, (long)truck.nextstep,
+                (unsigned)truck.aioffset, (void *)truck.path);
         }
     }
     for (size_t i = 0U; i < objects->interactive.entry_count; ++i) {

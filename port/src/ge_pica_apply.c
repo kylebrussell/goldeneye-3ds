@@ -155,6 +155,9 @@ GePicaApplyStatus ge_pica_apply_compile(const GePicaMaterial *material,
     state->mag_filter = material->mag_filter;
     state->depth_test_enabled = material->depth_test_enabled;
     state->depth_write_enabled = material->depth_write_enabled;
+    /* Coplanar decals must survive equality with their receiver. PICA lacks
+     * RDP's slope-dependent Z tolerance; keep reporting that remaining gap. */
+    state->depth_equal_enabled = material->depth_mode == GE_PICA_DEPTH_DECAL;
     state->alpha_test_enabled = material->alpha_test
         == GE_PICA_ALPHA_TEST_THRESHOLD ? UINT8_C(1) : UINT8_C(0);
     state->alpha_threshold = material->alpha_threshold;

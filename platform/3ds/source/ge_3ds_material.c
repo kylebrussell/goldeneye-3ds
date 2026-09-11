@@ -231,7 +231,8 @@ Ge3dsMaterialStatus ge_3ds_material_apply_prepared_delta(
         || previous->state.depth_test_enabled
             != prepared->state.depth_test_enabled
         || previous->state.depth_write_enabled
-            != prepared->state.depth_write_enabled;
+            != prepared->state.depth_write_enabled
+        || previous->state.depth_equal_enabled != prepared->state.depth_equal_enabled;
     if (depth_changed) {
         write_mask = GPU_WRITE_COLOR;
         if (prepared->state.depth_write_enabled != 0U) {
@@ -241,7 +242,8 @@ Ge3dsMaterialStatus ge_3ds_material_apply_prepared_delta(
             || prepared->state.depth_write_enabled != 0U;
         C3D_DepthTest(depth_stage_enabled,
             prepared->state.depth_test_enabled != 0U
-                ? GPU_GREATER : GPU_ALWAYS,
+                ? (prepared->state.depth_equal_enabled ? GPU_GEQUAL : GPU_GREATER)
+                : GPU_ALWAYS,
             write_mask);
     }
     if (previous == NULL

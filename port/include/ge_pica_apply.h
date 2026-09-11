@@ -69,6 +69,7 @@ typedef struct GePicaApplyState {
     uint8_t draw_enabled;
     uint8_t depth_test_enabled;
     uint8_t depth_write_enabled;
+    uint8_t depth_equal_enabled;
     uint8_t alpha_test_enabled;
     uint8_t alpha_threshold;
     uint8_t blend_enabled;

@@ -20,7 +20,7 @@ typedef struct { unsigned maxLevel; } C3D_Tex;
 #include "ge_3ds_material.h"
 typedef int GPU_WRITEMASK;
 enum { GPU_WRITE_COLOR=1, GPU_WRITE_DEPTH=2, GPU_GREATER=3, GPU_EQUAL=4,
-       GPU_ALWAYS=5, GPU_LINEAR=6, GPU_BLEND_ADD=7, GPU_SRC_ALPHA=8,
+       GPU_GEQUAL=12, GPU_ALWAYS=5, GPU_LINEAR=6, GPU_BLEND_ADD=7, GPU_SRC_ALPHA=8,
        GPU_ONE_MINUS_SRC_ALPHA=9, GPU_ONE=10, GPU_ZERO=11 };
 static bool depth_on, alpha_on, blend_on;
 static int depth_func, depth_mask, alpha_threshold;
@@ -52,6 +52,7 @@ static void fragment(double z, unsigned alpha, double color) {
     if (alpha_on && alpha <= (unsigned)alpha_threshold) return;
     if (depth_on && depth_func==GPU_GREATER && !(z>zbuffer)) return;
     if (depth_on && depth_func==GPU_EQUAL && z!=zbuffer) return;
+    if (depth_on && depth_func==GPU_GEQUAL && z<zbuffer) return;
     if (depth_mask & GPU_WRITE_COLOR)
         framebuffer=blend_on ? color*alpha/255.0+framebuffer*(255-alpha)/255.0 : color;
     if (depth_mask & GPU_WRITE_DEPTH) zbuffer=z;
@@ -71,8 +72,16 @@ int main(void) {
     fragment(.9,0,200); assert(zbuffer==.5 && framebuffer==20);
     m.alpha_test=GE_PICA_ALPHA_TEST_DISABLED;
     opaque=apply(&m,&cutout); fragment(.75,0,80); assert(zbuffer==.75 && framebuffer==80);
-    /* Real decal tolerance needs scene validation: strict equality erased the
-     * Facility room 66 exit sign. Do not model that approximation as parity. */
+    /* Coplanar stripes survive their concrete receiver, retain occlusion
+     * by nearer geometry, and do not change the receiver's stored depth. */
+    m.depth_mode=GE_PICA_DEPTH_DECAL; m.depth_write_enabled=0;
+    Ge3dsMaterialResult decal=apply(&m,&opaque);
+    fragment(.75,255,150); assert(zbuffer==.75 && framebuffer==150);
+    fragment(.74,255,250); assert(zbuffer==.75 && framebuffer==150);
+    m.depth_mode=GE_PICA_DEPTH_OPAQUE;
+    opaque=apply(&m,&decal);
+    fragment(.75,255,10); assert(framebuffer==150);
+    m.depth_write_enabled=1; opaque=apply(&m,NULL); framebuffer=80;
     m.depth_write_enabled=0;
     unsigned before=depth_calls; m.depth_mode=GE_PICA_DEPTH_TRANSLUCENT; m.blend_enabled=1;
     Ge3dsMaterialResult glass=apply(&m,&opaque); assert(depth_calls==before+1);

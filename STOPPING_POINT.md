@@ -208,3 +208,33 @@ Dam stream probe imported its complete 15-room route without failures. Hardware
 visual confirmation remains pending. Gameplay cleanup now records final room,
 residency, pending requests and streaming failure counters in boot.log for the
 next report. Previous card log saved under build/hardware-boot-20260911.
+
+## Physical hardware follow-up — decal depth and Start/watch crash
+
+On `b2377991`, the user reported intermittent tunnel wall/block visibility,
+red/white stripes disappearing beneath concrete, and a crash after the watch
+animation began when pressing Start. The card log's previous completed Dam run
+reported 39 room installs and zero streaming failures; the last run has no exit
+record. That log does not identify the crash or explain the intermittent walls.
+
+- Authored Dam red/white stripe texture 18 uses secondary-list DECAL depth mode
+  with depth writes disabled. The adapter now allows equal depth for decals,
+  retaining strict comparison for other modes and the authored write mask.
+  This addresses equality rejection against the receiver. RDP slope-dependent
+  depth tolerance remains unsupported and continues to be reported as fallback.
+- Guarded three empty HUD draw submissions in the bottom/mission HUD paths.
+  This removes a known dangerous GPU submission pattern, but is not a confirmed
+  explanation of this user's watch crash. Transition-only before/after player
+  tick checkpoints now record watch animation state in boot.log.
+- The original watch model offsets were checked against the ARM player layout;
+  its animation is present in the native animation table. Neither observation
+  establishes a successful complete pause animation on hardware.
+
+Validation: native and short-enum sanitized fragment/decal contracts, sanitized
+empty gameplay/front-end HUD submission checks, renderer submission cache,
+world hardware regressions, PICA application mapping, and the watch dispatcher
+frontier passed. The dispatcher check does not execute the full animated watch.
+Disappearing tunnel blocks and seeing scenery through walls remain unresolved;
+the next build is a hardware test candidate, not visual or pause acceptance.
+Build and SD installation receipts are recorded separately under build/releases
+and build/sd-deployment. No peer tasks were restarted.

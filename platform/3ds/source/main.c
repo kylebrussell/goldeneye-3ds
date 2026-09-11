@@ -234,7 +234,7 @@ extern s32 D_800409A4;
 u32 __stacksize__ = 256U * 1024U;
 
 /* Startup must be observable before the runtime's large stack frame and asset
- * loads. No per-frame logging: this file contains only boot milestones. */
+ * loads. Persist milestones and watch state transitions, not ordinary frames. */
 static PrintConsole boot_console;
 static bool boot_console_ready;
 static bool boot_frame_pending = true;
@@ -290,6 +290,24 @@ static void stage_failure(const char *stage, int line)
                  "Stage stopped: %s, main.c:%d", stage, line);
         boot_checkpoint(boot_failure, false);
     }
+}
+
+/* Transition-only logging keeps a physical watch failure distinguishable
+ * from a GPU wait without doing SD writes during ordinary gameplay ticks. */
+static void boot_watch_transition(unsigned phase)
+{
+    static int previous[2] = {-1, -1};
+    GeOriginalBondMotionSnapshot motion;
+    if (phase >= 2U || !ge_original_bond_live_motion_snapshot(&motion)) return;
+    const int state = motion.watch_animation_state;
+    if (previous[phase] == state) return;
+    const int old = previous[phase];
+    previous[phase] = state;
+    if (state == 0 && old < 0) return;
+    char message[96];
+    snprintf(message, sizeof(message), "Watch %s player tick: %d -> %d",
+             phase == 0U ? "before" : "after", old, state);
+    boot_checkpoint(message, false);
 }
 
 typedef struct Vertex {
@@ -18822,10 +18840,11 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
         C3D_TexBind(0, &original_gameplay_hud_font_texture);
         configure_original_font_texture_environment(texture_environment);
-        C3D_DrawArrays(GPU_TRIANGLES,
-                       ORIGINAL_BOTTOM_HUD_VERTEX_OFFSET
-                           + bottom_hud_draw.box_vertex_count,
-                       bottom_hud_draw.glyph_vertex_count);
+        if (bottom_hud_draw.glyph_vertex_count != 0U)
+            C3D_DrawArrays(GPU_TRIANGLES,
+                           ORIGINAL_BOTTOM_HUD_VERTEX_OFFSET
+                               + bottom_hud_draw.box_vertex_count,
+                           bottom_hud_draw.glyph_vertex_count);
     }
     if (mission_hud_vertex_count != 0U) {
         C3D_AlphaTest(false, GPU_ALWAYS, 0U);
@@ -18835,12 +18854,14 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             ? &original_gameplay_hud_font_texture
             : &original_hud_font_texture);
         configure_original_font_texture_environment(texture_environment);
-        C3D_DrawArrays(GPU_TRIANGLES, ORIGINAL_HUD_VERTEX_OFFSET,
-                       mission_hud_draw.box_vertex_count);
-        C3D_DrawArrays(GPU_TRIANGLES,
-                       ORIGINAL_HUD_VERTEX_OFFSET
-                           + mission_hud_draw.box_vertex_count,
-                       mission_hud_draw.glyph_vertex_count);
+        if (mission_hud_draw.box_vertex_count != 0U)
+            C3D_DrawArrays(GPU_TRIANGLES, ORIGINAL_HUD_VERTEX_OFFSET,
+                           mission_hud_draw.box_vertex_count);
+        if (mission_hud_draw.glyph_vertex_count != 0U)
+            C3D_DrawArrays(GPU_TRIANGLES,
+                           ORIGINAL_HUD_VERTEX_OFFSET
+                               + mission_hud_draw.box_vertex_count,
+                           mission_hud_draw.glyph_vertex_count);
     }
     C3D_TexEnvInit(texture_environment = C3D_GetTexEnv(0));
     C3D_TexEnvSrc(texture_environment, C3D_Both, GPU_PRIMARY_COLOR, 0, 0);
@@ -21229,11 +21250,13 @@ start_stage_runtime:
                         GUNSIGHTREASON_1,
                         cur_player_get_sight_onscreen_control());
                     const uint64_t move_start = svcGetSystemTick();
+                    boot_watch_transition(0U);
                     (void)ge_original_bond_move_live_tick(
                         &first_person_models.bond_live,
                         port.original_clock_timer,
                         port.original_global_timer,
                         port.original_global_timer_delta);
+                    boot_watch_transition(1U);
                     fine_profile.gameplay_phase_ticks[2] +=
                         svcGetSystemTick() - move_start;
                     {

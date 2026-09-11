@@ -238,3 +238,29 @@ Disappearing tunnel blocks and seeing scenery through walls remain unresolved;
 the next build is a hardware test candidate, not visual or pause acceptance.
 Build and SD installation receipts are recorded separately under build/releases
 and build/sd-deployment. No peer tasks were restarted.
+
+## Physical hardware follow-up — tower/building missing surfaces
+
+On `ffa40665`, photos show absent wall/floor sections at the first tower and
+the building beyond the tunnel; railings, guards and some adjacent triangles
+remain visible. The user says the omissions change mainly when moving, rather
+than turning in place. The latest completed Dam run ends normally in room 112,
+with 27 installs, zero failures, eight resident rooms and no pending requests.
+No confirmed root cause or rendering fix is claimed in this follow-up.
+
+Added a solo SELECT comparison cycle: 0 normal; 1 unmerged batches with existing
+visibility; 2 unmerged resident geometry without CPU room/frustum rejection;
+3 the same with face culling disabled. The bottom screen names the mode. Each
+press saves the camera position, look/view matrix, slider, visible/resident room
+lists and streaming status to render-audit.log. Restarting a stage restores
+normal mode. Canonical visibility, residency, collision and AI are unchanged.
+Modes 2/3 are diagnostic comparisons, not fidelity fixes, and may expose hidden
+geometry or cost frame time. A same-position comparison is needed to select the
+next fix; the saved camera enables a precise host replay instead of estimating
+positions from photographs.
+
+Depth mapping was cross-checked against upstream Citro3D Mtx_OrthoTilt and its
+default DepthMap(true, -1, 0): this port's left-handed tilted 0..1 depth map
+already yields near=1/far=0 with GREATER, so it was not reversed speculatively.
+References: https://github.com/devkitPro/citro3d/blob/master/source/maths/mtx_orthotilt.c
+and https://github.com/devkitPro/citro3d/blob/master/source/base.c .

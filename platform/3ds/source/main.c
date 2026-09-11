@@ -1693,6 +1693,50 @@ typedef struct RuntimeDamPreview {
     const Ge3dsSceneTextures *scene_textures;
 } RuntimeDamPreview;
 
+/* Interactive hardware isolation; never changes the canonical portal list,
+ * residency requests, collision or AI. SELECT cycles increasingly scalar
+ * submissions at the same camera, and records a replayable camera snapshot. */
+static unsigned world_diagnostic_mode;
+static bool world_diagnostic_used;
+static const char *const world_diagnostic_labels[] = {
+    "0 Normal", "1 Unmerged", "2 All resident", "3 Two-sided"
+};
+
+static void cycle_world_diagnostic(const RuntimeDamPreview *preview)
+{
+    world_diagnostic_mode = (world_diagnostic_mode + 1U) % 4U;
+    world_diagnostic_used = true;
+    FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/render-audit.log", "a");
+    if (stream == NULL) return;
+    fprintf(stream, "mode=%u tick=%llu room=%u generation=%lu slider=%.6f\n",
+        world_diagnostic_mode, (unsigned long long)svcGetSystemTick(),
+        preview->original_camera_room,
+        (unsigned long)preview->dynamic_scene.generation, stereo_slider);
+    fprintf(stream, "position=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g\n",
+        preview->original_camera_position[0], preview->original_camera_position[1],
+        preview->original_camera_position[2], preview->original_camera_look[0],
+        preview->original_camera_look[1], preview->original_camera_look[2]);
+    for (unsigned row = 0U; row < 4U; ++row)
+        fprintf(stream, "view%u=%.9g,%.9g,%.9g,%.9g\n", row,
+            preview->original_camera_view[row][0], preview->original_camera_view[row][1],
+            preview->original_camera_view[row][2], preview->original_camera_view[row][3]);
+    const GeOriginalBgVisibilityResult *visible = preview->renderer_visibility_ready
+        ? &preview->renderer_visibility.visible : &preview->visibility_result;
+    fprintf(stream, "visibility_ready=%u renderer_ready=%u visible=",
+        preview->visibility_ready, preview->renderer_visibility_ready);
+    for (size_t i = 0U; i < visible->room_count; ++i)
+        fprintf(stream, "%u,", visible->rooms[i].room);
+    fprintf(stream, "\nresident=");
+    for (size_t i = 0U; i < preview->dynamic_scene.room_count; ++i)
+        fprintf(stream, "%u,", preview->dynamic_scene.room_ids[i]);
+    fprintf(stream, "\nvertices=%lu batches=%lu pending=%lu stream=%d\n\n",
+        (unsigned long)preview->source_vertex_count, (unsigned long)preview->batch_count,
+        (unsigned long)preview->preload_queue.pending_count, preview->dynamic_scene_status);
+    fflush(stream);
+    (void)fsync(fileno(stream));
+    fclose(stream);
+}
+
 static bool write_visual_probe_tour_result(
     const RuntimeVisualProbeTour *runtime,
     const RuntimeDamPreview *preview)
@@ -18497,6 +18541,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                         == GE_3DS_MATERIAL_OK
                         && material_result.state.draw_enabled != 0U;
                 }
+                if (world_diagnostic_mode == 3U) C3D_CullFace(GPU_CULL_NONE);
                 if (material_draw_enabled)
                     C3D_DrawArrays(GPU_TRIANGLES,
                                    DAM_ROOM_VERTEX_OFFSET + run->first_vertex,
@@ -18523,12 +18568,12 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             size_t scanned_vertex_end = first_vertex + vertex_count;
             bool material_draw_enabled;
 
-            if (gpu_world_render
+            if (gpu_world_render && world_diagnostic_mode < 2U
                     && !renderer_room_visible(&room_visibility, batch->room_id)) {
                 i = next;
                 continue;
             }
-            if (gpu_world_render
+            if (gpu_world_render && world_diagnostic_mode < 2U
                     && !renderer_world_batch_profiled(
                         dam_preview, source_index,
                         world_batch_visibility_cache,
@@ -18537,7 +18582,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                 continue;
             }
 
-            while (next < draw_batch_count) {
+            while (world_diagnostic_mode == 0U && next < draw_batch_count) {
                 const size_t next_source = camera_render
                     ? dam_preview->render_batches[next].source_batch : next;
                 const size_t next_first = camera_render
@@ -18649,6 +18694,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             }
             if (sample_submission)
                 fine_profile.world_submission_detail_ticks[1] += svcGetSystemTick() - material_start;
+            if (world_diagnostic_mode == 3U) C3D_CullFace(GPU_CULL_NONE);
             if (material_draw_enabled) {
                 const uint64_t draw_start = sample_submission ? svcGetSystemTick() : 0U;
                 C3D_DrawArrays(GPU_TRIANGLES,
@@ -20158,6 +20204,8 @@ static int __attribute__((noinline)) run_application(void)
                                  NULL, NULL, NULL) == GE_TEXTURE_CACHE_OK;
 
 start_stage_runtime:
+    world_diagnostic_mode = 0U;
+    world_diagnostic_used = false;
     stage_load_started = svcGetSystemTick();
     /* A probe bypasses the frontend, so gameplay must initialize its music
      * here just as it does on subsequent stage loads. Use the same decision
@@ -20855,6 +20903,8 @@ start_stage_runtime:
         }
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
+        if (!multiplayer.running && controls_gameplay && (hidKeysDown() & KEY_SELECT))
+            cycle_world_diagnostic(&dam_preview);
         if (multiplayer.running && (hidKeysHeld() & (KEY_SELECT | KEY_START))
                 == (KEY_SELECT | KEY_START)) {
             GeOriginalMultiplayerSessionState ended;
@@ -20891,6 +20941,9 @@ start_stage_runtime:
             if (ge_3ds_controls_objectives_due(&controls, osGetTime()))
                 update_touch_objectives();
             ge_3ds_controls_draw_panel(&controls, stdout);
+            if (!multiplayer.running && world_diagnostic_used)
+                printf("\x1b[1;1HRender test: %s  SELECT: next\x1b[K",
+                    world_diagnostic_labels[world_diagnostic_mode]);
             if (multiplayer.running)
                 printf("\x1b[0;0HMultiplayer - Player %lu/%lu\x1b[K\nSELECT: player  SELECT+START: end\x1b[K",
                     (unsigned long)multiplayer.local + 1UL, (unsigned long)multiplayer.count);

@@ -208,9 +208,9 @@ Ge3dsMaterialStatus ge_3ds_material_apply_prepared_delta(
             C3D_TexSetFilterMipmap(texture, GPU_LINEAR);
         }
     }
-    if (prepared->texture_bound != 0U
-            && (previous == NULL || previous->texture_bound == 0U
-                || previous_texture != texture)) {
+    /* SetWrap/SetFilter only edit the CPU texture descriptor. Rebinding
+     * marks its GPU registers dirty even when the image handle is unchanged. */
+    if (prepared->texture_bound != 0U && texture_parameters_changed) {
         C3D_TexBind(0, texture);
     }
 

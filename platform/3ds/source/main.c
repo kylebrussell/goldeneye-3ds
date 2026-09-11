@@ -12996,7 +12996,11 @@ static void update_dam_renderer_visibility(RuntimeDamPreview *preview)
         == GE_ORIGINAL_BG_VISIBILITY_OK;
     if (preview->renderer_visibility_ready && preview->preload_status == GE_DAM_PRELOAD_OK)
         for (size_t room = 0U; room < preview->visibility_runtime.room_count; ++room)
-            if (preview->renderer_visibility.stereo && preview->renderer_visibility.preload[room]
+            /* VISOP_PRELOAD covers authored advance requests only. The
+             * original bgRenderRoomPrimary/Secondary also load on demand
+             * when portal traversal exposes a room, including in mono. */
+            if ((preview->renderer_visibility.membership[room]
+                        || preview->renderer_visibility.preload[room])
                     && ge_dam_preload_queue_room_state(&preview->preload_queue, (uint8_t)room)
                         == GE_DAM_PRELOAD_ROOM_UNLOADED)
                 (void)ge_dam_preload_queue_request(&preview->preload_queue, (uint8_t)room);
@@ -22407,6 +22411,20 @@ finish_original_player_tick:
     }
 
 cleanup_runtime:
+    if (scheduler_active && dam_preview.loaded) {
+        char diagnostic[256];
+        snprintf(diagnostic, sizeof(diagnostic),
+            "Gameplay exit: room=%u resident=%lu pending=%lu stream=%u texture=%u alloc=%u installs=%llu failures=%llu",
+            (unsigned)dam_preview.original_camera_room,
+            (unsigned long)dam_preview.dynamic_scene.room_count,
+            (unsigned long)dam_preview.preload_queue.pending_count,
+            (unsigned)dam_preview.dynamic_scene_status,
+            (unsigned)dam_preview.stream_texture_status,
+            (unsigned)dam_preview.stream_allocation_failed,
+            (unsigned long long)dam_preview.dynamic_scene.install_successes,
+            (unsigned long long)dam_preview.dynamic_scene.install_failures);
+        boot_checkpoint(diagnostic, false);
+    }
     multiplayer.running = false;
     if (multiplayer.requested && !next_stage_requested
             && multiplayer_frontend.phase == GE_ORIGINAL_MP_FRONTEND_LOADING) {

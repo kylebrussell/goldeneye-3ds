@@ -183,3 +183,28 @@ geometry descriptors in both host ABIs passed. These checks do not establish
 physical rendering fidelity or successful Dam play; the next card build needs
 that hardware confirmation. Forced ARM candidate build/installation receipts
 are recorded separately under `build/releases` and `build/sd-deployment`.
+
+## Physical hardware follow-up — tunnel geometry and stripes
+
+On `62470422`, the user reached Dam gameplay and walked through the tunnel
+exit into missing scenery (movement was not blocked). The renderer queued only
+VISOP_PRELOAD requests and stereo preload requests, omitting the original
+bgRenderRoomPrimary/Secondary demand load for ordinary portal-visible rooms.
+The local renderer now queues unloaded members of its mono/stereo visibility
+union as well as advance preloads. Canonical visibility membership is unchanged;
+the existing bounded transaction imports those rooms.
+
+Also fixed same-image wrap/filter changes in the differential material adapter:
+Citro3D's inline setters modify only the CPU descriptor; C3D_TexBind marks the
+texture registers dirty. Parameter changes now rebind even if the image pointer
+is unchanged. Upstream implementation reference:
+https://github.com/devkitPro/citro3d/blob/master/source/texture.c
+
+New sanitized regressions execute the production demand loop and sampler
+publication block, including visible-without-preload in mono, stereo-only
+membership, deduplication, and same-handle wrap/filter changes. Existing room
+stream transaction, UV and texture reconciliation checks passed; the authored
+Dam stream probe imported its complete 15-room route without failures. Hardware
+visual confirmation remains pending. Gameplay cleanup now records final room,
+residency, pending requests and streaming failure counters in boot.log for the
+next report. Previous card log saved under build/hardware-boot-20260911.

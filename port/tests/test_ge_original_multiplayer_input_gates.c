@@ -80,6 +80,9 @@ static void run_roster(s32 n, int two_pads)
             player->hands[1].weaponnum=ITEM_UNARMED;
             second_pad=(GeOriginalInputPad){0,65,75};
             frame=(GeOriginalBondInputFrame){35,75,Z_TRIG|B_BUTTON|R_CBUTTONS,0};
+            /* Each gate phase tests a fresh physical press. Held-input
+             * history is covered separately below. */
+            player->buttons_pressed=0;
             unsigned old_moves=move_calls, old_published=published, old_gun=gun_calls, old_input=input_calls;
             assert(ge_original_bond_move_live_tick(&states[slot],1,100+phase,1.0f));
             assert(move_calls==old_moves+1 && published==old_published+1);
@@ -108,10 +111,45 @@ static void run_roster(s32 n, int two_pads)
     assert(states[0].input_tick_count==1 && trigger==(n==1));
     ge_original_bond_input_unbind_roster();
 }
+
+static void run_held_use(int two_pads, int input_only)
+{
+    GeOriginalBondLiveState state = {.initialized=1};
+    count=1; dual=two_pads;
+    memset(players,0,sizeof(players));
+    memset(permissions,0,sizeof(permissions));
+    ge_original_bond_input_bind_player(&players[0], &permissions[0]);
+    ge_original_bond_input_provider_reset_normal_dam();
+    GeOriginalBondInputProvider *provider=ge_original_bond_input_provider();
+    provider->control_type=dual ? CONTROLLER_CONFIG_PLENTY : CONTROLLER_CONFIG_HONEY;
+    g_CurrentPlayer=&players[0];
+    g_stopPlayFlag=g_gameOverFlag=controls_locked=0;
+    players[0].damageshowtime=-1;
+    players[0].hands[0].weaponnum=ITEM_WPPK;
+    players[0].hands[1].weaponnum=ITEM_UNARMED;
+    second_pad=(GeOriginalInputPad){0};
+    /* One Use must remain one edge for all three catch-up ticks, then a
+     * release/repress produces exactly one new edge. For 2.x, repeat using
+     * only the secondary pad to verify independent histories. */
+    const u16 primary[] = {B_BUTTON,B_BUTTON,B_BUTTON,0,B_BUTTON,0,0,0};
+    const u16 secondary[] = {0,0,0,0,0,0,B_BUTTON,B_BUTTON};
+    for (size_t tick=0;tick<sizeof(primary)/sizeof(primary[0]);++tick) {
+        frame=(GeOriginalBondInputFrame){0,0,primary[tick],0};
+        second_pad.buttons=dual ? secondary[tick] : 0;
+        assert(input_only
+            ? ge_original_bond_live_tick(&state,1,(int)tick+1,1)
+            : ge_original_bond_move_live_tick(&state,1,(int)tick+1,1));
+        assert(players[0].buttons_pressed==primary[tick]);
+        assert((players[0].field_D0!=0)==(tick==0 || tick==4 || (dual && tick==6)));
+    }
+    ge_original_bond_input_unbind_roster();
+}
 int main(void)
 {
     run_roster(4,0);run_roster(2,0);run_roster(1,0);
     run_roster(4,1);run_roster(2,1);run_roster(1,1);
+    run_held_use(0,0);run_held_use(1,0);
+    run_held_use(0,1);run_held_use(1,1);
     puts("input gates: real full input and speed bodies, per-slot 2/4 stop/menu/lock/release, uninterrupted live ticks and solo passed");
     return 0;
 }

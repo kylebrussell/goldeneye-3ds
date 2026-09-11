@@ -156,6 +156,7 @@
 #include "ge_original_stage_objective_live.h"
 #include "ge_original_stage_objective_runtime.h"
 #include "ge_original_stage_safe_runtime.h"
+#include "ge_original_stage_switch_runtime.h"
 #include "ge_original_stage_security.h"
 #include "ge_original_sfx_bank.h"
 #include "ge_original_stage_prop_materializer.h"
@@ -2450,6 +2451,7 @@ typedef struct RuntimeStageOrdinaryObjects {
     GeOriginalStageObjectiveRegistry objectives;
     GeOriginalStageObjectiveRuntime objective_runtime;
     GeOriginalStageSafeRuntime safe_runtime;
+    GeOriginalStageSwitchRuntime switch_runtime;
     GeOriginalStageMiscStatus safe_relation_status;
     GeOriginalStageObjectiveEvaluation objective_evaluations[
         GE_ORIGINAL_STAGE_OBJECTIVE_MAX];
@@ -2577,7 +2579,8 @@ static float world_last_stereo_slider;
 /* Retain the destination used by the preceding FrameEnd. After FrameBegin
  * waits for that transfer, this is the completed image corresponding to the
  * retained draw runs, rather than the older gfxGetFramebuffer backbuffer. */
-static void capture_world_screen(FILE *stream, uint64_t tick)
+static void capture_world_screen(FILE *stream, uint64_t tick,
+    const C3D_RenderTarget *target)
 {
     char path[128];
     bool saved = false;
@@ -2591,6 +2594,55 @@ static void capture_world_screen(FILE *stream, uint64_t tick)
     }
     fprintf(stream, "screen=left source=previous_submission path=%s saved=%u cache_result=%ld\n",
         path, saved, (long)cache_result);
+    if (target != NULL) {
+        const C3D_FrameBuf *fb = &target->frameBuf;
+        const uintptr_t address = (uintptr_t)fb->depthBuf;
+        const size_t expected_bytes = 240U * 400U * sizeof(uint32_t);
+        size_t allocation_bytes = 0U;
+        size_t nonzero_words = 0U;
+        uint32_t maximum_word = 0U;
+        bool depth_saved = false;
+        Result depth_cache_result = -1;
+        const bool valid_depth = world_last_framebuffer != NULL
+            && target->ownsDepth && fb->width == 240U && fb->height == 400U
+            && fb->depthFmt == GPU_RB_DEPTH24_STENCIL8
+            && C3D_CalcDepthBufSize(fb->width, fb->height, fb->depthFmt)
+                == expected_bytes
+            && address >= OS_VRAM_VADDR && (address & 3U) == 0U
+            && address <= OS_VRAM_VADDR + OS_VRAM_SIZE - expected_bytes;
+        if (valid_depth) allocation_bytes = vramGetSize(fb->depthBuf);
+        snprintf(path, sizeof(path),
+            "sdmc:/3ds/goldeneye-3ds/render-%llu.left.depth.bin",
+            (unsigned long long)tick);
+        if (valid_depth && allocation_bytes >= expected_bytes) {
+            /* Called only after FrameBegin has waited for the previous queue,
+             * before any clear/draw. Preserve raw PICA storage: no guessed
+             * depth/stencil bit ordering or framebuffer tile conversion. */
+            depth_cache_result = GSPGPU_InvalidateDataCache(
+                fb->depthBuf, (u32)expected_bytes);
+            if (R_SUCCEEDED(depth_cache_result)) {
+                const uint32_t *words = fb->depthBuf;
+                for (size_t i = 0U; i < expected_bytes / sizeof(*words); ++i) {
+                    if (words[i] != 0U) ++nonzero_words;
+                    if (words[i] > maximum_word) maximum_word = words[i];
+                }
+                FILE *depth_stream = fopen(path, "wb");
+                if (depth_stream != NULL) {
+                    depth_saved = fwrite(fb->depthBuf, 1U, expected_bytes,
+                        depth_stream) == expected_bytes;
+                    depth_saved = fclose(depth_stream) == 0 && depth_saved;
+                }
+            }
+        }
+        fprintf(stream, "depth=left source=previous_submission pointer=%p color_pointer=%p width=%u height=%u format=%u color_mask=%u depth_mask=%u block32=%u owned=%u valid=%u allocation_bytes=%lu bytes=%lu layout=raw_pica path=%s saved=%u cache_result=%ld nonzero_words=%lu maximum_word=%08lx\n",
+            fb->depthBuf, fb->colorBuf, (unsigned)fb->width, (unsigned)fb->height,
+            (unsigned)fb->depthFmt, (unsigned)fb->colorMask,
+            (unsigned)fb->depthMask, (unsigned)fb->block32,
+            (unsigned)target->ownsDepth, (unsigned)valid_depth,
+            (unsigned long)allocation_bytes, (unsigned long)expected_bytes,
+            path, depth_saved, (long)depth_cache_result,
+            (unsigned long)nonzero_words, (unsigned long)maximum_word);
+    }
 }
 
 static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
@@ -2598,7 +2650,7 @@ static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
 
 static void capture_world_diagnostic(const RuntimeDamPreview *preview,
     const RuntimeDamIntro *intro, const RuntimeStageOrdinaryObjects *objects,
-    const Vertex *vertices)
+    const Vertex *vertices, const C3D_RenderTarget *target)
 {
     FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/render-audit.log", "a");
     if (stream == NULL) return;
@@ -2682,7 +2734,7 @@ static void capture_world_diagnostic(const RuntimeDamPreview *preview,
         (long)intro->movement.last_blocking_prop_type,
         (long)intro->movement.last_blocking_object_type);
     capture_world_gpu(stream, preview, vertices, tick);
-    capture_world_screen(stream, tick);
+    capture_world_screen(stream, tick, target);
     fflush(stream);
     (void)fsync(fileno(stream));
     fclose(stream);
@@ -7510,6 +7562,9 @@ report:
             (unsigned long)objects->door_interaction.activate_edges,
             ge_original_door_interaction_result_name(door_result),
             (unsigned long)object_index, selected_command, object_status, feedback);
+        fprintf(stream, "switch_links=%lu omitted=%lu\n",
+            (unsigned long)objects->switch_runtime.relation_count,
+            (unsigned long)objects->switch_runtime.omitted_count);
         /* This is the preceding rendered camera, explicitly distinguished
          * from the native interaction-time prop snapshots below. */
         fprintf(stream, "rendered_camera=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g room=%u\n",
@@ -10536,6 +10591,7 @@ static void close_stage_ordinary_objects(
 {
     size_t index;
     if (objects == NULL) return;
+    ge_original_stage_switch_runtime_close(&objects->switch_runtime);
     /* objFree owns the canonical autogun sound-handle and PropRecord
      * teardown. Run it while the shared active list and Pitem provider are
      * still bound, then release the provider's captured model slot exactly
@@ -11594,7 +11650,9 @@ static size_t build_original_sight_vertices(Vertex *vertices,
         const float bottom_u = bl_u + (br_u - bl_u) * u;
         const float bottom_v = bl_v + (br_v - bl_v) * u;
         vertices[index] = (Vertex){
-            source->x, source->y, source->z,
+            /* Native sight rectangles use top-down VI coordinates, like
+             * the other HUD layers. The tilted screen projection is Y-up. */
+            source->x, ge_3ds_original_hud_screen_y(source->y), source->z,
             top_u + (bottom_u - top_u) * v,
             top_v + (bottom_v - top_v) * v,
             source->red, source->green, source->blue, source->alpha,
@@ -20939,6 +20997,16 @@ start_stage_runtime:
             if (initialize_stage_interactive_objects(
                     &stage_ordinary_objects)) {
                 stage_ordinary_objects.init_mask |= UINT32_C(2);
+                /* proplvreset2 registers switch links only after the endpoint
+                 * objects exist. Native Use dispatch consumes this list. */
+                if (!ge_original_stage_switch_runtime_materialize(
+                        &stage_ordinary_objects.switch_runtime,
+                        stage_ordinary_objects.setup, &stage_ordinary_objects,
+                        stage_safe_definition_by_command)) {
+                    boot_checkpoint("Stage switch link initialization failed", false);
+                    result = 1;
+                    goto cleanup_runtime;
+                }
                 if (initialize_stage_safe_relations(
                         &stage_ordinary_objects)) {
                     stage_ordinary_objects.init_mask |= UINT32_C(4);
@@ -21457,7 +21525,7 @@ start_stage_runtime:
                  * is complete. Never read GPU-owned pixels in the HID path. */
                 probe_capture_io = true;
                 capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects,
-                    (const Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET);
+                    (const Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, top_target);
                 world_diagnostic_pending = false;
             }
             if (input_probe.enabled && frame_began) {

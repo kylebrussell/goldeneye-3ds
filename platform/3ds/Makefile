@@ -904,7 +904,7 @@ ge_original_stage_setup.o: CFLAGS += -DGE_PORT_USE_ORIGINAL_TYPES -DAIPARSE \
                                     -DGE_PORT_SETUP_DATA
 ge_original_stage_prop_materializer.o ge_original_stage_prop_native.o \
 ge_original_stage_special_objects.o \
-ge_original_stage_safe_runtime.o \
+ge_original_stage_safe_runtime.o ge_original_stage_switch_runtime.o \
 ge_original_stage_alarm_interaction.o \
 ge_original_stage_monitor.o \
 ge_original_stage_model_publication.o \

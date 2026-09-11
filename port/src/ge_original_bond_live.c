@@ -120,9 +120,12 @@ int ge_original_bond_live_tick(GeOriginalBondLiveState *state,
     ge_original_bond_live_set_timers(provider, clock_timer, global_timer,
                                      global_timer_delta);
     ge_original_bond_live_refresh_multiplayer_gates(provider);
-    ge_original_input_read_bond_frame(player->prev_buttons_pressed, &frame);
+    /* bondviewMovePlayerUpdateViewport owns primary-pad history. The input
+     * body's prev_buttons_pressed field belongs only to the second 2.x pad. */
+    ge_original_input_read_bond_frame((u16)player->buttons_pressed, &frame);
     bondviewProcessInput(frame.stick_x, frame.stick_y,
                          frame.buttons, frame.oldbuttons);
+    player->buttons_pressed = frame.buttons;
     state->input_tick_count++;
     return 1;
 }
@@ -160,8 +163,11 @@ int ge_original_bond_move_live_tick(GeOriginalBondLiveState *state,
     ge_original_bond_live_set_timers(provider, clock_timer, global_timer,
                                      global_timer_delta);
     ge_original_bond_live_refresh_multiplayer_gates(provider);
-    ge_original_input_read_bond_frame(player->prev_buttons_pressed, &frame);
+    ge_original_input_read_bond_frame((u16)player->buttons_pressed, &frame);
     MoveBond(frame.stick_x, frame.stick_y, frame.buttons, frame.oldbuttons);
+    /* Exact viewport tail: held buttons become oldbuttons on the next tick,
+     * including additional simulation ticks using the same HID sample. */
+    player->buttons_pressed = frame.buttons;
     ge_port_bond_movement_publish(player);
     state->move_tick_count++;
     return 1;

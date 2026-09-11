@@ -435,3 +435,61 @@ ABI. The feedback validator now uses an unsigned upper-bound check, and the
 controls harness runs native and short enums, including negative/large invalid
 values. The failed candidate receipt is retained; the corrected build uses a
 separate release directory.
+
+
+## Inverted aim, gate links and held Use — 2026-09-11 evening
+
+New data from installed c2a8a7a4 is backed up under
+`build/hardware-captures/dam-aim-20260911-175124/`. Both completed-screen PPMs
+and GPU buffers saved successfully. This run exited normally in room 111 after
+176 successful room installs, with no failure/pending/stream/texture/allocation
+error. The saved controls already have invert_look_y=1; preserve that preference.
+
+Three concrete fixes are included:
+
+- Sight vertices previously submitted native top-down VI Y directly into the
+  bottom-up HUD projection. They now use the existing HUD Y conversion, like
+  ammunition icons. This changes presentation only: native gun/crosshair logic
+  already consumes the same normal/inverted input. A source-extracted test runs
+  the real sight conversion and canonical crosshair/gun position calculation,
+  checking upper/lower/center, live and captured multiplayer paths, and both
+  pitch settings. It passes ASan/UBSan and fails with the old conversion.
+- Use records repeatedly select panel269 successfully, but its captured runtime
+  flags0x4010 omit the linked-switch bit0. The port had never published authored
+  PROPDEF_SWITCH records. New stage-owned native LinkRecords restore the exact
+  proplvreset2 relative-endpoint list and bit, after interactive construction and
+  before gameplay. Missing constructed endpoints follow native omission rules;
+  malformed indices fail initialization. Cleanup unpublishes links before any
+  endpoint is freed. The ordinary Use action and original gate interlocks remain
+  intact. A native extracted regression reproduces the old non-activation, then
+  proves activation, the opposite-gate interlock and actual door travel.
+- The Bond input wrappers used prev_buttons_pressed (secondary pad history) as
+  primary oldbuttons. Held B therefore repeatedly produced activation edges.
+  Both wrappers now read and advance buttons_pressed at the original viewport
+  boundary, preserving separate secondary history. Full native input/speed tests
+  cover press/hold/release/repress, both wrappers and primary/secondary controls.
+
+The tunnel image's jagged blue silhouette is reproduced by software replay with
+DEPTH TEST DISABLED. A farther room131 rock surface overwrites nearer room129 wall
+geometry at pixel(170,100), despite both captured materials requesting depth test
+and write. Correct depth replay, near-plane checks and float24 stress replay do
+not reproduce the defect. The exact runtime GPU cause is still open: compiled
+material calls and SDK depth attachment allocation look correct. No speculative
+render-state override is included.
+
+SELECT now logs actual depth attachment metadata/masks/ownership and saves raw
+PICA DEPTH24_STENCIL8 bytes after the existing FrameBegin GPU fence, before clear
+or draw. The read validates dimensions, format, byte size, VRAM bounds/alignment
+and allocation size, and invalidates CPU cache before reading. This adds no GPU
+state change; the next hardware capture can distinguish absent depth writes from
+incorrect stored depth. Raw storage is deliberately not assigned a guessed tile
+layout or depth/stencil byte order.
+
+Validation passed: source-extracted sight alignment, Use dispatcher, native
+switch activation/interlock/travel/cleanup, and full native input gates/history,
+all with ASan/UBSan. The additional movement smoke harness stopped at existing
+unresolved ge_original_bond_input_set_timers and ge_original_hud_bottom_show_exact
+symbols; it is not reported as passing. New focused tests are in test_port.sh;
+the full aggregate has not been rerun. An incremental ARM compile/link passed.
+Forced candidate and single-entry SD install receipts are recorded separately.
+Hardware validation of the new fixes remains required; world rendering is open.

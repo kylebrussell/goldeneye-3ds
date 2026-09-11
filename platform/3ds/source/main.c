@@ -2570,15 +2570,19 @@ typedef struct RuntimeStageOrdinaryObjects {
  * canonical portal/streaming state. Repeated captures identify the exact
  * camera where a physical rendering fault is visible. */
 static unsigned world_diagnostic_captures;
+static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
+    const Vertex *vertices, uint64_t tick);
 
 static void capture_world_diagnostic(const RuntimeDamPreview *preview,
-    const RuntimeDamIntro *intro, const RuntimeStageOrdinaryObjects *objects)
+    const RuntimeDamIntro *intro, const RuntimeStageOrdinaryObjects *objects,
+    const Vertex *vertices)
 {
     FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/render-audit.log", "a");
     if (stream == NULL) return;
     ++world_diagnostic_captures;
+    const uint64_t tick = svcGetSystemTick();
     fprintf(stream, "capture=%u tick=%llu room=%u generation=%lu slider=%.6f\n",
-        world_diagnostic_captures, (unsigned long long)svcGetSystemTick(),
+        world_diagnostic_captures, (unsigned long long)tick,
         preview->original_camera_room,
         (unsigned long)preview->dynamic_scene.generation, stereo_slider);
     fprintf(stream, "position=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g\n",
@@ -2654,6 +2658,7 @@ static void capture_world_diagnostic(const RuntimeDamPreview *preview,
         (unsigned long)intro->movement.blocked_by_stan, blocking_command,
         (long)intro->movement.last_blocking_prop_type,
         (long)intro->movement.last_blocking_object_type);
+    capture_world_gpu(stream, preview, vertices, tick);
     fflush(stream);
     (void)fsync(fileno(stream));
     fclose(stream);
@@ -12554,6 +12559,72 @@ static float c3d_matrix_element(const C3D_Mtx *matrix, size_t row,
     }
 }
 
+/* Serialize the already-uploaded buffer and retained left-eye draw decisions.
+ * No draw, visibility, cull or GPU state is changed by this capture. */
+static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
+    const Vertex *vertices, uint64_t tick)
+{
+    if (vertices == NULL || !preview->gpu_world_ready || preview->batches == NULL
+            || preview->source_vertex_count > DAM_ROOM_VERTEX_COUNT
+            || preview->source_vertex_count != preview->dynamic_scene.scene.vertex_count
+            || preview->batch_count != preview->dynamic_scene.scene.batch_count) {
+        fprintf(stream, "gpu_snapshot=unavailable\n\n");
+        return;
+    }
+    char path[160];
+    snprintf(path, sizeof(path), "sdmc:/3ds/goldeneye-3ds/render-%llu.vertices.bin",
+        (unsigned long long)tick);
+    FILE *binary = fopen(path, "wb");
+    bool saved = false;
+    if (binary != NULL) {
+        saved = fwrite(vertices, sizeof(*vertices), preview->source_vertex_count,
+            binary) == preview->source_vertex_count;
+        saved = fflush(binary) == 0 && saved;
+        saved = fsync(fileno(binary)) == 0 && saved;
+        saved = fclose(binary) == 0 && saved;
+    }
+    fprintf(stream, "gpu_snapshot=1 tick=%llu file=%s saved=%u vertices=%lu stride=%lu runs_valid=%u runs=%lu\n",
+        (unsigned long long)tick, path, saved,
+        (unsigned long)preview->source_vertex_count, (unsigned long)sizeof(Vertex),
+        world_run_cache_valid, (unsigned long)world_run_count);
+    fprintf(stream, "gpu_generation=%lu uploaded_generation=%lu uploaded_vertices=%lu\n",
+        (unsigned long)preview->dynamic_scene.generation,
+        (unsigned long)preview->gpu_uploaded_scene_generation,
+        (unsigned long)preview->gpu_uploaded_vertex_count);
+    /* Binary vertices are nine little-endian float32s: XYZ, UV, RGBA. */
+    const C3D_Mtx *matrices[] = {&preview->gpu_world_projection,
+        &preview->gpu_runtime_projection, &preview->gpu_first_person_projection};
+    for (unsigned space = 0U; space < 3U; ++space)
+        for (unsigned row = 0U; row < 4U; ++row)
+            fprintf(stream, "gpu_matrix=%u,%u,%.9g,%.9g,%.9g,%.9g\n", space, row,
+                c3d_matrix_element(matrices[space], row, 0U),
+                c3d_matrix_element(matrices[space], row, 1U),
+                c3d_matrix_element(matrices[space], row, 2U),
+                c3d_matrix_element(matrices[space], row, 3U));
+    for (size_t i = 0U; i < world_run_count && i < WORLD_RUN_CACHE_CAPACITY; ++i) {
+        const RuntimeWorldRun *run = &world_run_cache[i];
+        if (run->batch >= preview->batch_count
+                || run->first_vertex > preview->source_vertex_count
+                || run->vertex_count > preview->source_vertex_count - run->first_vertex) {
+            fprintf(stream, "gpu_run_invalid=%lu\n", (unsigned long)i);
+            continue;
+        }
+        const GeDamRoomDrawBatch *batch = &preview->batches[run->batch];
+        const GePicaMaterial *m = &batch->material;
+        fprintf(stream, "gpu_run=%lu batch=%u first=%lu count=%lu room=%lu space=%u list=%u command=%lu texture=%u cull=%u ztest=%u zwrite=%u zmode=%u alpha=%u threshold=%u combine=%u,%u blend=%u fallback=%lu mux=%08lx,%08lx\n",
+            (unsigned long)i, (unsigned)run->batch, (unsigned long)run->first_vertex,
+            (unsigned long)run->vertex_count, (unsigned long)batch->room_id,
+            batch->coordinate_space, (unsigned)batch->list_kind,
+            (unsigned long)batch->command_address.offset, batch->texture.texture_id,
+            (unsigned)m->cull_mode, m->depth_test_enabled, m->depth_write_enabled,
+            (unsigned)m->depth_mode, (unsigned)m->alpha_test, m->alpha_threshold,
+            (unsigned)m->color_combine, (unsigned)m->alpha_combine, m->blend_enabled,
+            (unsigned long)m->fallback_flags, (unsigned long)m->combine_mux0,
+            (unsigned long)m->combine_mux1);
+    }
+    fprintf(stream, "gpu_snapshot_end=%llu\n\n", (unsigned long long)tick);
+}
+
 static void matrix4_multiply(float output[4][4], const float left[4][4],
                              const float right[4][4])
 {
@@ -12810,19 +12881,57 @@ static bool refresh_dam_background_colours(RuntimeDamPreview *preview,
     size_t changed_vertices = 0U;
     if (preview == NULL || destination == NULL || preview->bg_geometry == NULL
             || preview->dynamic_scene.overlay_vertex_count > preview->source_vertex_count
-            || preview->dynamic_scene.overlay_batch_count > preview->batch_count)
+            || preview->dynamic_scene.overlay_batch_count > preview->batch_count) {
+        boot_checkpoint("BG colour failure: invalid preview or overlay prefix", false);
         return false;
+    }
     const size_t room_vertices = preview->source_vertex_count
         - preview->dynamic_scene.overlay_vertex_count;
     const size_t room_batches = preview->batch_count
         - preview->dynamic_scene.overlay_batch_count;
-    if (!ge_original_bg_geometry_apply_scene(preview->bg_geometry,
+    GeOriginalBgSceneApplyReport report;
+    if (!ge_original_bg_geometry_apply_scene_report(preview->bg_geometry,
             preview->source_vertices, room_vertices, preview->batches,
-            room_batches, &changed_vertices))
+            room_batches, &changed_vertices, &report)) {
+        char message[512];
+        snprintf(message, sizeof(message),
+            "BG colour failure: reason=%u status=%u room=%lu batch=%lu vertex=%lu cmd=%lu expected=%lu actual=%lu",
+            (unsigned)report.reason, (unsigned)report.geometry_status,
+            (unsigned long)report.room_id, (unsigned long)report.batch_index,
+            (unsigned long)report.vertex_index, (unsigned long)report.command_offset,
+            (unsigned long)report.expected_count, (unsigned long)report.actual_count);
+        boot_checkpoint(message, false);
+        snprintf(message, sizeof(message),
+            "BG prefix: borrowed=%lu/%lu dynamic=%lu/%lu overlay=%lu/%lu aliases=%u/%u generation=%lu uploaded=%lu",
+            (unsigned long)preview->source_vertex_count, (unsigned long)preview->batch_count,
+            (unsigned long)preview->dynamic_scene.scene.vertex_count,
+            (unsigned long)preview->dynamic_scene.scene.batch_count,
+            (unsigned long)preview->dynamic_scene.overlay_vertex_count,
+            (unsigned long)preview->dynamic_scene.overlay_batch_count,
+            preview->source_vertices == preview->dynamic_scene.vertices,
+            preview->batches == preview->dynamic_scene.batches,
+            (unsigned long)preview->dynamic_scene.generation,
+            (unsigned long)preview->gpu_uploaded_scene_generation);
+        boot_checkpoint(message, false);
+        snprintf(message, sizeof(message),
+            "BG source: expected=%ld,%ld,%ld,%ld,%ld,%ld actual=%ld,%ld,%ld,%ld,%ld,%ld world=%.9g,%.9g,%.9g/%.9g,%.9g,%.9g",
+            (long)report.expected_source[0], (long)report.expected_source[1],
+            (long)report.expected_source[2], (long)report.expected_source[3],
+            (long)report.expected_source[4], (long)report.expected_source[5],
+            (long)report.actual_source[0], (long)report.actual_source[1],
+            (long)report.actual_source[2], (long)report.actual_source[3],
+            (long)report.actual_source[4], (long)report.actual_source[5],
+            report.expected_world[0], report.expected_world[1], report.expected_world[2],
+            report.actual_world[0], report.actual_world[1], report.actual_world[2]);
+        boot_checkpoint(message, false);
         return false;
-    return changed_vertices == 0U
-        || upload_dam_gpu_world_scene_range(preview, destination,
-            0U, room_vertices, 0U, room_batches, 0U);
+    }
+    if (changed_vertices != 0U && !upload_dam_gpu_world_scene_range(preview, destination,
+            0U, room_vertices, 0U, room_batches, 0U)) {
+        boot_checkpoint("BG colour failure: GPU upload range rejected", false);
+        return false;
+    }
+    return true;
 }
 
 static bool upload_dam_gpu_world_scene(RuntimeDamPreview *preview,
@@ -20952,7 +21061,8 @@ start_stage_runtime:
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (!multiplayer.running && controls_gameplay && (hidKeysDown() & KEY_SELECT))
-            capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects);
+            capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects,
+                (const Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET);
         if (multiplayer.running && (hidKeysHeld() & (KEY_SELECT | KEY_START))
                 == (KEY_SELECT | KEY_START)) {
             GeOriginalMultiplayerSessionState ended;
@@ -22539,6 +22649,12 @@ finish_original_player_tick:
     }
 
 cleanup_runtime:
+    {
+        char diagnostic[128];
+        snprintf(diagnostic, sizeof(diagnostic), "Runtime cleanup: result=%d state_failed=%u next_stage=%u",
+            result, multiplayer_state.failed, next_stage_requested);
+        boot_checkpoint(diagnostic, false);
+    }
     if (scheduler_active && dam_preview.loaded) {
         char diagnostic[256];
         snprintf(diagnostic, sizeof(diagnostic),
@@ -22658,12 +22774,14 @@ cleanup_runtime:
          * preserves residual PropRecord bytes and checks observed lifetimes. */
         if (!ge_original_prop_state_end(&dam_objects.props)) {
             printf("Native prop pool retirement failed.\n");
+            boot_checkpoint("Cleanup failure: native prop pool retirement", false);
             multiplayer_state.failed = true;
         }
         prop_state_ready = false;
     }
     runtime_multiplayer_state_end_stage();
     if (multiplayer_state.failed) {
+        boot_checkpoint("Cleanup failure: native state retirement", false);
         result = 1;
         goto exit_citro3d;
     }
@@ -22741,7 +22859,7 @@ exit_citro3d:
     }
     C3D_Fini();
 exit_graphics:
-    boot_checkpoint(result == 0 ? "Application leaving runtime" : "Application startup FAILED", false);
+    boot_checkpoint(result == 0 ? "Application leaving runtime" : "Application failed; see preceding checkpoints", false);
     if (boot_failure[0] != '\0' && !frontend_probe.enabled) {
         printf("\x1b[2J\x1b[HGoldenEye stopped\n\n%s\n\nLog saved to boot.log\nSTART: Homebrew Launcher\n", boot_failure);
         while (aptMainLoop()) {

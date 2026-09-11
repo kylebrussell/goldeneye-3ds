@@ -335,3 +335,44 @@ Validation passed: native live-reference selection with short enums and
 ASan/UBSan, synthetic portal walks with short enums and ASan/UBSan, isolated
 stereo visibility with ASan/UBSan, the BG ownership audit, submission-cache
 and world-hardware regressions, and the 416-sample real-asset replay.
+
+## Building failure on aead2325 — diagnostics, not a confirmed fix
+
+New hardware logs and seven captures are backed up under
+`build/hardware-captures/dam-gate-crash-20260911-160541/`. Despite the initial
+gate description, the user clarified the failure happened inside the building
+with prior visual issues. The installed executable hash matched aead2325.
+The log records cleanup in room 111 with eight residents, 87 successful installs,
+zero pending requests/failures and no stream/texture/allocation error; it ends
+with the formerly generic `Application startup FAILED` message. No Luma dump
+was present. All SELECT snapshots completed, including the new object diagnostics.
+
+The only explicit solo-loop `result=1` break is background colour publication
+failure. Native state retirement can also turn an exit into result 1 during
+cleanup. These were not persistently distinguished. The new report API retains
+all existing geometry validation and reports the first failed predicate, room,
+batch/vertex, expected/actual provenance, and owner status. Main now writes that
+detail and borrowed/dynamic scene counts before exiting, and logs cleanup-entry
+result plus retirement failures separately. No speculative collision or rendering
+bypass was added, and no crash root cause is claimed yet.
+
+Software replay finds no substantial nearby geometry omitted by these seven
+visible-room lists. Source-extracted renderer cache/merge/cull/fragment tests pass.
+Real Dam residency replay passes 3,569 colour-publication checks per ABI under
+native and short-enum ASan/UBSan, including explicit 10-to-8 eviction and repeated
+overlay grow/shrink/reload transactions. This does not replay native gameplay
+callbacks or borrowed preview pointers. Probe: `build/host-tests/dam-bg-residency-audit/`.
+
+SELECT now additionally captures the already-uploaded world vertex buffer to
+`render-<system-tick>.vertices.bin` and appends final projection matrices and
+retained left-eye draw runs/material identifiers to `render-audit.log`. Format1
+vertices are nine little-endian float32 values (XYZ, UV, RGBA), 36 bytes each;
+metadata records count, stride, file-write success and run-cache validity.
+These snapshots read existing state and do not change GPU submissions/culling.
+This is a diagnostic build requiring another building run, not visual acceptance.
+The detailed rejection-report tests pass native and short-enum ASan/UBSan;
+vertex-flush and renderer submission/world regressions also pass. Native real-asset
+geometry tests passed the 21 campaign stages before the broader harness stopped
+at an optional asset missing from the current pack, so that entire harness is
+not reported as passing. A separate probe passed all 45 possible 10-to-8 room
+eviction combinations with the retained overlay.

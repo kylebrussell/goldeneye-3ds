@@ -567,44 +567,124 @@ static int update_scene_event(const GeGbiPipelineEvent *event, void *context)
     return 1;
 }
 
+static int scene_apply_reject(GeOriginalBgSceneApplyReport *report,
+    GeOriginalBgSceneApplyReason reason)
+{
+    if (report != NULL) report->reason = reason;
+    return 0;
+}
+
 int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
     GeDamRoomWorldVertex *vertices, size_t vertex_count,
     const GeDamRoomDrawBatch *batches, size_t batch_count,
     size_t *changed_vertices)
 {
+    return ge_original_bg_geometry_apply_scene_report(geometry, vertices,
+        vertex_count, batches, batch_count, changed_vertices, NULL);
+}
+
+int ge_original_bg_geometry_apply_scene_report(GeOriginalBgGeometry *geometry,
+    GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batches, size_t batch_count,
+    size_t *changed_vertices, GeOriginalBgSceneApplyReport *report)
+{
     uint8_t dirty[GE_BG_GEOMETRY_MAX_ROOMS][2] = {{0}};
     size_t previous_end = 0U;
     if (changed_vertices != NULL) *changed_vertices = 0U;
+    if (report != NULL) {
+        memset(report, 0, sizeof(*report));
+        report->batch_index = report->vertex_index = SIZE_MAX;
+        report->geometry_status = ge_original_bg_geometry_status(geometry);
+    }
     if (geometry == NULL || (vertex_count != 0U && vertices == NULL)
-            || (batch_count != 0U && batches == NULL)
-            || geometry->status != GE_ORIGINAL_BG_GEOMETRY_OK) return 0;
+            || (batch_count != 0U && batches == NULL))
+        return scene_apply_reject(report, GE_BG_SCENE_APPLY_ARGUMENT);
+    if (geometry->status != GE_ORIGINAL_BG_GEOMETRY_OK)
+        return scene_apply_reject(report, GE_BG_SCENE_APPLY_OWNER_STATUS);
     /* Validate all borrowed ranges and immutable provenance before writing. */
     for (size_t i = 0U; i < batch_count; ++i) {
         const GeDamRoomDrawBatch *batch = &batches[i];
         const GeOriginalBgCommandInfo *info;
         const GeOriginalBgRoomGeometry *room;
-        if (batch->room_id == 0U || batch->room_id >= geometry->room_count
-                || (unsigned)batch->list_kind > 1U || batch->command_address.segment != 13U
-                || batch->coordinate_space != GE_DAM_ROOM_COORDINATE_AUTHORED
-                || batch->first_vertex > vertex_count || batch->vertex_count > vertex_count - batch->first_vertex
-                || batch->first_vertex < previous_end
-                || batch->command_address.offset % 8U != 0U) return 0;
+        if (report != NULL) {
+            report->batch_index = i;
+            report->vertex_index = SIZE_MAX;
+            report->room_id = batch->room_id;
+            report->command_offset = batch->command_address.offset;
+        }
+        if (batch->room_id == 0U || batch->room_id >= geometry->room_count)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_ROOM);
+        if ((unsigned)batch->list_kind > 1U)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_LIST);
+        if (batch->command_address.segment != 13U)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_SEGMENT);
+        if (batch->coordinate_space != GE_DAM_ROOM_COORDINATE_AUTHORED)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_COORDINATE_SPACE);
+        if (report != NULL) {
+            report->expected_count = vertex_count;
+            report->actual_count = batch->first_vertex;
+        }
+        if (batch->first_vertex > vertex_count)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_VERTEX_RANGE);
+        if (report != NULL) {
+            report->expected_count = vertex_count - batch->first_vertex;
+            report->actual_count = batch->vertex_count;
+        }
+        if (batch->vertex_count > vertex_count - batch->first_vertex)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_VERTEX_RANGE);
+        if (report != NULL) {
+            report->expected_count = previous_end;
+            report->actual_count = batch->first_vertex;
+        }
+        if (batch->first_vertex < previous_end)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_BATCH_ORDER);
+        if (batch->command_address.offset % 8U != 0U)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_COMMAND_ALIGNMENT);
         previous_end = batch->first_vertex + batch->vertex_count;
         room = &geometry->room_geometry[batch->room_id];
-        if (batch->command_address.offset / 8U >= room->command_counts[batch->list_kind]) return 0;
+        if (report != NULL) {
+            report->expected_count = room->command_counts[batch->list_kind];
+            report->actual_count = batch->command_address.offset / 8U;
+        }
+        if (batch->command_address.offset / 8U >= room->command_counts[batch->list_kind])
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_COMMAND_RANGE);
         info = &room->commands[batch->list_kind][batch->command_address.offset / 8U];
-        if (batch->vertex_count != (size_t)info->triangle_count * 3U) return 0;
+        if (report != NULL) {
+            report->expected_count = (size_t)info->triangle_count * 3U;
+            report->actual_count = batch->vertex_count;
+        }
+        if (batch->vertex_count != (size_t)info->triangle_count * 3U)
+            return scene_apply_reject(report, GE_BG_SCENE_APPLY_TRIANGLE_COUNT);
         for (size_t v = 0U; v < batch->vertex_count; ++v) {
             const Vtx *canonical = &geometry->rooms[batch->room_id].vertices[info->point_indices[v]];
             const GeGbiVertex *source = &vertices[batch->first_vertex + v].source;
+            GeOriginalBgSceneApplyReason reason = GE_BG_SCENE_APPLY_OK;
             if (source->x != canonical->v.ob[0] || source->y != canonical->v.ob[1]
                     || source->z != canonical->v.ob[2] || source->flag != canonical->v.flag
                     || source->texture_s != canonical->v.tc[0] || source->texture_t != canonical->v.tc[1])
-                return 0;
-            for (size_t axis = 0U; axis < 3U; ++axis)
-                if (vertices[batch->first_vertex + v].world[axis]
-                        != room->blobs.origin[axis] + (float)canonical->v.ob[axis])
-                    return 0;
+                reason = GE_BG_SCENE_APPLY_SOURCE_VERTEX;
+            else {
+                for (size_t axis = 0U; axis < 3U; ++axis)
+                    if (vertices[batch->first_vertex + v].world[axis]
+                            != room->blobs.origin[axis] + (float)canonical->v.ob[axis])
+                        reason = GE_BG_SCENE_APPLY_WORLD_VERTEX;
+            }
+            if (reason != GE_BG_SCENE_APPLY_OK) {
+                if (report != NULL) {
+                    report->vertex_index = batch->first_vertex + v;
+                    const int32_t expected[6] = {canonical->v.ob[0], canonical->v.ob[1],
+                        canonical->v.ob[2], canonical->v.flag, canonical->v.tc[0], canonical->v.tc[1]};
+                    const int32_t actual[6] = {source->x, source->y, source->z,
+                        source->flag, source->texture_s, source->texture_t};
+                    memcpy(report->expected_source, expected, sizeof(expected));
+                    memcpy(report->actual_source, actual, sizeof(actual));
+                    for (size_t axis = 0U; axis < 3U; ++axis) {
+                        report->expected_world[axis] = room->blobs.origin[axis] + (float)canonical->v.ob[axis];
+                        report->actual_world[axis] = vertices[batch->first_vertex + v].world[axis];
+                    }
+                }
+                return scene_apply_reject(report, reason);
+            }
             if (memcmp(&source->red, canonical->v.cn, 4U) != 0)
                 dirty[batch->room_id][batch->list_kind] = 1U;
         }
@@ -616,7 +696,13 @@ int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
         for (unsigned list = 0U; list < 2U; ++list) {
             update.list = list;
             if (dirty[room][list] && !execute_list(&geometry->room_geometry[room].blobs,
-                    list, update_scene_event, &update)) return 0;
+                    list, update_scene_event, &update)) {
+                if (report != NULL) {
+                    report->batch_index = report->vertex_index = SIZE_MAX;
+                    report->room_id = room;
+                }
+                return scene_apply_reject(report, GE_BG_SCENE_APPLY_EXECUTE_LIST);
+            }
         }
     }
     if (changed_vertices != NULL) *changed_vertices = update.changed_vertices;

@@ -350,10 +350,31 @@ static void validation_boundaries(void)
     assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);
     assert(vertices[0].source.red==240 && vertices[3].source.red==120);
     memcpy(before,vertices,sizeof(before));
+    GeOriginalBgSceneApplyReport apply_report;
     batches[1].first_vertex=0;
-    assert(!ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed));
+    assert(!ge_original_bg_geometry_apply_scene_report(owner,vertices,6,batches,2,&changed,&apply_report));
+    assert(apply_report.reason==GE_BG_SCENE_APPLY_BATCH_ORDER
+        && apply_report.geometry_status==GE_ORIGINAL_BG_GEOMETRY_OK
+        && apply_report.batch_index==1 && apply_report.room_id==1
+        && apply_report.expected_count==3 && apply_report.actual_count==0
+        && apply_report.vertex_index==SIZE_MAX);
     assert(!changed && memcmp(before,vertices,sizeof(before))==0);
     batches[1].first_vertex=3;
+    /* Report a bad imported vertex without repairing or recoloring anything. */
+    vertices[4].source.texture_s += 1;
+    memcpy(before,vertices,sizeof(before));
+    assert(!ge_original_bg_geometry_apply_scene_report(owner,vertices,6,batches,2,&changed,&apply_report));
+    assert(apply_report.reason==GE_BG_SCENE_APPLY_SOURCE_VERTEX
+        && apply_report.batch_index==1 && apply_report.vertex_index==4
+        && apply_report.actual_source[4]==apply_report.expected_source[4]+1);
+    assert(!changed && memcmp(before,vertices,sizeof(before))==0);
+    vertices[4].source.texture_s -= 1;
+    memcpy(before,vertices,sizeof(before));
+    assert(!ge_original_bg_geometry_apply_scene_report(NULL,vertices,6,batches,2,&changed,&apply_report));
+    assert(apply_report.reason==GE_BG_SCENE_APPLY_ARGUMENT
+        && apply_report.geometry_status==GE_ORIGINAL_BG_GEOMETRY_NOT_BOUND
+        && apply_report.batch_index==SIZE_MAX && apply_report.vertex_index==SIZE_MAX);
+    assert(!changed && memcmp(before,vertices,sizeof(before))==0);
     assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);
     /* Descending disjoint ranges also violate the original builder order. */
     GeDamRoomDrawBatch swapped=batches[0]; batches[0]=batches[1]; batches[1]=swapped;
@@ -372,7 +393,10 @@ static void validation_boundaries(void)
     room.origin[0]=100; bounds[1].minimum[0]=100;
     owner=ge_original_bg_geometry_open_rooms(&room,1,bounds,2,1,&report);
     assert(owner); ge_original_bg_geometry_bind(owner);
-    assert(!ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed));
+    assert(!ge_original_bg_geometry_apply_scene_report(owner,vertices,6,batches,2,&changed,&apply_report));
+    assert(apply_report.reason==GE_BG_SCENE_APPLY_WORLD_VERTEX
+        && apply_report.batch_index==0 && apply_report.vertex_index==0
+        && apply_report.expected_world[0]==apply_report.actual_world[0]+100.0f);
     assert(!changed && memcmp(before,vertices,sizeof(before))==0);
     assert(ge_dam_rooms_build(&room,1,NULL,&storage,&scene)==GE_DAM_ROOM_OK);
     assert(ge_original_bg_geometry_apply_scene(owner,vertices,6,batches,2,&changed) && !changed);

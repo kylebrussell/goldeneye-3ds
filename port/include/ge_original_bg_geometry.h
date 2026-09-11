@@ -69,6 +69,34 @@ int ge_original_bg_geometry_hit(GeOriginalBgGeometry *geometry,
 int ge_original_bg_geometry_light_break(void *context, void *triangle,
     uint32_t triangle_type, int32_t room);
 
+typedef enum GeOriginalBgSceneApplyReason {
+    GE_BG_SCENE_APPLY_OK = 0,
+    GE_BG_SCENE_APPLY_ARGUMENT,
+    GE_BG_SCENE_APPLY_OWNER_STATUS,
+    GE_BG_SCENE_APPLY_ROOM,
+    GE_BG_SCENE_APPLY_LIST,
+    GE_BG_SCENE_APPLY_SEGMENT,
+    GE_BG_SCENE_APPLY_COORDINATE_SPACE,
+    GE_BG_SCENE_APPLY_VERTEX_RANGE,
+    GE_BG_SCENE_APPLY_BATCH_ORDER,
+    GE_BG_SCENE_APPLY_COMMAND_ALIGNMENT,
+    GE_BG_SCENE_APPLY_COMMAND_RANGE,
+    GE_BG_SCENE_APPLY_TRIANGLE_COUNT,
+    GE_BG_SCENE_APPLY_SOURCE_VERTEX,
+    GE_BG_SCENE_APPLY_WORLD_VERTEX,
+    GE_BG_SCENE_APPLY_EXECUTE_LIST
+} GeOriginalBgSceneApplyReason;
+
+typedef struct GeOriginalBgSceneApplyReport {
+    GeOriginalBgSceneApplyReason reason;
+    GeOriginalBgGeometryStatus geometry_status;
+    size_t batch_index, vertex_index; /* SIZE_MAX when unavailable. */
+    uint32_t room_id, command_offset;
+    size_t expected_count, actual_count;
+    int32_t expected_source[6], actual_source[6]; /* XYZ, flag, S, T. */
+    float expected_world[3], actual_world[3];
+} GeOriginalBgSceneApplyReport;
+
 /* Local renderer boundary only: reapplies this owner's persistent authored
  * vertex colours to retained/imported room triangles using exact GBI point
  * provenance. Pass only the room batch prefix, excluding actor/object
@@ -81,5 +109,12 @@ int ge_original_bg_geometry_apply_scene(GeOriginalBgGeometry *geometry,
     GeDamRoomWorldVertex *vertices, size_t vertex_count,
     const GeDamRoomDrawBatch *batches, size_t batch_count,
     size_t *changed_vertices);
+
+/* Same validation and mutation ordering; reports the first failing predicate.
+ * Optional report storage is caller-owned and no diagnostics persist globally. */
+int ge_original_bg_geometry_apply_scene_report(GeOriginalBgGeometry *geometry,
+    GeDamRoomWorldVertex *vertices, size_t vertex_count,
+    const GeDamRoomDrawBatch *batches, size_t batch_count,
+    size_t *changed_vertices, GeOriginalBgSceneApplyReport *report);
 
 #endif

@@ -2623,16 +2623,24 @@ static void capture_world_screen(FILE *stream, uint64_t tick,
             depth_cache_result = GSPGPU_InvalidateDataCache(
                 fb->depthBuf, (u32)expected_bytes);
             if (R_SUCCEEDED(depth_cache_result)) {
-                const uint32_t *words = fb->depthBuf;
-                for (size_t i = 0U; i < expected_bytes / sizeof(*words); ++i) {
-                    if (words[i] != 0U) ++nonzero_words;
-                    if (words[i] > maximum_word) maximum_word = words[i];
-                }
-                FILE *depth_stream = fopen(path, "wb");
-                if (depth_stream != NULL) {
-                    depth_saved = fwrite(fb->depthBuf, 1U, expected_bytes,
-                        depth_stream) == expected_bytes;
-                    depth_saved = fclose(depth_stream) == 0 && depth_saved;
+                /* FSFILE_Write forwards its buffer through IPC. VRAM is
+                 * CPU-readable here, but cannot be used as an FS IPC buffer:
+                 * direct fwrite can panic the filesystem process. Snapshot
+                 * into ordinary heap memory before any filesystem write. */
+                uint32_t *words = malloc(expected_bytes);
+                if (words != NULL) {
+                    memcpy(words, fb->depthBuf, expected_bytes);
+                    for (size_t i = 0U; i < expected_bytes / sizeof(*words); ++i) {
+                        if (words[i] != 0U) ++nonzero_words;
+                        if (words[i] > maximum_word) maximum_word = words[i];
+                    }
+                    FILE *depth_stream = fopen(path, "wb");
+                    if (depth_stream != NULL) {
+                        depth_saved = fwrite(words, 1U, expected_bytes,
+                            depth_stream) == expected_bytes;
+                        depth_saved = fclose(depth_stream) == 0 && depth_saved;
+                    }
+                    free(words);
                 }
             }
         }

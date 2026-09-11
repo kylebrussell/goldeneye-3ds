@@ -523,3 +523,28 @@ Preserve the installed pack, saves, settings and one-launcher layout on deployme
 See `docs/CampaignPreflight20260911.md` for detailed scope and repeat command.
 Dam's hardware depth fault remains open; the completed-screen/depth diagnostics
 are retained. Candidate build and deployment receipts are recorded separately.
+
+## SELECT filesystem panic — 2026-09-11, after 6c852b18
+
+Hardware SELECT capture panicked the ARM11 filesystem process. The verified SD
+executable was e19607cc… (6c852b18); evidence is backed up in
+`build/hardware-captures/select-fs-crash-20260911-183158/`. The 1,100-byte Luma dump
+has R6=0x1f300000, the VRAM depth attachment. The screenshot (288,015 bytes) and
+vertex dump (199,800 bytes) completed, but the depth file was empty. The recovered
+screen shows a malformed guard in the tunnel; this visual remains unresolved.
+
+The depth diagnostic introduced in 63472c9b passed the VRAM pointer straight to
+fwrite. Pinned libctru FSFILE_Write forwards the caller buffer in an IPC descriptor;
+CPU-readable VRAM is not a safe filesystem IPC buffer. Capture now copies all
+384,000 raw bytes into ordinary malloc memory, then computes statistics and writes
+from that snapshot. Allocation failure skips the depth write. The existing GPU
+fence, cache invalidation and attachment validation remain in place.
+
+The new source-extracted test passes with ASan/UBSan and checks heap ownership of
+every file payload, exact bytes, allocation/cache/open/write/close failures and
+invalid attachment guards. Restoring just the unsafe fwrite pointer fails the
+regression. Existing frontend diagnostics, flush-span and renderer-submission
+checks also pass. Registered the regression in test_port.sh; the full aggregate
+was not rerun for this capture-only fix. Forced ARM build/deployment receipts are
+recorded separately. Physical SELECT retesting is still required; this does not
+claim to fix the remaining world/character rendering issues.

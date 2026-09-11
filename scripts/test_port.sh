@@ -2200,6 +2200,7 @@ if [[ -f "${repo_dir}/assets/images/split/TARDETAIL.bin" ]]; then
 fi
 python3 "${repo_dir}/scripts/tests/test_3ds_vertex_flush_spans.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_renderer_submission_cache.py"
+python3 "${repo_dir}/scripts/tests/test_3ds_depth_capture.py"
 bash "${repo_dir}/scripts/test_guard_scene_texture_publication.sh"
 python3 "${repo_dir}/scripts/tests/test_3ds_gbi_texture_rectangle_submission.py"
 python3 "${repo_dir}/scripts/tests/test_extract_3ds_runtime_segments.py"

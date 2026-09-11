@@ -89,7 +89,7 @@ assert "world_material_cache.result.state.draw_enabled != 0U" in world_fast
 assert "fine_profile.world_material_apply_reuses++" in world_fast
 assert "renderer_apply_material_cached(" not in world_fast
 assert "C3D_" not in world_fast
-merge = world[world.index("while (world_diagnostic_mode == 0U && next < draw_batch_count)"):]
+merge = world[world.index("while (next < draw_batch_count)"):]
 # A rejected range may only bridge a draw under the same projection that
 # proved it invisible. Also don't spend clip-test work on an invisible room.
 assert merge.index("batch->coordinate_space") < merge.index(

@@ -264,3 +264,29 @@ default DepthMap(true, -1, 0): this port's left-handed tilted 0..1 depth map
 already yields near=1/far=0 with GREATER, so it was not reversed speculatively.
 References: https://github.com/devkitPro/citro3d/blob/master/source/maths/mtx_orthotilt.c
 and https://github.com/devkitPro/citro3d/blob/master/source/base.c .
+
+## Hardware recovery — renderer comparison crash
+
+The user reported a 3DS crash while using SELECT comparisons. Saved logs under
+build/sd-deployment/render-switch-crash-20260911-132212 show modes 1, 2 and 3;
+the final snapshot is mode 3 in room 135 with 1,356 batches/13,803 vertices,
+no pending rooms, mono rendering, and successful streaming status. There is no
+normal exit log. The preceding launcher discovery repair added a direct copy
+at /3ds/GoldenEye.3dsx (and .smdh): future deployments must update both that
+copy and the original /3ds/goldeneye-3ds/goldeneye-3ds.3dsx.
+
+Removed all comparison-mode rendering overrides. The renderer_draw function
+is byte-for-byte identical to ffa40665 again. SELECT only saves the camera/room
+snapshot and previous completed command-buffer usage; it does not change
+visibility, merging or culling. The submission-cache regression passes.
+
+A likely crash mechanism is command-buffer exhaustion: the diagnostic
+two-sided path called C3D_CullFace for every unmerged draw, marking the entire
+effect state dirty even when unchanged. Upstream C3Di_EffectBind republishes
+that state on the next draw; this application uses the default 256 KiB buffer.
+This is a source-supported hypothesis, not a measured hardware overflow.
+References: https://github.com/devkitPro/citro3d/blob/master/source/effect.c
+and https://github.com/devkitPro/citro3d/blob/master/include/c3d/base.h .
+Missing Dam geometry remains unresolved; do not ask the user to use the
+removed comparison modes. Capturing at an actual missing surface can provide
+the camera/room data needed for further diagnosis.

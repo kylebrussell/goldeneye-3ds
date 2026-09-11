@@ -429,3 +429,9 @@ Use functionality and remaining rendering defects are not claimed fixed.
 The extracted production Use dispatcher also passes ASan/UBSan checks for idle,
 no target, direct doors, ordinary objects, allocation failure and explicit reload
 feedback suppression. Diagnostic intent is sampled after scripted input injection.
+
+The first ARM build rejected a signed-range comparison under its short-enum
+ABI. The feedback validator now uses an unsigned upper-bound check, and the
+controls harness runs native and short enums, including negative/large invalid
+values. The failed candidate receipt is retained; the corrected build uses a
+separate release directory.

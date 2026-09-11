@@ -456,7 +456,7 @@ void ge_3ds_controls_set_use_feedback(Ge3dsControls *controls,
     Ge3dsUseFeedback feedback)
 {
     if (controls == NULL) return;
-    if (feedback < GE_3DS_USE_NONE || feedback > GE_3DS_USE_UNAVAILABLE)
+    if ((unsigned)feedback > (unsigned)GE_3DS_USE_UNAVAILABLE)
         feedback = GE_3DS_USE_UNAVAILABLE;
     if (controls->use_feedback != feedback) {
         controls->use_feedback = feedback;

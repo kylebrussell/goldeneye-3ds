@@ -3,7 +3,10 @@ set -eu
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/ge-3ds-controls.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
-cc -std=c11 -Wall -Wextra -Werror -pedantic \
+for enum_mode in native short; do
+    enum_flag=
+    if [ "$enum_mode" = short ]; then enum_flag=-fshort-enums; fi
+cc ${enum_flag} -std=c11 -Wall -Wextra -Werror -pedantic \
     -fsanitize=address,undefined -fno-omit-frame-pointer -g \
     -I"${repo_dir}/platform/3ds/include" -I"${repo_dir}/port/include" \
     "${repo_dir}/platform/3ds/source/ge_3ds_controls.c" \
@@ -11,4 +14,5 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
     -o "${test_dir}/test_ge_3ds_controls"
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-    "${test_dir}/test_ge_3ds_controls" "${test_dir}/controls.cfg"
+    "${test_dir}/test_ge_3ds_controls" "${test_dir}/controls-${enum_mode}.cfg"
+done

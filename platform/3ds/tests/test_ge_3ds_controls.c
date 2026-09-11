@@ -447,6 +447,9 @@ static void test_use_feedback(void)
     ge_3ds_controls_set_use_feedback(&controls, (Ge3dsUseFeedback)99);
     assert(controls.use_feedback == GE_3DS_USE_UNAVAILABLE);
     ge_3ds_controls_set_use_feedback(&controls, GE_3DS_USE_NONE);
+    ge_3ds_controls_set_use_feedback(&controls, (Ge3dsUseFeedback)-1);
+    assert(controls.use_feedback == GE_3DS_USE_UNAVAILABLE);
+    ge_3ds_controls_set_use_feedback(&controls, GE_3DS_USE_NONE);
     assert(controls.use_feedback == GE_3DS_USE_NONE && controls.panel_dirty);
     {
         FILE *stream = tmpfile();

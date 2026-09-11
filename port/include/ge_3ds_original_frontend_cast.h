@@ -10,6 +10,11 @@
 int ge_3ds_original_frontend_cast_project(
     const float camera_space[3], float projected[3]);
 
+/* Gun-barrel Bond uses the same bottom-up screen convention, with its
+ * existing depth range. Nearer vertices must win GPU_GEQUAL depth tests. */
+int ge_3ds_original_frontend_bond_project(
+    const float camera_space[3], float projected[3]);
+
 typedef struct Ge3dsOriginalFrontendCastClipVertex {
     float camera_space[3];
     float texture[2];

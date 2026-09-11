@@ -12,6 +12,24 @@
 #define GE_CAST_NEAR 10.0f
 #define GE_PI 3.14159265358979323846f
 
+int ge_3ds_original_frontend_bond_project(
+    const float camera_space[3], float projected[3])
+{
+    float depth, focal;
+    if (camera_space == NULL || projected == NULL
+            || !isfinite(camera_space[0]) || !isfinite(camera_space[1])
+            || !isfinite(camera_space[2])) return 0;
+    depth = -camera_space[2];
+    if (depth <= 0.001f) return 0;
+    focal = GE_CAST_HALF_HEIGHT
+        / tanf(GE_CAST_FOV_Y_DEGREES * 0.5f * (GE_PI / 180.0f));
+    projected[0] = GE_CAST_HALF_WIDTH + camera_space[0] * focal / depth;
+    projected[1] = GE_CAST_HALF_HEIGHT + camera_space[1] * focal / depth;
+    projected[2] = fminf(0.999f, fmaxf(0.001f, 1.0f - depth / 10000.0f));
+    return isfinite(projected[0]) && isfinite(projected[1])
+        && isfinite(projected[2]);
+}
+
 int ge_3ds_original_frontend_cast_project(
     const float camera_space[3], float projected[3])
 {

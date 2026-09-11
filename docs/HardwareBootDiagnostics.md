@@ -38,3 +38,25 @@ draws now omit zero-vertex submissions. Production-gate sanitizer tests verify
 empty calls are omitted and nonempty ranges retained; hardware confirmation
 of a causal connection is pending. The next diagnostic keeps the bottom console
 visible while those first three frames pass through each individual wait.
+
+The next physical run progressed through gun-barrel and cast intros. Bond was
+upside down, cast actors were often viewed obliquely, and the application
+returned directly to Homebrew Launcher after the cast, without an exception
+screen. This establishes progress past the first-frame stall for that run; it
+does not establish which diagnostic change resolved it.
+
+Gun-barrel Bond was independently projected with top-down Y into a bottom-up
+orthographic renderer, unlike the cast projector. Its depth also increased with
+distance despite GPU_GEQUAL testing. The extracted gun-barrel projector now
+maps camera-up toward screen-up and nearer surfaces to larger depth. Tests
+cover upside-down regression, both submission orders for overlapping depths,
+agreement with cast XY, and invalid points. The original cast camera chooses
+random start/end angles in `front.c`; those authored angles are preserved.
+
+Frontend false-return sites now retain their menu and exact source line in
+`boot.log`, and normal interactive runs keep that error visible until START.
+Scripted probe exits retain their existing noninteractive behavior. Menu
+transitions, selected attract-demo path, and gameplay-geometry entry are logged
+at boundaries. All 14 authored RAMROM files pass the existing parser tests;
+the post-cast exit cause and physical orientation correction remain unverified
+pending the next card log/run.

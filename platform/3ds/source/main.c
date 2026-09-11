@@ -239,6 +239,7 @@ static PrintConsole boot_console;
 static bool boot_console_ready;
 static bool boot_frame_pending = true;
 static unsigned boot_frontend_frames;
+static char boot_failure[160];
 
 static void boot_checkpoint(const char *phase, bool present)
 {
@@ -270,6 +271,16 @@ static void boot_frontend_checkpoint(const char *phase)
     fflush(stdout);
     gfxFlushBuffers();
     boot_checkpoint(phase, false);
+}
+
+static bool frontend_failure(int menu, int line)
+{
+    if (boot_failure[0] == '\0') {
+        snprintf(boot_failure, sizeof(boot_failure),
+                 "Frontend stopped: menu %d, main.c:%d", menu, line);
+        boot_checkpoint(boot_failure, false);
+    }
+    return false;
 }
 
 typedef struct Vertex {
@@ -15378,6 +15389,7 @@ static bool original_frontend_begin_ramrom(
      * authored random calls before reaching this service boundary. */
     path = paths[original_frontend_cast_random(runtime)
         % (sizeof(paths) / sizeof(paths[0]))];
+    boot_checkpoint(path, false);
     entry = ge_asset_pack_find(runtime->asset_pack, path);
     if (entry == NULL || entry->data_size > SIZE_MAX) return false;
     data = malloc((size_t)entry->data_size);
@@ -15926,8 +15938,6 @@ static bool prepare_original_frontend_gunbarrel_bond(
 {
     const GeOriginalGunbarrelBondScene *scene;
     Vertex *destination;
-    const float focal = 120.0f
-        / tanf(46.0f * 0.5f * (3.14159265358979323846f / 180.0f));
     size_t batch_index;
     size_t vertex_index;
 
@@ -15964,17 +15974,11 @@ static bool prepare_original_frontend_gunbarrel_bond(
     for (vertex_index = 0U; vertex_index < scene->vertex_count;
             ++vertex_index) {
         const GeDamRoomWorldVertex *source = &scene->vertices[vertex_index];
-        const float eye_x = source->world[0];
-        const float eye_y = source->world[1];
-        const float eye_z = source->world[2];
-        const float depth = -eye_z;
-        if (!isfinite(eye_x) || !isfinite(eye_y) || !isfinite(eye_z)
-                || depth <= 0.001f)
+        float projected[3];
+        if (!ge_3ds_original_frontend_bond_project(source->world, projected))
             return false;
         destination[vertex_index] = (Vertex){
-            200.0f + eye_x * focal / depth,
-            120.0f - eye_y * focal / depth,
-            fminf(0.999f, fmaxf(0.001f, depth / 10000.0f)),
+            projected[0], projected[1], projected[2],
             source->processed.texture[0],
             source->processed.texture[1],
             (float)source->processed.rgba[0] / 255.0f,
@@ -16895,7 +16899,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
     if (top_target == NULL || texture_cache == NULL
             || runtime == NULL || frontend == NULL
             || selected_level_id == NULL)
-        return false;
+        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
     if (reset_frontend) {
         Ge3dsSaveProvider *save_provider = runtime->save_provider;
         const bool return_from_ramrom =
@@ -16917,12 +16921,12 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 ? ge_original_frontend_start_reset(frontend, &services)
                 : ge_original_frontend_start_reset_canonical(
                     frontend, &services)))
-            return false;
+            return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         original_frontend_apply_visual_probe(frontend);
     }
     if (!apply_original_frontend_music_request(
             runtime, music_runtime, audio_output, audio_active))
-        return false;
+        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
     /* The composited 2D frontend is shown to both eyes unchanged. */
     gfxSet3D(false);
     if (!frontend_probe_loaded) {
@@ -16945,6 +16949,12 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         uint64_t probe_phase_marks[5] = {0U, 0U, 0U, 0U, 0U};
         GePortInput input = read_input(cstick_available);
         GeOriginalFrontendSnapshot snapshot;
+        if (runtime->previous_menu != frontend->current_menu) {
+            char phase[80];
+            snprintf(phase, sizeof(phase), "Frontend menu %ld -> %ld",
+                     (long)runtime->previous_menu, (long)frontend->current_menu);
+            boot_checkpoint(phase, false);
+        }
         /* Snapshot lines fill only their applicable fields. Clear optional
          * tab/color/value placement state on every page/frame. */
         Ge3dsOriginalFrontendLine lines[GE_ORIGINAL_FRONTEND_MAX_LINES] = {0};
@@ -16983,7 +16993,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         if (frontend->current_menu == MENU_FILE_SELECT
                 && runtime->wallet_bounds_ready
                 && !ge_original_frontend_start_set_wallet_bounds(
-                    frontend, runtime->wallet_bounds)) return false;
+                    frontend, runtime->wallet_bounds)) return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         if (frontend->current_menu == MENU_FILE_SELECT) {
             GeOriginalFrontendWalletBounds action_bounds[2];
             if (!ge_3ds_original_frontend_file_action_bounds(
@@ -16993,7 +17003,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     original_frontend_text(getStringID(
                         LTITLE,TITLE_STR_28_ERASE)),action_bounds)
                     || !ge_original_frontend_start_set_file_action_bounds(
-                        frontend,action_bounds)) return false;
+                        frontend,action_bounds)) return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         }
         if (!ge_original_frontend_start_cursor_tick(frontend,
                 (int8_t)lrintf(input.move_x * 80.0f),
@@ -17004,7 +17014,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 || !ge_original_frontend_start_tick(
                 frontend, input_edges)
                 || !ge_original_frontend_start_snapshot(
-                    frontend, &snapshot)) return false;
+                    frontend, &snapshot)) return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         if (ge_original_frontend_start_take_multiplayer_request(frontend)) {
             if (run_multiplayer_setup(runtime)) {
                 *selected_level_id = multiplayer.request.selection.config.level_id;
@@ -17031,7 +17041,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
         }
         if (!apply_original_frontend_music_request(
                 runtime, music_runtime, audio_output, audio_active))
-            return false;
+            return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         /* Like gameplay, produce this retrace's music frame on the New 3DS
          * worker while the page is prepared and submitted; finish before the
          * audio pump consumes the music ring. Original 3DS runs it inline. */
@@ -17052,7 +17062,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                         && ge_original_gunbarrel_bond_reset(
                             runtime->gunbarrel_bond)
                             != GE_ORIGINAL_GUNBARREL_BOND_OK)
-                    return false;
+                    return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 runtime->gunbarrel_started = 1U;
             }
             gunbarrel_result = ge_original_gunbarrel_tick(
@@ -17074,7 +17084,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     printf("Frontend gunbarrel Bond tick failed: %s\n",
                         ge_original_gunbarrel_bond_status_name(
                             bond_status));
-                    return false;
+                    return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 }
             } else {
                 memset(&runtime->gunbarrel_bond_scene, 0,
@@ -17084,7 +17094,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     || gunbarrel_result
                         == GE_ORIGINAL_GUNBARREL_TICK_NEEDS_BLOOD_DECODER
                     || !prepare_original_frontend_gunbarrel(runtime))
-                return false;
+                return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         }
         if (snapshot.menu == MENU_DISPLAY_CAST) {
             GeOriginalFrontendCastEvent event =
@@ -17098,7 +17108,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                             &runtime->cast, &cast_services, 0)
                                 != GE_ORIGINAL_FRONTEND_CAST_OK) {
                     printf("Frontend cast scheduler reset failed.\n");
-                    return false;
+                    return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 }
                 model_status =
                     ge_original_frontend_cast_model_begin_selection(
@@ -17108,7 +17118,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     printf("Frontend cast actor init failed: %s\n",
                         ge_original_frontend_cast_model_status_name(
                             model_status));
-                    return false;
+                    return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 }
                 runtime->cast_started = 1U;
                 runtime->cast_terminal = 0U;
@@ -17117,12 +17127,12 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 if (ge_original_frontend_cast_tick(
                         &runtime->cast, input_edges != 0U, &event)
                             != GE_ORIGINAL_FRONTEND_CAST_OK)
-                    return false;
+                    return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 if (event == GE_ORIGINAL_FRONTEND_CAST_EVENT_RELOAD) {
                     if (ge_original_frontend_cast_begin_current(
                             &runtime->cast)
                                 != GE_ORIGINAL_FRONTEND_CAST_OK)
-                        return false;
+                        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     model_status =
                         ge_original_frontend_cast_model_begin_selection(
                             runtime->cast_model,
@@ -17132,7 +17142,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                         printf("Frontend cast actor reload failed: %s\n",
                             ge_original_frontend_cast_model_status_name(
                                 model_status));
-                        return false;
+                        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     }
                 } else if (event
                         == GE_ORIGINAL_FRONTEND_CAST_EVENT_RAMROM) {
@@ -17144,18 +17154,18 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                         /* A corrupt/missing authored demo is a real asset
                          * failure, not permission to invent a substitute
                          * controller stream or silently select a mission. */
-                        return false;
+                        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     }
                     runtime->cast_terminal = 1U;
                 } else if (event
                         == GE_ORIGINAL_FRONTEND_CAST_EVENT_MISSION_SELECT) {
                     if (!ge_original_frontend_start_cast_event(
-                            frontend, event)) return false;
+                            frontend, event)) return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     runtime->cast_terminal = 1U;
                 } else if (event
                         != GE_ORIGINAL_FRONTEND_CAST_EVENT_NONE) {
                     if (!ge_original_frontend_start_cast_event(
-                            frontend, event)) return false;
+                            frontend, event)) return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 }
                 if (!runtime->cast_terminal) {
                     model_status = ge_original_frontend_cast_model_tick(
@@ -17172,7 +17182,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                         printf("Frontend cast tick failed: %s\n",
                             ge_original_frontend_cast_model_status_name(
                                 model_status));
-                        return false;
+                        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     }
                 }
             }
@@ -17317,7 +17327,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                             || difficulty < DIFFICULTY_AGENT
                             || difficulty > DIFFICULTY_007) continue;
                     if (line_count >= GE_ORIGINAL_FRONTEND_MAX_LINES)
-                        return false;
+                        return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     (void)snprintf(wallet_caption[caption],
                         sizeof(wallet_caption[caption]), "%s\n",
                         original_frontend_text(getStringID(LTITLE,
@@ -17343,7 +17353,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                                 snapshot.folder_mission[folder],
                                 &chapter_number,&part_number)) continue;
                     if (line_count >= GE_ORIGINAL_FRONTEND_MAX_LINES
-                            || caption >= 8U) return false;
+                            || caption >= 8U) return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                     (void)snprintf(wallet_caption[caption],
                         sizeof(wallet_caption[caption]), "%s%s.%s\n",
                         original_frontend_text(getStringID(
@@ -17433,7 +17443,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     snapshot.result.target_time_seconds > 0
                     && snapshot.difficulty != DIFFICULTY_007;
                 if (line_count >= GE_ORIGINAL_FRONTEND_MAX_LINES)
-                    return false;
+                    return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
                 time_line = &lines[line_count++];
                 memset(time_line, 0, sizeof(*time_line));
                 time_line->text = original_frontend_text(getStringID(
@@ -17498,7 +17508,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 &original_hud_atlas, &original_gameplay_hud_atlas,
                 original_frontend_page(snapshot.menu),
                 lines, line_count, &draw_list))
-            return false;
+            return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         if (snapshot.menu == MENU_DISPLAY_CAST) {
             const float fade = runtime->cast_frame.fade;
             const size_t glyph_end = draw_list.box_vertex_count
@@ -17522,7 +17532,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                 original_frontend_page(snapshot.menu),
                 completed_difficulties,
                 &sprite_list))
-            return false;
+            return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         if (((snapshot.menu >= MENU_FILE_SELECT
                         && snapshot.menu <= MENU_MISSION_COMPLETE)
                     || snapshot.menu == MENU_007_OPTIONS)
@@ -17532,7 +17542,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     &sprite_list,snapshot.cursor.x,snapshot.cursor.y,
                     snapshot.menu==MENU_FILE_SELECT
                         ?snapshot.file_action:0U))
-            return false;
+            return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         sprite_vertex_count = append_original_frontend_sprite_vertices(
             &draw_list, &sprite_list);
         probe_phase_marks[2] = svcGetSystemTick();
@@ -17545,7 +17555,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     &snapshot.presentation, texture_cache,
                     (Vertex *)vertex_buffer
                         + ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET))
-                return false;
+                return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         } else if (!snapshot.presentation.startup_active
                 && snapshot.menu != MENU_GOLDENEYE_LOGO
                 && snapshot.menu != MENU_DISPLAY_CAST
@@ -17554,7 +17564,7 @@ static bool run_original_frontend(C3D_RenderTarget *top_target,
                     runtime, &snapshot, texture_cache,
                     (Vertex *)vertex_buffer
                         + ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET))
-            return false;
+            return frontend_failure(frontend != NULL ? frontend->current_menu : -1, __LINE__);
         if (snapshot.presentation.renderer
                     == GE_ORIGINAL_FRONTEND_RENDERER_RAREWARE)
             (void)prepare_original_frontend_rareware(
@@ -20260,6 +20270,9 @@ start_stage_runtime:
         g_chrObjRandomSeed = header->character_random_seed;
     }
     {
+        char phase[96];
+        snprintf(phase, sizeof(phase), "Loading gameplay geometry: %s", stage_assets->key);
+        boot_checkpoint(phase, false);
         dam_preview.bg_geometry = ge_original_bg_geometry_load(&asset_pack,
             stage_assets, &dam_preview.world,
             dam_preview.visibility_runtime.room_bounds, &dam_preview.bg_geometry_report);
@@ -22531,6 +22544,16 @@ exit_citro3d:
     C3D_Fini();
 exit_graphics:
     boot_checkpoint(result == 0 ? "Application leaving runtime" : "Application startup FAILED", false);
+    if (boot_failure[0] != '\0' && !frontend_probe.enabled) {
+        printf("\x1b[2J\x1b[HGoldenEye stopped\n\n%s\n\nLog saved to boot.log\nSTART: Homebrew Launcher\n", boot_failure);
+        while (aptMainLoop()) {
+            hidScanInput();
+            if (hidKeysDown() & KEY_START) break;
+            gfxFlushBuffers();
+            gspWaitForVBlank();
+        }
+        result = 1;
+    }
     ge_3ds_lifecycle_close();
     if (cstick_available) {
         irrstExit();

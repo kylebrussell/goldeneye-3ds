@@ -300,3 +300,38 @@ retains assets, saves, controls and logs. Future card deployments must update
 only the direct launcher files and must not recreate a second executable in
 the data folder. This supersedes the earlier two-entry deployment instruction.
 Receipt: `build/sd-deployment/single-launcher-20260911-132557/deployment-receipt.json`.
+
+## Dam capture follow-up — camera portal room and gate collision
+
+Ten passive SELECT captures from the following run are preserved under
+`build/hardware-captures/dam-20260911-133441/`. The run exited normally with
+109 room installs and zero failures; recorded GPU command usage was below 19%.
+Captures 3, 4, 6 and 7 select room 112 despite the eye sitting above its bounds;
+nearby missing wall/floor surfaces belong to room 111, omitted from those lists.
+
+Restored the exact eleven-step camera-to-floor portal walk from
+`bgRoomVisibilityRelated` before `bgDetermineVisibleRooms`, including the original
+geometry classification that excludes vertical portals. Solo live input supplies
+the native portal STAN room and `pos3` reference rather than the collision room.
+The renderer's isolated stereo passes receive the same reference. Zero-initialized
+camera tours retain their existing explicit-room behavior. SELECT stays passive
+and now records the actual reference, gate travel/collision bounds, truck movement
+state and the last collision's setup command index, plus collision counters.
+
+Real-asset replay reproduces all ten old visibility lists exactly. For the four
+building captures, all 416 sampled floor-reference heights resolve 112 to 111
+and include 111. Actual `pos3` was not logged: the sweep spans room 112's complete
+authored Y range and is not a measured hardware floor reference. Detailed evidence
+and input hashes are in the capture directory's `camera-room-replay.md`.
+
+The tower omissions and truck-gate blockage are not proven fixed. User reports
+the gate opens but Bond is blocked by the truck or an invisible barrier. Existing
+data does not identify the blocking collision; the next SELECT capture while
+pushing against it will distinguish the truck (setup 321), gates (267/268) and
+static STAN. No speculative gate, vehicle AI or collision bypass was applied.
+The new executable still needs physical retesting; build/deployment receipts
+will be stored separately under `build/releases` and `build/sd-deployment`.
+Validation passed: native live-reference selection with short enums and
+ASan/UBSan, synthetic portal walks with short enums and ASan/UBSan, isolated
+stereo visibility with ASan/UBSan, the BG ownership audit, submission-cache
+and world-hardware regressions, and the 416-sample real-asset replay.

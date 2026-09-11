@@ -275,7 +275,11 @@ static GeDamVisibilityRuntimeStatus ge_dam_visibility_evaluate(
     input.room_bounds = runtime->room_bounds;
     input.room_count = runtime->room_count;
     input.level_index = runtime->level_index;
-    input.current_room = camera->room;
+    input.current_room = runtime->camera_reference_valid
+        ? runtime->camera_reference_room : camera->room;
+    input.camera_reference_valid = runtime->camera_reference_valid;
+    memcpy(input.camera_reference_position, runtime->camera_reference_position,
+        sizeof(input.camera_reference_position));
     memcpy(input.player_position, player_position,
            sizeof(input.player_position));
     memcpy(input.world_to_screen, camera->view,

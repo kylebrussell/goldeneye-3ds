@@ -76,6 +76,10 @@ int ge_original_bond_move_live_tick(GeOriginalBondLiveState *state,
 int ge_original_bond_live_aim_snapshot(GeOriginalBondAimSnapshot *snapshot);
 int ge_original_bond_live_motion_snapshot(
     GeOriginalBondMotionSnapshot *snapshot);
+/* Original bondviewGetCurrentPlayersRoom/Position3 publication for the
+ * floor-reference-to-eye portal walk performed before BG visibility. */
+int ge_original_bond_live_visibility_reference(uint8_t *room,
+    float reference_position[3]);
 /* Exact watch page/subpage state for the 3DS GBI/text presentation adapter. */
 int ge_original_bond_live_watch_objectives_visible(void);
 

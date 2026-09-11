@@ -38,6 +38,11 @@ typedef struct GeDamVisibilityRuntime {
     uint64_t payload_fnv1a64;
     GeOriginalBgVisibilityStatus last_original_status;
     uint8_t loaded;
+    /* Optional live player's original portal-STAN/pos3 reference. Camera
+     * tours without a player leave this disabled and select their own room. */
+    uint8_t camera_reference_valid;
+    uint8_t camera_reference_room;
+    float camera_reference_position[3];
 } GeDamVisibilityRuntime;
 
 typedef enum GeDamVisibilityRuntimeStatus {

@@ -186,6 +186,21 @@ int ge_original_bond_live_aim_snapshot(GeOriginalBondAimSnapshot *snapshot)
     return 1;
 }
 
+int ge_original_bond_live_visibility_reference(uint8_t *room,
+    float reference_position[3])
+{
+    struct player *player = ge_original_spawn_player_get();
+    if (player == NULL || room == NULL || reference_position == NULL) return 0;
+    if (player->cameramode == 1 && player->cameratile != NULL)
+        *room = player->cameratile->room;
+    else if (player->field_488.current_tile_ptr_for_portals != NULL)
+        *room = player->field_488.current_tile_ptr_for_portals->room;
+    else return 0;
+    memcpy(reference_position, player->cameramode == 1
+        ? player->pos3.f : player->field_488.pos3.f, 3U * sizeof(float));
+    return 1;
+}
+
 int ge_original_bond_live_motion_snapshot(
     GeOriginalBondMotionSnapshot *snapshot)
 {

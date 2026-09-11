@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <float.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -524,8 +525,99 @@ static void test_multiplayer_preload_independence(
     puts("multiplayer visibility: cold/partial/full preload invariance, live doors, remote/local restore and untouched queue passed");
 }
 
+static void test_camera_reference_portal_walk(void)
+{
+    uint8_t background[FIXTURE_SIZE] = {0};
+    GeOriginalBgRoomBounds bounds[4] = {0};
+    GeOriginalBgVisibilityInput input = {0};
+    GeOriginalBgVisibilityResult result;
+    put_be32(background + 4U, BG_BASE + ROOM_OFFSET);
+    put_be32(background + 8U, BG_BASE + PORTAL_OFFSET);
+    put_portal(background, 0U, 1U, 2U, 0.0f, 0);
+    put_portal(background, 1U, 2U, 3U, 1.0f, 0);
+    /* Rotate both portals into horizontal floor/ceiling openings. The eye
+     * crosses two stacked rooms while the portal STAN stays in room 1. */
+    for (size_t portal = 0; portal < 2U; ++portal) {
+        for (size_t point = 0; point < 4U; ++point) {
+            uint8_t *vertex = background + GEOMETRY_OFFSET + portal * 52U
+                + 4U + point * 12U;
+            uint8_t old_y[4];
+            memcpy(old_y, vertex + 4U, 4U);
+            memcpy(vertex + 4U, vertex + 8U, 4U);
+            memcpy(vertex + 8U, old_y, 4U);
+        }
+    }
+    for (size_t room = 0; room < 4U; ++room)
+        for (size_t axis = 0; axis < 3U; ++axis) {
+            bounds[room].minimum[axis] = -20.0f;
+            bounds[room].maximum[axis] = 20.0f;
+        }
+    input.background = background;
+    input.background_size = sizeof(background);
+    input.room_bounds = bounds;
+    input.room_count = 4U;
+    input.current_room = 1U;
+    input.player_position[1] = 2.0f;
+    input.camera_reference_position[1] = -2.0f;
+    input.level_scale = input.visibility_scale = 1.0f;
+    input.near_distance = 1.0f;
+    input.far_distance = 1000.0f;
+    input.vertical_fov_degrees = 60.0f;
+    input.aspect_ratio = 4.0f / 3.0f;
+    input.view_width = 320;
+    input.view_height = 240;
+    for (size_t axis = 0; axis < 4U; ++axis)
+        input.world_to_screen[axis][axis] = 1.0f;
+    assert(ge_original_bg_visibility_run(&input, &result) == 0);
+    assert(result.camera_room == 1U); /* Existing callers remain unchanged. */
+    /* An optional reference is ignored when disabled, but neither endpoint
+     * of an enabled segment may feed NaN/infinity to the native portal test. */
+    for (size_t axis = 0U; axis < 3U; ++axis) {
+        const float saved_reference = input.camera_reference_position[axis];
+        const float saved_eye = input.player_position[axis];
+        const float invalid[] = {NAN, INFINITY, -INFINITY};
+        for (size_t value = 0U; value < 3U; ++value) {
+            input.camera_reference_valid = 0U;
+            input.camera_reference_position[axis] = invalid[value];
+            assert(ge_original_bg_visibility_run(&input, &result) == 0);
+            assert(result.camera_room == 1U);
+            input.camera_reference_valid = 1U;
+            assert(ge_original_bg_visibility_run(&input, &result)
+                == GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+            input.camera_reference_position[axis] = saved_reference;
+            input.player_position[axis] = invalid[value];
+            assert(ge_original_bg_visibility_run(&input, &result)
+                == GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+            input.player_position[axis] = saved_eye;
+        }
+    }
+    input.camera_reference_valid = 1U;
+    assert(ge_original_bg_visibility_run(&input, &result) == 0);
+    assert(result.camera_room == 3U && contains_room(&result, 3U));
+    /* Door visibility controls do not replace the original normal-based
+     * camera-room exclusion table. */
+    background[PORTAL_OFFSET + 6U] = 1U;
+    background[PORTAL_OFFSET + 14U] = 1U;
+    assert(ge_original_bg_visibility_run(&input, &result) == 0);
+    assert(result.camera_room == 3U);
+    /* An eye which remains below both openings stays in its STAN room. */
+    input.player_position[1] = -1.0f;
+    assert(ge_original_bg_visibility_run(&input, &result) == 0);
+    assert(result.camera_room == 1U);
+    /* Vertical door portals are excluded by the original metric classifier,
+     * even when this segment crosses their polygons. */
+    put_portal(background, 0U, 1U, 2U, 0.0f, 0);
+    memset(background + PORTAL_OFFSET + 8U, 0, 8U);
+    input.player_position[1] = input.camera_reference_position[1] = 0.0f;
+    input.player_position[2] = 1.0f;
+    input.camera_reference_position[2] = -1.0f;
+    assert(ge_original_bg_visibility_run(&input, &result) == 0);
+    assert(result.camera_room == 1U);
+}
+
 int main(int argc, char **argv)
 {
+    test_camera_reference_portal_walk();
     uint8_t background[FIXTURE_SIZE] = {0};
     GeOriginalBgRoomBounds bounds[4] = {0};
     GeOriginalBgVisibilityInput input = {0};

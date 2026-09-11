@@ -56,7 +56,11 @@ int ge_dam_renderer_visibility_eye_input(
     input->room_bounds = runtime->room_bounds;
     input->room_count = runtime->room_count;
     input->level_index = runtime->level_index;
-    input->current_room = camera->room;
+    input->current_room = runtime->camera_reference_valid
+        ? runtime->camera_reference_room : camera->room;
+    input->camera_reference_valid = runtime->camera_reference_valid;
+    memcpy(input->camera_reference_position, runtime->camera_reference_position,
+        sizeof(input->camera_reference_position));
     input->level_scale = runtime->level_scale;
     input->visibility_scale = runtime->visibility_scale;
     input->near_distance = runtime->near_distance;

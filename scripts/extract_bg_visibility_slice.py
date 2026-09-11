@@ -147,6 +147,25 @@ def main() -> None:
     prefix = prefix.replace("Gfx *sub_GAME_7F0B8D78(Gfx *arg0)",
                             "void ge_original_bg_visibility_render_prefix_exact(void)", 1)
     bodies.append(prefix)
+    # Keep bgRoomVisibilityRelated's camera-to-floor portal walk verbatim.
+    # The omitted prefix owns unload/budget/player services outside this slice.
+    camera = extract_function(source, "bgRoomVisibilityRelated", 0)
+    begin = "    for (depth = 0, maxdepth = 11; depth != maxdepth; depth++) {"
+    end = "    g_BgCurrentRoom = room;\n    bgDetermineVisibleRooms();"
+    if camera.count(begin) != 1 or camera.count(end) != 1:
+        raise ValueError("camera-room portal walk source boundary changed")
+    metric = extract_function(source, "sub_GAME_7F0B993C", 0)
+    bodies.append(metric.replace("s32 sub_GAME_7F0B993C", "static s32 sub_GAME_7F0B993C", 1))
+    bodies.append(
+        "s32 ge_bg_visibility_resolve_camera_room(s32 room, coord3d *pos, coord3d *pos3)\n"
+        "{\n    s32 portalnum, depth, maxdepth;\n    s32 lastportal = -1;\n"
+        "    u8 D_800443C4[PORTMAX] = {0};\n"
+        "    /* Original bgLoadStage metric classification, independent of door controls. */\n"
+        "    for (portalnum = 0; g_BgPortals[portalnum].offset_portal != NULL; portalnum++)\n"
+        "        D_800443C4[portalnum] = sub_GAME_7F0B993C(portalnum);\n"
+        + camera[camera.index(begin):camera.index(end)]
+        + "    return room;\n}"
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         "/* Generated from src/game/bg.c; do not edit. */\n"

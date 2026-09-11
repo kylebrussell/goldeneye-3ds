@@ -22,6 +22,7 @@ python3 "${repo_dir}/scripts/pack_3ds_assets.py" \
 
 "${repo_dir}/scripts/test_gun_update_exact.sh"
 bash "${repo_dir}/scripts/test_bond_move_locus_storage.sh"
+bash "${repo_dir}/scripts/test_bond_visibility_reference.sh"
 bash "${repo_dir}/scripts/test_mtxutil_packing.sh"
 bash "${repo_dir}/scripts/test_model_callbacks.sh"
 bash "${repo_dir}/scripts/test_mp_state_fog.sh"

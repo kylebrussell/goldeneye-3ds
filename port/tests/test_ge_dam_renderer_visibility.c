@@ -83,6 +83,22 @@ int main(void)
     const GeRendererEyeShift shifts[2]={{1440,-8},{-1440,8}};
     GeOriginalBgVisibilityInput input;
     assert(ge_dam_renderer_visibility_eye_input(&runtime,&camera,position,&zero[0],&input));
+    /* Eye translation changes the eye endpoint, while the canonical portal
+     * STAN room and pos3 endpoint are shared unchanged by both eyes. */
+    runtime.camera_reference_valid=1;
+    runtime.camera_reference_room=2;
+    runtime.camera_reference_position[0]=1;
+    runtime.camera_reference_position[1]=-2;
+    runtime.camera_reference_position[2]=3;
+    for(size_t eye=0;eye<2;++eye) {
+        assert(ge_dam_renderer_visibility_eye_input(&runtime,&camera,position,&shifts[eye],&input));
+        assert(input.current_room==2 && input.camera_reference_valid==1);
+        assert(memcmp(input.camera_reference_position,runtime.camera_reference_position,
+            sizeof(input.camera_reference_position))==0);
+    }
+    runtime.camera_reference_valid=0;
+    assert(ge_dam_renderer_visibility_eye_input(&runtime,&camera,position,&zero[0],&input));
+    assert(input.current_room==camera.room && input.camera_reference_valid==0);
     /* Canonical wrapper uses its original symmetric FOV path. */
     input.projection_focal_px[0]=input.projection_focal_px[1]=0;
     GeOriginalBgVisibilityResult canonical;
@@ -181,6 +197,13 @@ int main(void)
     assert(ge_dam_renderer_visibility_run(&runtime,&camera,position,&providers,&queue,
         &repeated,shifts,&result)==GE_ORIGINAL_BG_VISIBILITY_OK && result.visible.room_count==3);
     GeDamRendererVisibility saved=result;
+    runtime.camera_reference_valid=1;
+    runtime.camera_reference_position[1]=NAN;
+    assert(ge_dam_renderer_visibility_run(&runtime,&camera,position,&providers,&queue,
+        &canonical,shifts,&result)==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);
+    assert(memcmp(&saved,&result,sizeof(result))==0);
+    assert(snapshot(after)==length && memcmp(before,after,length)==0);
+    runtime.camera_reference_valid=0;
     GeRendererEyeShift bad[2]={{NAN,0},{0}};
     assert(ge_dam_renderer_visibility_run(&runtime,&camera,position,&providers,&queue,
         &canonical,bad,&result)==GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT);

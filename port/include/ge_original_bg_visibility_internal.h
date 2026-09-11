@@ -292,6 +292,7 @@ s32 bgStackGetNthValueFromEnd(s32 n);
 GlobalVisCommand *parse_global_vis_command_list(GlobalVisCommand *cmd,
                                                 s32 execute);
 void *sub_GAME_7F0B8A24(s32 *pc);
+s32 ge_bg_visibility_resolve_camera_room(s32 room, coord3d *pos, coord3d *pos3);
 void bgDetermineVisibleRooms(void);
 void ge_original_bg_visibility_render_prefix_exact(void);
 void bgUpdateCurrentPlayerScreenMinMax(void);

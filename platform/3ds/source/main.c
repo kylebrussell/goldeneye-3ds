@@ -1693,46 +1693,6 @@ typedef struct RuntimeDamPreview {
     const Ge3dsSceneTextures *scene_textures;
 } RuntimeDamPreview;
 
-/* Capture only: diagnostic input must not alter GPU submissions or the
- * canonical portal/streaming state. Repeated captures identify the exact
- * camera where a physical rendering fault is visible. */
-static unsigned world_diagnostic_captures;
-
-static void capture_world_diagnostic(const RuntimeDamPreview *preview)
-{
-    FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/render-audit.log", "a");
-    if (stream == NULL) return;
-    ++world_diagnostic_captures;
-    fprintf(stream, "capture=%u tick=%llu room=%u generation=%lu slider=%.6f\n",
-        world_diagnostic_captures, (unsigned long long)svcGetSystemTick(),
-        preview->original_camera_room,
-        (unsigned long)preview->dynamic_scene.generation, stereo_slider);
-    fprintf(stream, "position=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g\n",
-        preview->original_camera_position[0], preview->original_camera_position[1],
-        preview->original_camera_position[2], preview->original_camera_look[0],
-        preview->original_camera_look[1], preview->original_camera_look[2]);
-    fprintf(stream, "previous_gpu_command_usage=%.6f\n", C3D_GetCmdBufUsage());
-    for (unsigned row = 0U; row < 4U; ++row)
-        fprintf(stream, "view%u=%.9g,%.9g,%.9g,%.9g\n", row,
-            preview->original_camera_view[row][0], preview->original_camera_view[row][1],
-            preview->original_camera_view[row][2], preview->original_camera_view[row][3]);
-    const GeOriginalBgVisibilityResult *visible = preview->renderer_visibility_ready
-        ? &preview->renderer_visibility.visible : &preview->visibility_result;
-    fprintf(stream, "visibility_ready=%u renderer_ready=%u visible=",
-        preview->visibility_ready, preview->renderer_visibility_ready);
-    for (size_t i = 0U; i < visible->room_count; ++i)
-        fprintf(stream, "%u,", visible->rooms[i].room);
-    fprintf(stream, "\nresident=");
-    for (size_t i = 0U; i < preview->dynamic_scene.room_count; ++i)
-        fprintf(stream, "%u,", preview->dynamic_scene.room_ids[i]);
-    fprintf(stream, "\nvertices=%lu batches=%lu pending=%lu stream=%d\n\n",
-        (unsigned long)preview->source_vertex_count, (unsigned long)preview->batch_count,
-        (unsigned long)preview->preload_queue.pending_count, preview->dynamic_scene_status);
-    fflush(stream);
-    (void)fsync(fileno(stream));
-    fclose(stream);
-}
-
 static bool write_visual_probe_tour_result(
     const RuntimeVisualProbeTour *runtime,
     const RuntimeDamPreview *preview)
@@ -2605,6 +2565,99 @@ typedef struct RuntimeStageOrdinaryObjects {
     size_t scene_install_required_batches;
     uint64_t scene_install_phase_ticks[5];
 } RuntimeStageOrdinaryObjects;
+
+/* Capture only: diagnostic input must not alter GPU submissions or the
+ * canonical portal/streaming state. Repeated captures identify the exact
+ * camera where a physical rendering fault is visible. */
+static unsigned world_diagnostic_captures;
+
+static void capture_world_diagnostic(const RuntimeDamPreview *preview,
+    const RuntimeDamIntro *intro, const RuntimeStageOrdinaryObjects *objects)
+{
+    FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/render-audit.log", "a");
+    if (stream == NULL) return;
+    ++world_diagnostic_captures;
+    fprintf(stream, "capture=%u tick=%llu room=%u generation=%lu slider=%.6f\n",
+        world_diagnostic_captures, (unsigned long long)svcGetSystemTick(),
+        preview->original_camera_room,
+        (unsigned long)preview->dynamic_scene.generation, stereo_slider);
+    fprintf(stream, "position=%.9g,%.9g,%.9g look=%.9g,%.9g,%.9g\n",
+        preview->original_camera_position[0], preview->original_camera_position[1],
+        preview->original_camera_position[2], preview->original_camera_look[0],
+        preview->original_camera_look[1], preview->original_camera_look[2]);
+    fprintf(stream, "previous_gpu_command_usage=%.6f\n", C3D_GetCmdBufUsage());
+    for (unsigned row = 0U; row < 4U; ++row)
+        fprintf(stream, "view%u=%.9g,%.9g,%.9g,%.9g\n", row,
+            preview->original_camera_view[row][0], preview->original_camera_view[row][1],
+            preview->original_camera_view[row][2], preview->original_camera_view[row][3]);
+    const GeOriginalBgVisibilityResult *visible = preview->renderer_visibility_ready
+        ? &preview->renderer_visibility.visible : &preview->visibility_result;
+    fprintf(stream, "visibility_ready=%u renderer_ready=%u visible=",
+        preview->visibility_ready, preview->renderer_visibility_ready);
+    for (size_t i = 0U; i < visible->room_count; ++i)
+        fprintf(stream, "%u,", visible->rooms[i].room);
+    fprintf(stream, "\nresident=");
+    for (size_t i = 0U; i < preview->dynamic_scene.room_count; ++i)
+        fprintf(stream, "%u,", preview->dynamic_scene.room_ids[i]);
+    fprintf(stream, "\nvertices=%lu batches=%lu pending=%lu stream=%d\n\n",
+        (unsigned long)preview->source_vertex_count, (unsigned long)preview->batch_count,
+        (unsigned long)preview->preload_queue.pending_count, preview->dynamic_scene_status);
+    fprintf(stream, "camera_reference=%u,%u,%.9g,%.9g,%.9g\n",
+        preview->visibility_runtime.camera_reference_valid,
+        preview->visibility_runtime.camera_reference_room,
+        preview->visibility_runtime.camera_reference_position[0],
+        preview->visibility_runtime.camera_reference_position[1],
+        preview->visibility_runtime.camera_reference_position[2]);
+    long blocking_command = -1;
+    for (size_t i = 0U; i < objects->entry_count; ++i) {
+        const RuntimeStageOrdinaryEntry *entry = &objects->entries[i];
+        if ((uintptr_t)entry->prop == intro->movement.last_blocking_prop
+                && entry->prop != NULL) blocking_command = (long)entry->command_index;
+        if (entry->command_index == 321U && entry->live && entry->prop != NULL
+                && entry->definition != NULL && entry->type == PROPDEF_VEHICHLE
+                && entry->definition_size >= sizeof(VehichleRecord)) {
+            const VehichleRecord *truck = entry->definition;
+            const PropRecord *prop = entry->prop;
+            fprintf(stream, "truck=321 position=%.9g,%.9g,%.9g speed=%.9g target=%.9g next=%ld ai=%u path=%p\n",
+                prop->pos.x, prop->pos.y, prop->pos.z, truck->speed, truck->speedaim,
+                (long)truck->nextstep, truck->aioffset, (void *)truck->path);
+        }
+    }
+    for (size_t i = 0U; i < objects->interactive.entry_count; ++i) {
+        const GeOriginalStageInteractiveEntry *entry =
+            ge_original_stage_interactive_entry(&objects->interactive, i);
+        if (entry == NULL || !entry->constructed) continue;
+        if ((uintptr_t)entry->prop == intro->movement.last_blocking_prop
+                && entry->prop != NULL) blocking_command = (long)entry->command_index;
+        if (entry->type == PROPDEF_DOOR
+                && (entry->command_index == 267U || entry->command_index == 268U)) {
+            GeOriginalDoorRuntimePublication gate;
+            if (!ge_original_door_runtime_snapshot(entry->definition, &gate)) continue;
+            fprintf(stream, "gate=%lu state=%ld open=%.9g/%.9g position=%.9g,%.9g,%.9g height=%.9g,%.9g edges=%ld polygon=",
+                (unsigned long)entry->command_index, (long)gate.open_state,
+                gate.open_position, gate.max_frac, gate.position[0], gate.position[1],
+                gate.position[2], gate.collision_bottom, gate.collision_top,
+                (long)gate.collision_edges);
+            for (unsigned edge = 0U; edge < (unsigned)gate.collision_edges
+                    && gate.collision_edges > 0
+                    && edge < GE_ORIGINAL_DOOR_COLLISION_EDGE_CAPACITY; ++edge)
+                fprintf(stream, "%.9g,%.9g;", gate.collision_polygon[edge][0],
+                    gate.collision_polygon[edge][1]);
+            fprintf(stream, "\n");
+        }
+    }
+    fprintf(stream, "player_collision checks=%lu accepted=%lu blocked=%lu prop=%lu stan=%lu last_command=%ld last_type=%ld object_type=%ld\n\n",
+        (unsigned long)intro->movement.collision_checks,
+        (unsigned long)intro->movement.accepted_checks,
+        (unsigned long)intro->movement.blocked_checks,
+        (unsigned long)intro->movement.blocked_by_prop,
+        (unsigned long)intro->movement.blocked_by_stan, blocking_command,
+        (long)intro->movement.last_blocking_prop_type,
+        (long)intro->movement.last_blocking_object_type);
+    fflush(stream);
+    (void)fsync(fileno(stream));
+    fclose(stream);
+}
 
 static bool input_probe_live_guard_aim_position(
     RuntimeInputProbe *probe,
@@ -13175,6 +13228,8 @@ static bool update_original_dam_camera(
             &preview->visibility_result);
     preview->visibility_ready = preview->visibility_status
         == GE_DAM_VISIBILITY_RUNTIME_OK;
+    if (preview->visibility_ready)
+        preview->original_camera_room = preview->visibility_result.camera_room;
     memcpy(preview->canonical_preload_requests, preview->preload_queue.visibility_requested,
         sizeof(preview->canonical_preload_requests));
     preview->renderer_camera = camera;
@@ -20897,7 +20952,7 @@ start_stage_runtime:
         GePortInput input = read_input(cstick_available);
         GeOriginalRamromStatus ramrom_status = GE_ORIGINAL_RAMROM_OK;
         if (!multiplayer.running && controls_gameplay && (hidKeysDown() & KEY_SELECT))
-            capture_world_diagnostic(&dam_preview);
+            capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects);
         if (multiplayer.running && (hidKeysHeld() & (KEY_SELECT | KEY_START))
                 == (KEY_SELECT | KEY_START)) {
             GeOriginalMultiplayerSessionState ended;
@@ -21344,6 +21399,10 @@ start_stage_runtime:
                                 || dam_preview.preload_queue.pending_count
                                     != 0U)) {
                         const u64 camera_start = osGetTime();
+                        dam_preview.visibility_runtime.camera_reference_valid =
+                            ge_original_bond_live_visibility_reference(
+                                &dam_preview.visibility_runtime.camera_reference_room,
+                                dam_preview.visibility_runtime.camera_reference_position);
                         const bool camera_updated = update_original_dam_camera(
                                 &dam_preview,
                                 dam_intro.player.camera_position,

@@ -39,6 +39,10 @@ typedef struct GeOriginalBgVisibilityInput {
     int32_t level_index;
     uint8_t current_room;
     float player_position[3];
+    /* Optional canonical pos3 floor reference; current_room names its portal
+     * STAN room. Resolve the eye across sloped/horizontal portals first. */
+    uint8_t camera_reference_valid;
+    float camera_reference_position[3];
     float world_to_screen[4][4];
     float level_scale;
     float visibility_scale;
@@ -78,6 +82,7 @@ typedef struct GeOriginalBgVisibilityResult {
     uint64_t global_stream_fnv1a64;
     size_t preload_request_count;
     uint8_t global_visibility_used;
+    uint8_t camera_room;
 } GeOriginalBgVisibilityResult;
 
 typedef struct GeOriginalBgRenderRoom { int32_t room,depth; } GeOriginalBgRenderRoom;

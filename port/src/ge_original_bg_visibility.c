@@ -466,6 +466,13 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
             || input->view_width <= 0 || input->view_height <= 0) {
         return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
     }
+    if (input->camera_reference_valid) {
+        for (size_t axis = 0U; axis < 3U; ++axis) {
+            if (!isfinite(input->camera_reference_position[axis])
+                    || !isfinite(input->player_position[axis]))
+                return GE_ORIGINAL_BG_VISIBILITY_INVALID_ARGUMENT;
+        }
+    }
     if (input->program != NULL
             && (input->program->background != input->background
                 || input->program->background_size != input->background_size
@@ -570,6 +577,13 @@ GeOriginalBgVisibilityStatus ge_original_bg_visibility_run(
     for (room_index = 0U; room_index < portal_count; ++room_index) {
         bgOrderPortal((s32)room_index);
     }
+    if (input->camera_reference_valid) {
+        coord3d reference;
+        memcpy(reference.f, input->camera_reference_position, sizeof(reference));
+        g_BgCurrentRoom = ge_bg_visibility_resolve_camera_room(
+            g_BgCurrentRoom, &ge_player_position, &reference);
+    }
+    result->camera_room = (uint8_t)g_BgCurrentRoom;
     bgDetermineVisibleRooms();
     if (g_BgNumberOfRoomsDrawn < 0
             || g_BgNumberOfRoomsDrawn

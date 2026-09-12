@@ -214,13 +214,15 @@ int ge_original_stage_model_publication_vehicle_matrices(
     matrix_4x4_set_rotation_around_y(vehicle->wheelyrot, &steer);
     for (size_t i = 3U; i < 5U; ++i) {
         matrices[i] = roll;
-        matrix_4x4_set_position(model->obj->Switches[i]->Data, &matrices[i]);
+        matrix_4x4_set_position((coord3d *)(void *)model->obj->Switches[i]->Data,
+                                &matrices[i]);
         matrix_4x4_multiply_homogeneous_in_place(&matrices[0], &matrices[i]);
     }
     matrix_4x4_multiply_homogeneous_in_place(&steer, &roll);
     for (size_t i = 1U; i < 3U; ++i) {
         matrices[i] = roll;
-        matrix_4x4_set_position(model->obj->Switches[i]->Data, &matrices[i]);
+        matrix_4x4_set_position((coord3d *)(void *)model->obj->Switches[i]->Data,
+                                &matrices[i]);
         matrix_4x4_multiply_homogeneous_in_place(&matrices[0], &matrices[i]);
     }
     for (size_t i = 0U; i < 5U; ++i)

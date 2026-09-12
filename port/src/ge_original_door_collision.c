@@ -39,6 +39,38 @@ static s16 collision_prop_indices[MAX_PROPS + 1U];
 s16 *ptr_list_object_lookup_indices = collision_prop_indices;
 u32 num_obj_position_data_entries;
 
+/* Copy the exact rejected candidate before the runtime rolls its hull back.
+ * This observer never changes collision results or invokes geometry providers. */
+void ge_port_door_collision_note_blocker(PropRecord *door, PropRecord *blocker,
+    rect4f *door_polygon, s32 door_edges, f32 door_top, f32 door_bottom,
+    rect4f *blocker_polygon, s32 blocker_edges, f32 blocker_top,
+    f32 blocker_bottom, f32 blocker_radius)
+{
+    if (collision_state == NULL) return;
+    GeOriginalDoorCollisionWitness *w = &collision_state->witness;
+    uint32_t sequence = w->sequence + 1U;
+    memset(w, 0, sizeof(*w));
+    w->sequence = sequence;
+    w->door_prop = (uintptr_t)door;
+    w->blocker_prop = (uintptr_t)blocker;
+    w->door_index = ((uintptr_t)door - (uintptr_t)g_Props) / sizeof(*door);
+    w->blocker_index = ((uintptr_t)blocker - (uintptr_t)g_Props) / sizeof(*blocker);
+    w->blocker_type = blocker->type;
+    memcpy(w->door_position, &door->pos, sizeof(w->door_position));
+    memcpy(w->blocker_position, &blocker->pos, sizeof(w->blocker_position));
+    w->door_edges = door_edges;
+    w->blocker_edges = blocker_edges;
+    if (door_polygon && door_edges > 0 && door_edges <= 8)
+        memcpy(w->door_polygon, door_polygon, (size_t)door_edges * sizeof(w->door_polygon[0]));
+    if (blocker_polygon && blocker_edges > 0 && blocker_edges <= 8)
+        memcpy(w->blocker_polygon, blocker_polygon, (size_t)blocker_edges * sizeof(w->blocker_polygon[0]));
+    w->door_top = door_top;
+    w->door_bottom = door_bottom;
+    w->blocker_top = blocker_top;
+    w->blocker_bottom = blocker_bottom;
+    w->blocker_radius = blocker_radius;
+}
+
 static void note_missing_character_provider(void)
 {
     character_provider_missing = 1;

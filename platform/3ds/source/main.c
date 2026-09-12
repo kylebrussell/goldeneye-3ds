@@ -161,6 +161,7 @@
 #include "ge_original_stage_padlock_runtime.h"
 #include "ge_original_stage_security.h"
 #include "ge_original_sfx_bank.h"
+#include "ge_original_sfx_volume.h"
 #include "ge_original_stage_prop_materializer.h"
 #include "ge_original_stage_setup.h"
 #include "ge_original_stage_special_objects.h"
@@ -7556,6 +7557,24 @@ static void trace_stage_gate_motion(RuntimeStageOrdinaryObjects *objects,
             (long)gates[index].last_calc_tick,
             (unsigned long)gates[index].runtime_flags,
             (unsigned long)gates[index].linked_definition);
+    const GeOriginalDoorCollisionWitness *w = &objects->door_collision.witness;
+    if (w->sequence != 0U) {
+        fprintf(stream, "gate_blocker sequence=%lu door_prop=%lx door_index=%ld blocker_prop=%lx blocker_index=%ld blocker_type=%ld door_pos=%.9g,%.9g,%.9g blocker_pos=%.9g,%.9g,%.9g door_height=%.9g,%.9g blocker_height=%.9g,%.9g radius=%.9g\n",
+            (unsigned long)w->sequence, (unsigned long)w->door_prop,
+            (long)w->door_index, (unsigned long)w->blocker_prop,
+            (long)w->blocker_index, (long)w->blocker_type,
+            w->door_position[0], w->door_position[1], w->door_position[2],
+            w->blocker_position[0], w->blocker_position[1], w->blocker_position[2],
+            w->door_bottom, w->door_top, w->blocker_bottom, w->blocker_top,
+            w->blocker_radius);
+        fprintf(stream, "gate_blocker_hulls door_edges=%ld", (long)w->door_edges);
+        for (int32_t edge = 0; edge < w->door_edges && edge < 8; ++edge)
+            fprintf(stream, " [%.9g,%.9g]", w->door_polygon[edge][0], w->door_polygon[edge][1]);
+        fprintf(stream, " blocker_edges=%ld", (long)w->blocker_edges);
+        for (int32_t edge = 0; edge < w->blocker_edges && edge < 8; ++edge)
+            fprintf(stream, " [%.9g,%.9g]", w->blocker_polygon[edge][0], w->blocker_polygon[edge][1]);
+        fputc('\n', stream);
+    }
     /* fclose flushes this small diagnostic batch; no per-tick fsync. */
     fclose(stream);
 }
@@ -8901,6 +8920,10 @@ static bool install_stage_ordinary_object_scenes(
             }
             continue;
         }
+        if (entry->type == PROPDEF_VEHICHLE
+                && !ge_original_stage_model_publication_vehicle_matrices(
+                    objects->models, entry->definition,
+                    objects->preview->original_camera_view)) goto fail_stage_scene;
         if (!ge_original_prop_state_object_scene_transform(
                 entry->definition, entry->prop, matrix, position, &room))
             goto fail_stage_scene;
@@ -9964,6 +9987,10 @@ static bool refresh_stage_articulated_objects(
         if (!entry->root_active
                 || !stage_ordinary_uses_live_model_matrices(entry->type))
             continue;
+        if (entry->type == PROPDEF_VEHICHLE
+                && !ge_original_stage_model_publication_vehicle_matrices(
+                    objects->models, entry->definition,
+                    objects->preview->original_camera_view)) return false;
         if (!ge_original_prop_state_object_scene_transform(
                 entry->definition, entry->prop,
                 placement_matrix, placement_position, &room)) return false;
@@ -10609,6 +10636,10 @@ static void publish_stage_ordinary_visibility(
     for (index = 0U; index < objects->entry_count; ++index) {
         RuntimeStageOrdinaryEntry *entry = &objects->entries[index];
         if (!entry->root_active) continue;
+        if (entry->type == PROPDEF_VEHICHLE
+                && !ge_original_stage_model_publication_vehicle_matrices(
+                    objects->models, entry->definition,
+                    objects->preview->original_camera_view)) continue;
         (void)ge_original_prop_state_publish_scene_visibility_with_active_set(
             entry->prop,
             dam_visibility_contains_room(objects->preview, entry->room),
@@ -23200,6 +23231,7 @@ exit_graphics:
 
 int main(void)
 {
+    ge_original_sfx_volume_init();
     FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/boot.log", "w");
     if (stream != NULL) fclose(stream);
     boot_checkpoint("Entered main; initializing graphics", false);

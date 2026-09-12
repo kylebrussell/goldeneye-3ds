@@ -4,6 +4,11 @@
 #include <ultra64.h>
 #include <bondtypes.h>
 
+void ge_port_door_collision_note_blocker(PropRecord *door, PropRecord *blocker,
+    rect4f *door_polygon, s32 door_edges, f32 door_top, f32 door_bottom,
+    rect4f *blocker_polygon, s32 blocker_edges, f32 blocker_top,
+    f32 blocker_bottom, f32 blocker_radius);
+
 s32 ge_original_door_collision_exact_slice(PropRecord *prop);
 void ge_port_door_collision_chr_update_bounds(
     PropRecord *prop, struct rect4f **polygon, s32 *edges,

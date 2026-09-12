@@ -570,3 +570,31 @@ depth state and actual emitted register values without changing GPU commands.
 Read `docs/WatchAndDepthHardware20260911.md` for evidence and validation scope.
 Focused sanitizer and 50,000 exact command-stream checks passed. Build/install
 receipts are separate. Physical Watch, gate and rendering checks remain required.
+
+
+## Watch volume crash and stale truck wheels — 2026-09-11, after 25038c9d
+
+Hardware evidence is preserved in
+`build/hardware-captures/watch-gate-retest-20260911-201404/`, with the exact
+installed ELF. New dump 00000002 reaches Watch state 5, then faults at the
+native SFX natural-volume getter because the PCM replacement never initialized
+the seven native volume slots. Startup now supplies owned tables using the
+canonical defaults, preserving existing owners/settings. The real getter and
+Watch settings-save regression reproduces the null read without initialization
+and passes native/short-enum ASan/UBSan with the fix.
+
+The new captures have matching GPU depth state/buffers, but reveal wheel
+transforms from an earlier truck location/view. Vehicle publication now rebuilds
+root and four wheels together in per-model owned storage, without advancing
+simulation or reading the potentially reused transient matrix bank. Other
+articulated types and the intermittent depth-write fault remain open.
+
+The gate still does not open. Its Use activation reaches OPENING, then collision
+rollback keeps displacement/speed at zero. Actual-asset tests exclude nearby
+panels/crates; a truck reconstruction overlaps gate 267 but uses assumed heading,
+so blocker identity is not established. A bounded observer now records the exact
+rejected blocker and both hulls before rollback. No collision bypass was added.
+
+See `docs/WatchGateRetest20260911.md` for evidence, tests and remaining physical
+checks. Build and SD deployment receipts are separate. Preserve the installed
+5fc14fae asset pack, saves/settings and single Homebrew Launcher entry.

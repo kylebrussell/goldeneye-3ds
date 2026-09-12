@@ -110,6 +110,12 @@ int ge_original_pitem_model_available(void *context, int32_t model_id);
 int ge_original_pitem_model_resolve_instance(
     void *context, int32_t model_id, void **model_header,
     void **model_instance, float *pitem_scale);
+/* Returns the instance-owned float matrix bank, never a transient dynAllocate
+ * pointer installed by objTick. Does not copy or publish matrices. */
+int ge_original_pitem_model_instance_matrix_storage(
+    const GeOriginalPitemModelProvider *provider, void *model_instance,
+    float (**matrices)[4][4], size_t *matrix_count);
+
 /* Releases one instance returned by resolve_instance. Relocated model
  * resources remain cached; the exact instance slot is reusable on the next
  * construction request. */

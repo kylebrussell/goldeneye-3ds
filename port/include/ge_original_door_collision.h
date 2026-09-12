@@ -21,7 +21,18 @@ typedef struct GeOriginalDoorCharacterCollisionProviders {
     int (*ground)(void *context, void *prop, float *ground);
 } GeOriginalDoorCharacterCollisionProviders;
 
+typedef struct GeOriginalDoorCollisionWitness {
+    uint32_t sequence;
+    uintptr_t door_prop, blocker_prop;
+    int32_t door_index, blocker_index, blocker_type;
+    float door_position[3], blocker_position[3];
+    int32_t door_edges, blocker_edges;
+    float door_polygon[8][2], blocker_polygon[8][2];
+    float door_top, door_bottom, blocker_top, blocker_bottom, blocker_radius;
+} GeOriginalDoorCollisionWitness;
+
 typedef struct GeOriginalDoorCollisionState {
+    GeOriginalDoorCollisionWitness witness;
     uint32_t tests;
     uint32_t clear_results;
     uint32_t blocked_results;

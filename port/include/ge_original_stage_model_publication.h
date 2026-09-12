@@ -8,6 +8,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Rebuilds a vehicle's root and four wheel matrices into provider-owned
+ * storage using current canonical wheel angles; never advances simulation. */
+int ge_original_stage_model_publication_vehicle_matrices(
+    const GeOriginalPitemModelProvider *models, void *definition,
+    const float world_to_view[4][4]);
+
 typedef enum GeOriginalStageModelPublicationStatus {
     GE_ORIGINAL_STAGE_MODEL_PUBLICATION_OK = 0,
     GE_ORIGINAL_STAGE_MODEL_PUBLICATION_INVALID_ARGUMENT,

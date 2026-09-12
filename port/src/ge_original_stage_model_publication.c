@@ -184,6 +184,54 @@ void ge_original_stage_model_publication_glass_template(
     ge_model_glass_setup(definition, model_type, input, 1);
 }
 
+int ge_original_stage_model_publication_vehicle_matrices(
+    const GeOriginalPitemModelProvider *models, void *definition,
+    const float world_to_view[4][4])
+{
+    struct VehichleRecord *vehicle = definition;
+    Model *model;
+    float (*owned)[4][4] = NULL;
+    size_t count = 0U;
+    Mtxf matrices[5], view, root, roll, steer;
+    if (vehicle == NULL || world_to_view == NULL
+            || vehicle->type != PROPDEF_VEHICHLE || models == NULL
+            || !isfinite(vehicle->wheelxrot) || !isfinite(vehicle->wheelyrot)) return 0;
+    model = vehicle->model;
+    if (model == NULL || model->obj == NULL || model->obj->numSwitches < 5
+            || model->obj->Switches == NULL
+            || !ge_original_pitem_model_instance_matrix_storage(
+                models, model, &owned, &count) || count != 5U) return 0;
+    for (size_t i = 1U; i < 5U; ++i)
+        if (model->obj->Switches[i] == NULL
+                || model->obj->Switches[i]->Data == NULL) return 0;
+    /* Same root and wheel composition as objTick's vehicle render branch.
+     * Its wheel-angle advancement stays exclusively in the native tick. */
+    memcpy(view.m, world_to_view, sizeof(view.m));
+    matrix_4x4_copy(&vehicle->mtx, &root);
+    matrix_4x4_set_position(&vehicle->runtime_pos, &root);
+    matrix_4x4_multiply_homogeneous(&view, &root, &matrices[0]);
+    matrix_4x4_set_rotation_around_x(vehicle->wheelxrot, &roll);
+    matrix_4x4_set_rotation_around_y(vehicle->wheelyrot, &steer);
+    for (size_t i = 3U; i < 5U; ++i) {
+        matrices[i] = roll;
+        matrix_4x4_set_position(model->obj->Switches[i]->Data, &matrices[i]);
+        matrix_4x4_multiply_homogeneous_in_place(&matrices[0], &matrices[i]);
+    }
+    matrix_4x4_multiply_homogeneous_in_place(&steer, &roll);
+    for (size_t i = 1U; i < 3U; ++i) {
+        matrices[i] = roll;
+        matrix_4x4_set_position(model->obj->Switches[i]->Data, &matrices[i]);
+        matrix_4x4_multiply_homogeneous_in_place(&matrices[0], &matrices[i]);
+    }
+    for (size_t i = 0U; i < 5U; ++i)
+        for (size_t r = 0U; r < 4U; ++r)
+            for (size_t c = 0U; c < 4U; ++c)
+                if (!isfinite(matrices[i].m[r][c])) return 0;
+    memcpy(owned, matrices, sizeof(matrices));
+    model->render_pos = (RenderPosView *)(void *)owned;
+    return 1;
+}
+
 static GeOriginalStageModelPublicationStatus
 ge_original_stage_model_publication_input_exact(
     const GeOriginalPitemModelProvider *models, const void *definition,

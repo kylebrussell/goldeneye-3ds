@@ -542,6 +542,81 @@ static void exercise_clipped_door_cache(GeOriginalPitemModelProvider *models, in
     puts("clipped door XYZ/ST publication matches canonical decode; immutable topology and dirty ranges retained");
 }
 
+static void exercise_vehicle_owned_matrices(GeOriginalPitemModelProvider *models, int model_id)
+{
+    void *header = NULL, *instance = NULL;
+    float scale;
+    assert(ge_original_pitem_model_resolve_instance(models, model_id,
+        &header, &instance, &scale));
+    Model *model = instance;
+    struct VehichleRecord vehicle = {0};
+    vehicle.type = PROPDEF_VEHICHLE;
+    vehicle.model = model;
+    vehicle.wheelxrot = 0.73f; vehicle.wheelyrot = 0.19f;
+    float (*owned)[4][4] = NULL;
+    size_t count = 0U;
+    assert(ge_original_pitem_model_instance_matrix_storage(models, model, &owned, &count));
+    assert(count == 5U);
+    for (int frame = 0; frame < 3; ++frame) {
+        Mtxf view, root, expected_root;
+        matrix_4x4_set_rotation_around_y(frame * 0.4f, &view);
+        view.m[3][0] = -17000.0f + frame * 2000.0f;
+        view.m[3][1] = -500.0f; view.m[3][2] = -19000.0f;
+        matrix_4x4_set_rotation_around_y(0.2f + frame * 0.3f, &vehicle.mtx);
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c) vehicle.mtx.m[r][c] *= 0.1f;
+        vehicle.runtime_pos.x = 13123.0f + frame * 1700.0f;
+        vehicle.runtime_pos.y = 22.0f;
+        vehicle.runtime_pos.z = 16481.0f - frame * 2000.0f;
+        root = vehicle.mtx;
+        matrix_4x4_set_position(&vehicle.runtime_pos, &root);
+        matrix_4x4_multiply_homogeneous(&view, &root, &expected_root);
+        /* A previous transient bank may no longer even be addressable. */
+        model->render_pos = (RenderPosView *)(uintptr_t)1;
+        struct VehichleRecord before = vehicle;
+        assert(ge_original_stage_model_publication_vehicle_matrices(models, &vehicle, view.m));
+        assert(memcmp(&before, &vehicle, sizeof(vehicle)) == 0);
+        assert((void *)model->render_pos == (void *)owned);
+        assert(memcmp(owned[0], expected_root.m, sizeof(expected_root)) == 0);
+        for (size_t wheel = 1U; wheel < 5U; ++wheel) {
+            const coord3d *local = model->obj->Switches[wheel]->Data;
+            for (size_t axis = 0U; axis < 3U; ++axis) {
+                float expected = expected_root.m[3][axis];
+                for (size_t r = 0U; r < 3U; ++r)
+                    expected += local->f[r] * expected_root.m[r][axis];
+                assert(fabsf(owned[wheel][3][axis] - expected) < 0.004f);
+                float length = 0.0f;
+                for (size_t r = 0U; r < 3U; ++r)
+                    length += owned[wheel][axis][r] * owned[wheel][axis][r];
+                assert(fabsf(length - 0.01f) < 0.00001f);
+                /* Independent basis-vector oracle: roll about X first,
+                 * then front-wheel steering about Y, then the root. */
+                float x = axis == 0U, y = axis == 1U, z = axis == 2U;
+                const float rolled_y = cosf(vehicle.wheelxrot)*y - sinf(vehicle.wheelxrot)*z;
+                z = sinf(vehicle.wheelxrot)*y + cosf(vehicle.wheelxrot)*z;
+                y = rolled_y;
+                if (wheel < 3U) {
+                    const float steered_x = cosf(vehicle.wheelyrot)*x + sinf(vehicle.wheelyrot)*z;
+                    z = -sinf(vehicle.wheelyrot)*x + cosf(vehicle.wheelyrot)*z;
+                    x = steered_x;
+                }
+                for (size_t c = 0U; c < 3U; ++c) {
+                    const float expected_direction = x*expected_root.m[0][c]
+                        + y*expected_root.m[1][c] + z*expected_root.m[2][c];
+                    assert(fabsf(owned[wheel][axis][c] - expected_direction) < 0.000001f);
+                }
+            }
+        }
+        float snapshot[5][4][4]; memcpy(snapshot, owned, sizeof(snapshot));
+        assert(ge_original_stage_model_publication_vehicle_matrices(models, &vehicle, view.m));
+        assert(memcmp(snapshot, owned, sizeof(snapshot)) == 0);
+    }
+    assert(ge_original_pitem_model_release_instance(models, model));
+    assert(!ge_original_pitem_model_instance_matrix_storage(models, model, &owned, &count));
+    assert(owned == NULL && count == 0U);
+    puts("vehicle root/four wheels follow moving actor/camera in owned bank; stale arena untouched");
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -564,6 +639,8 @@ int main(int argc, char **argv)
     /* PcctvZ is the authored Bunker 2 room-49 target: its multi-matrix live
      * display-list parts must all publish before ONSCREEN is set. */
     assert(exercise_model(models, 24, 2U, 1));
+    exercise_vehicle_owned_matrices(models, PROP_MILTRUCK);
+    exercise_vehicle_owned_matrices(models, PROP_JEEP);
     exercise_glass(models);
     exercise_world_door_depth(models);
     exercise_clipped_door_cache(models, 144);

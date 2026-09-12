@@ -1030,6 +1030,26 @@ int ge_original_pitem_model_resolve_instance(
     return 1;
 }
 
+int ge_original_pitem_model_instance_matrix_storage(
+    const GeOriginalPitemModelProvider *provider, void *model_instance,
+    float (**matrices)[4][4], size_t *matrix_count)
+{
+    if (matrices == NULL || matrix_count == NULL) return 0;
+    *matrices = NULL; *matrix_count = 0U;
+    if (provider == NULL || model_instance == NULL) return 0;
+    for (size_t i = 0U; i < provider->instance_capacity; ++i) {
+        const GeOriginalPitemModelInstance *instance = &provider->instances[i];
+        if (!instance->active || &instance->model != model_instance) continue;
+        if (instance->resource == NULL || instance->render_positions == NULL
+                || instance->model.obj != &instance->resource->header
+                || instance->resource->header.numMatrices <= 0) return 0;
+        *matrices = (float (*)[4][4])(void *)instance->render_positions;
+        *matrix_count = (size_t)instance->resource->header.numMatrices;
+        return 1;
+    }
+    return 0;
+}
+
 int ge_original_pitem_model_release_instance(
     GeOriginalPitemModelProvider *provider, void *model_instance)
 {

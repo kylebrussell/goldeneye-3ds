@@ -98,6 +98,13 @@ def rename_identifiers(body: str) -> str:
 
 def adapt_native_abi(body: str) -> str:
     """Bridge IDO inherited fields and 32-bit tagged pointers explicitly."""
+    # Observe only the two existing rejected-candidate exits; preserve all
+    # canonical decisions and values, including the attempted pre-rollback hull.
+    if "s32 sub_GAME_7F0448A8(" in body or "s32 ge_door_collision_sub_GAME_7F0448A8(" in body:
+        assert body.count("return 0;") == 2
+        body = body.replace("return 0;", "ge_port_door_collision_note_blocker(argProp, prop, polygon2, edges2, chrTop, chrBottom, NULL, 0, height, arbitratyNumber, radius);\n                                return 0;", 1)
+        pos = body.rfind("return 0;")
+        body = body[:pos] + "ge_port_door_collision_note_blocker(argProp, prop, polygon2, edges2, chrTop, chrBottom, polygon, edges, top, bottom, 0.0f);\n                    " + body[pos:]
     body = (body
         .replace("obj->state", "ge_port_door_collision_object_state(obj)")
         .replace("prop->obj->type",

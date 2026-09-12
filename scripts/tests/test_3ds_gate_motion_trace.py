@@ -50,6 +50,9 @@ static int capture_close(FILE *stream){assert(stream==sink);++closes;return fflu
 #define fopen capture_open
 #define fclose capture_close
 '''
+        code += '\nstatic PropRecord g_Props[4];\nstatic GeOriginalDoorCollisionState *collision_state;\n'
+        collision = (ROOT / 'port/src/ge_original_door_collision.c').read_text()
+        code += find_function(collision, 'ge_port_door_collision_note_blocker')
         code += find_function(native, 'ge_original_door_runtime_motion_snapshot')
         code += '\n' + find_function(main, 'trace_stage_gate_motion')
         code += r'''
@@ -67,6 +70,21 @@ int main(void){
  assert(ge_original_door_runtime_motion_snapshot(&doors[0],&snap));
  assert(snap.last_calc_tick==45 && snap.runtime_flags==0x4010);
  assert(snap.linked_definition==(uintptr_t)&doors[1]);
+ collision_state=&objects.door_collision;
+ g_Props[0].pos.x=17075;g_Props[2].pos.z=9161;g_Props[2].type=PROP_TYPE_OBJ;
+ coord2d polygon[8];for(int i=0;i<8;i++){polygon[i].x=100+i;polygon[i].y=200+i;}
+ ge_port_door_collision_note_blocker(&g_Props[0],&g_Props[2],(rect4f*)polygon,8,300,-100,(rect4f*)polygon,8,250,-50,0);
+ GeOriginalDoorCollisionWitness *w=&objects.door_collision.witness;
+ assert(w->sequence==1 && w->door_index==0 && w->blocker_index==2);
+ assert(w->door_polygon[7][0]==107 && w->blocker_polygon[7][1]==207);
+ assert(w->door_position[0]==17075 && w->blocker_position[2]==9161);
+ assert(w->blocker_type==PROP_TYPE_OBJ && w->blocker_top==250);
+ ge_port_door_collision_note_blocker(&g_Props[0],&g_Props[2],(rect4f*)polygon,8,300,-100,NULL,0,180,20,30);
+ assert(w->sequence==2 && w->blocker_edges==0 && w->blocker_radius==30);
+ assert(w->blocker_polygon[7][1]==0); /* Previous object hull is cleared. */
+ assert(objects.door_collision.tests==0 && objects.door_collision.blocked_results==0);
+ for(int i=0;i<8;i++)assert(polygon[i].x==100+i && polygon[i].y==200+i);
+ assert(g_Props[0].pos.x==17075 && g_Props[2].pos.z==9161);
  sink=tmpfile();assert(sink);
  trace_stage_gate_motion(&objects,"after_props");assert(opens==0);
  objects.gate_trace_remaining=120;
@@ -88,12 +106,16 @@ int main(void){
  trace_stage_gate_motion(&objects,"after_props");assert(opens==15 && closes==14);
  for(unsigned i=0;i<120;++i)trace_stage_gate_motion(&objects,"props_skipped");
  assert(objects.gate_trace_remaining==0); /* IO failure cannot extend tracing. */
- rewind(sink);char text[16384];size_t n=fread(text,1,sizeof(text)-1,sink);text[n]=0;
+ rewind(sink);char text[32768];size_t n=fread(text,1,sizeof(text)-1,sink);text[n]=0;
  assert(strstr(text,"phase=activation age=0 remaining=120"));
  assert(strstr(text,"phase=after_props age=120 remaining=0"));
  assert(strstr(text,"phase=props_skipped"));
  assert(strstr(text,"collision_tests=4 clear=0 blocked=3"));
  assert(strstr(text,"lastcalc=45 runtime=00004010"));
+ assert(strstr(text,"gate_blocker sequence=2"));
+ assert(strstr(text,"blocker_pos=0,0,9161"));
+ assert(strstr(text,"radius=30"));
+ assert(strstr(text,"[107,207] blocker_edges=0"));
  fclose(sink);return 0;
 }
 '''

@@ -2201,6 +2201,7 @@ fi
 python3 "${repo_dir}/scripts/tests/test_3ds_vertex_flush_spans.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_renderer_submission_cache.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_depth_capture.py"
+python3 "${repo_dir}/scripts/tests/test_3ds_capture_clock.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_gate_motion_trace.py"
 python3 "${repo_dir}/scripts/tests/test_watch_sfx_volume.py"
 python3 "${repo_dir}/scripts/tests/test_3ds_draw_trace.py"

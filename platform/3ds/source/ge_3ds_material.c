@@ -234,6 +234,17 @@ Ge3dsMaterialStatus ge_3ds_material_apply_prepared_delta(
             != prepared->state.depth_write_enabled
         || previous->state.depth_equal_enabled != prepared->state.depth_equal_enabled;
     if (depth_changed) {
+        /* RDP DECAL accepts a dz window around the stored receiver depth.
+         * GEQUAL alone loses coplanar triangles after PICA float24 rounding.
+         * Apply only the source-derived minimum window, without depth writes;
+         * the existing DEPTH_MODE fallback still reports the unimplemented
+         * slope-dependent/two-sided comparison. See rdp/zbuffer.c z_compare
+         * in angrylion-rdp-plus and GoldenEye's viewport Z scale/translation. */
+        const bool decal_tolerance = prepared->state.depth_equal_enabled != 0U
+            && prepared->state.depth_test_enabled != 0U
+            && prepared->state.depth_write_enabled == 0U;
+        C3D_DepthMap(true, -1.0f,
+            decal_tolerance ? GE_3DS_DECAL_MIN_DEPTH_TOLERANCE : 0.0f);
         write_mask = GPU_WRITE_COLOR;
         if (prepared->state.depth_write_enabled != 0U) {
             write_mask = (GPU_WRITEMASK)(write_mask | GPU_WRITE_DEPTH);

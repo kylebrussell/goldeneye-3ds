@@ -12,6 +12,12 @@
 extern "C" {
 #endif
 
+/* GoldenEye viewport Z is 511*ndc+511: 1022 screen units, each
+ * expanded to 256 RDP depth units. The minimum decoded dz is 1 and RDP
+ * z_compare expands it by 8, giving this conservative decal window floor.
+ * Slope-dependent dz and the two-sided receiver window remain unapplied. */
+#define GE_3DS_DECAL_MIN_DEPTH_TOLERANCE (8.0f / (1022.0f * 256.0f))
+
 typedef enum Ge3dsMaterialStatus {
     GE_3DS_MATERIAL_OK = 0,
     GE_3DS_MATERIAL_INVALID_ARGUMENT

@@ -24,7 +24,11 @@ enum { GPU_WRITE_COLOR=1, GPU_WRITE_DEPTH=2, GPU_GREATER=3, GPU_EQUAL=4,
        GPU_ONE_MINUS_SRC_ALPHA=9, GPU_ONE=10, GPU_ZERO=11 };
 static bool depth_on, alpha_on, blend_on;
 static int depth_func, depth_mask, alpha_threshold;
-static unsigned depth_calls;
+static unsigned depth_calls, depth_map_calls;
+static float depth_offset;
+static void C3D_DepthMap(bool zbuffer, float scale, float offset) {
+    assert(zbuffer && scale == -1.0f); depth_offset=offset; ++depth_map_calls;
+}
 static int ge_3ds_material_wrap(int x) { return x; }
 static int ge_3ds_material_filter(int x) { return x; }
 static int ge_3ds_material_cull(int x) { return x; }
@@ -49,6 +53,7 @@ static void C3D_AlphaBlend(int a,int b,int src,int dst,int asrc,int adst) {
 suffix = r'''
 static double zbuffer, framebuffer;
 static void fragment(double z, unsigned alpha, double color) {
+    z += depth_offset;
     if (alpha_on && alpha <= (unsigned)alpha_threshold) return;
     if (depth_on && depth_func==GPU_GREATER && !(z>zbuffer)) return;
     if (depth_on && depth_func==GPU_EQUAL && z!=zbuffer) return;
@@ -76,10 +81,27 @@ int main(void) {
      * by nearer geometry, and do not change the receiver's stored depth. */
     m.depth_mode=GE_PICA_DEPTH_DECAL; m.depth_write_enabled=0;
     Ge3dsMaterialResult decal=apply(&m,&opaque);
+    assert(depth_offset == GE_3DS_DECAL_MIN_DEPTH_TOLERANCE);
+    assert(decal.state.apply_fallback_flags & GE_PICA_APPLY_FALLBACK_DEPTH_MODE);
     fragment(.75,255,150); assert(zbuffer==.75 && framebuffer==150);
+    /* Captured road/arrow error is at most 4.03e-6 in normalized depth. */
+    fragment(.75-0.00000403,255,151); assert(zbuffer==.75 && framebuffer==151);
+    fragment(.75-2*GE_3DS_DECAL_MIN_DEPTH_TOLERANCE,255,250);
+    assert(zbuffer==.75 && framebuffer==151);
+    framebuffer=150;
+    unsigned map_before=depth_map_calls; apply(&m,&decal);
+    assert(depth_map_calls==map_before);
+    m.depth_write_enabled=1; Ge3dsMaterialResult writing_decal=apply(&m,&decal);
+    assert(depth_offset==0.0f && (depth_mask&GPU_WRITE_DEPTH));
+    m.depth_write_enabled=0; m.depth_test_enabled=0;
+    Ge3dsMaterialResult disabled_decal=apply(&m,&writing_decal);
+    assert(depth_offset==0.0f && !depth_on);
+    m.depth_test_enabled=1; decal=apply(&m,&disabled_decal);
+    assert(depth_offset==GE_3DS_DECAL_MIN_DEPTH_TOLERANCE);
+
     fragment(.74,255,250); assert(zbuffer==.75 && framebuffer==150);
     m.depth_mode=GE_PICA_DEPTH_OPAQUE;
-    opaque=apply(&m,&decal);
+    opaque=apply(&m,&decal); assert(depth_offset==0.0f);
     fragment(.75,255,10); assert(framebuffer==150);
     m.depth_write_enabled=1; opaque=apply(&m,NULL); framebuffer=80;
     m.depth_write_enabled=0;
@@ -111,3 +133,11 @@ with tempfile.TemporaryDirectory(prefix='ge-fragments-') as temporary:
             '-I', str(repo / 'platform/3ds/include'), str(path / 'test.c'),
             str(repo / 'port/src/ge_pica_apply.c'), '-o', str(path / 'test')], check=True)
         subprocess.run([str(path / 'test')], check=True)
+
+# Every direct draw-state override explicitly restores the ordinary depth map.
+main_source = (repo / 'platform/3ds/source/main.c').read_text()
+import re
+for match in re.finditer(r'C3D_DepthTest\(', main_source):
+    assert re.search(r'C3D_DepthMap\(true, -1\.0f, 0\.0f\);\s*$', main_source[:match.start()])
+assert 'config.viewport_scale[2] = 511;' in main_source
+assert 'clip_to_screen[2][2] = 0.5f;' in main_source

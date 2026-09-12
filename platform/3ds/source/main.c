@@ -12884,7 +12884,7 @@ static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
         }
         const GeDamRoomDrawBatch *batch = &preview->batches[run->batch];
         const GePicaMaterial *m = &batch->material;
-        fprintf(stream, "gpu_run=%lu batch=%u first=%lu count=%lu room=%lu space=%u list=%u command=%lu texture=%u cull=%u ztest=%u zwrite=%u zmode=%u alpha=%u threshold=%u combine=%u,%u blend=%u fallback=%lu mux=%08lx,%08lx\n",
+        fprintf(stream, "gpu_run=%lu batch=%u first=%lu count=%lu room=%lu space=%u list=%u command=%lu texture=%u cull=%u ztest=%u zwrite=%u zmode=%u alpha=%u threshold=%u combine=%u,%u blend=%u fallback=%lu mux=%08lx,%08lx decal_min_offset=%.9g\n",
             (unsigned long)i, (unsigned)run->batch, (unsigned long)run->first_vertex,
             (unsigned long)run->vertex_count, (unsigned long)batch->room_id,
             batch->coordinate_space, (unsigned)batch->list_kind,
@@ -12893,7 +12893,9 @@ static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
             (unsigned)m->depth_mode, (unsigned)m->alpha_test, m->alpha_threshold,
             (unsigned)m->color_combine, (unsigned)m->alpha_combine, m->blend_enabled,
             (unsigned long)m->fallback_flags, (unsigned long)m->combine_mux0,
-            (unsigned long)m->combine_mux1);
+            (unsigned long)m->combine_mux1,
+            m->depth_mode == GE_PICA_DEPTH_DECAL && m->depth_test_enabled
+                && !m->depth_write_enabled ? GE_3DS_DECAL_MIN_DEPTH_TOLERANCE : 0.0f);
     }
     ge_3ds_draw_trace_write(stream);
     fprintf(stream, "gpu_snapshot_end=%llu\n\n", (unsigned long long)tick);
@@ -16678,6 +16680,7 @@ static void draw_original_frontend_list(
     C3D_StencilTest(false, GPU_ALWAYS, 0, 0xff, 0x00);
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0U, 0U, 0U, 0U);
     C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
+    C3D_DepthMap(true, -1.0f, 0.0f);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_CullFace(GPU_CULL_NONE);
     C3D_AlphaTest(false, GPU_ALWAYS, 0U);
@@ -16844,6 +16847,7 @@ static void draw_original_frontend_list(
                  * applying that title-only vertex-alpha lighting here made
                  * skin and clothing triangles look detached or black. */
                 C3D_CullFace(GPU_CULL_NONE);
+                C3D_DepthMap(true, -1.0f, 0.0f);
                 C3D_DepthTest(true, GPU_GEQUAL,
                     (GPU_WRITEMASK)(GPU_WRITE_COLOR | GPU_WRITE_DEPTH));
                 C3D_DrawArrays(GPU_TRIANGLES,
@@ -16854,6 +16858,7 @@ static void draw_original_frontend_list(
         }
         C3D_TexEnvInit(C3D_GetTexEnv(1));
         if (scene->fade < 1.0f) {
+            C3D_DepthMap(true, -1.0f, 0.0f);
             C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
             C3D_TexEnvInit(texture_environment = C3D_GetTexEnv(0));
             C3D_TexEnvSrc(texture_environment, C3D_Both,
@@ -16989,6 +16994,7 @@ static void draw_original_frontend_list(
                             GPU_REPLACE);
 
                         C3D_CullFace(GPU_CULL_NONE);
+                        C3D_DepthMap(true, -1.0f, 0.0f);
                         C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
                         if (batch->list_kind
                                 == GE_DAM_ROOM_LIST_SECONDARY) {
@@ -17088,6 +17094,7 @@ static void draw_original_frontend_list(
                  * and disable the Z buffer. Preserve the authored model-level
                  * state after applying each display-list material. */
                 C3D_CullFace(GPU_CULL_NONE);
+                C3D_DepthMap(true, -1.0f, 0.0f);
                 C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
                 C3D_DrawArrays(GPU_TRIANGLES,
                     ORIGINAL_FRONTEND_MODEL_VERTEX_OFFSET
@@ -17097,6 +17104,7 @@ static void draw_original_frontend_list(
             batch_index = run_end;
         }
     }
+    C3D_DepthMap(true, -1.0f, 0.0f);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_CullFace(GPU_CULL_NONE);
     C3D_AlphaTest(false, GPU_ALWAYS, 0U);
@@ -18834,6 +18842,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
      * framebuffer's Y=40..360 scissor interval. */
     C3D_SetScissor(GPU_SCISSOR_NORMAL, 0U, 40U, 240U, 360U);
     C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
+    C3D_DepthMap(true, -1.0f, 0.0f);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_TexEnvInit(texture_environment = C3D_GetTexEnv(0));
     C3D_TexEnvSrc(texture_environment, C3D_Both, GPU_PRIMARY_COLOR, 0, 0);
@@ -19180,6 +19189,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         C3D_CullFace(GPU_CULL_BACK_CCW);
         /* texSelect(..., mode 4, zbuffer 1) is the canonical cloud-surface
          * pass: depth-tested translucent color, without a depth write. */
+        C3D_DepthMap(true, -1.0f, 0.0f);
         C3D_DepthTest(true,GPU_GREATER,GPU_WRITE_COLOR);
         C3D_AlphaTest(false,GPU_ALWAYS,0U);
         C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_SRC_ALPHA,
@@ -19215,6 +19225,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                          &dam_preview->gpu_world_projection);
         renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_WORLD);
         C3D_CullFace(GPU_CULL_NONE);
+        C3D_DepthMap(true, -1.0f, 0.0f);
         C3D_DepthTest(true, GPU_GREATER, GPU_WRITE_COLOR);
         C3D_AlphaTest(false, GPU_ALWAYS, 0U);
         C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD,
@@ -19287,6 +19298,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
                     /* Material application restores the display-list depth mode,
                      * so apply the original first-person ModelRenderData override
                      * immediately before every hand draw. */
+                    C3D_DepthMap(true, -1.0f, 0.0f);
                     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
                     C3D_DrawArrays(GPU_TRIANGLES,
                         FIRST_PERSON_VERTEX_OFFSET + hand * FIRST_PERSON_VERTEX_CAPACITY
@@ -19303,6 +19315,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
     renderer_set_stereo_layer(GE_3DS_STEREO_LAYER_HUD);
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0U, 0U, 0U, 0U);
     phase_ticks[3] = svcGetSystemTick();
+    C3D_DepthMap(true, -1.0f, 0.0f);
     C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_CullFace(GPU_CULL_NONE);
     if (gameplay_hud_draw.solid_vertex_count != 0U
@@ -21660,8 +21673,12 @@ start_stage_runtime:
                 /* The queue is idle and the preceding framebuffer transfer
                  * is complete. Never read GPU-owned pixels in the HID path. */
                 probe_capture_io = true;
+                const u64 capture_started_ms = osGetTime();
                 capture_world_diagnostic(&dam_preview, &dam_intro, &stage_ordinary_objects,
                     (const Vertex *)vertex_buffer + DAM_ROOM_VERTEX_OFFSET, top_target);
+                /* SD diagnostics pause simulation. Exclude only their blocking
+                 * duration from the next retrace delta; retain normal frame work. */
+                previous_time += osGetTime() - capture_started_ms;
                 world_diagnostic_pending = false;
             }
             if (input_probe.enabled && frame_began) {

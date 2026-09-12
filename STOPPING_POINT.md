@@ -598,3 +598,30 @@ rejected blocker and both hulls before rollback. No collision bypass was added.
 See `docs/WatchGateRetest20260911.md` for evidence, tests and remaining physical
 checks. Build and SD deployment receipts are separate. Preserve the installed
 5fc14fae asset pack, saves/settings and single Homebrew Launcher entry.
+
+## Gate room lookup, road decals and capture timing — 2026-09-12
+
+Evidence: `build/hardware-captures/gate-decals-20260912-122714/`, installed
+0a3981dc / bae88f62. Two new complete captures, no new or changed Luma dumps.
+Gate blocker witness proves truck321 overlaps gate267. The port's door setup
+assigned its primary room but omitted canonical room-list registration, so truck
+queries missed the gate while gate queries found the truck. Restored that
+registration; no collision bypass or movement-rule change.
+
+The first SELECT stalls roughly 11.5s; previously this became the next simulation
+delta and coincided with gate267 jumping fully open. Capture time is now excluded
+from elapsed simulation time while retaining ordinary frame work. Later snapshot
+shows gate267's moved/clipped geometry and truck past it; gate268 remains closed.
+All six new accepted Uses target first-gate panel269, not the second gate.
+
+Captured yellow arrow texture56 is authored coplanar DECAL, correctly GEQUAL,
+no depth writes, but loses against the actual road depth after PICA rounding.
+Added only the RDP minimum comparison-window tolerance, mapped through GoldenEye's
+511/511 viewport depth. Other states/direct passes reset the offset. It preserves
+foreground occlusion and depth writes remain disabled. Full slope-dependent and
+two-sided RDP depth behavior remain open; the fallback flag stays set.
+
+See `docs/GateAndRoadDecals20260912.md` for tests/evidence/limitations. Build and
+SD deployment receipts remain separate. Physical gate and road-marking checks
+are required; preserve the 5fc14fae installed pack, user saves/settings and one
+launcher entry.

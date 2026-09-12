@@ -378,7 +378,10 @@ s32 ge_original_setup_door_slice(ObjectRecord *object, s32 command_index,
     }
     if((object->flags&PROPFLAG_CULL_BEHIND_DOOR)&&portal>=0
        &&out.open_position==0.0f){ge_port_door_set_portal_open(portal,0);out.portal_control_connected=1;}
-    prop->rooms[0]=stan->room;prop->rooms[1]=0xffU;prop->rooms[2]=0xffU;
+    /* Native setupDoor publishes the primary room before any portal room. */
+    prop->rooms[0]=stan->room;
+    ge_port_door_register_room(prop,(s16)stan->room);
+    prop->rooms[1]=0xffU;prop->rooms[2]=0xffU;
     if((object->flags&PROPFLAG_CULL_BEHIND_DOOR)
        ||(object->flags&PROPFLAG_NO_PORTAL_CLOSE)) {
         s32 second=-1;

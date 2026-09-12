@@ -48,6 +48,16 @@ typedef struct GeOriginalDoorRuntimeState {
     GeOriginalDoorRuntimeStatus status;
 } GeOriginalDoorRuntimeState;
 
+/* Read-only motion diagnostics; independent of renderer/collision publication. */
+typedef struct GeOriginalDoorMotionSnapshot {
+    float open_position, max_frac, speed;
+    int32_t open_state, last_calc_tick;
+    uint32_t runtime_flags;
+    uintptr_t linked_definition;
+} GeOriginalDoorMotionSnapshot;
+int ge_original_door_runtime_motion_snapshot(
+    const void *definition, GeOriginalDoorMotionSnapshot *out);
+
 #define GE_ORIGINAL_DOOR_COLLISION_EDGE_CAPACITY 8U
 #define GE_ORIGINAL_DOOR_MATRIX_CAPACITY 16U
 

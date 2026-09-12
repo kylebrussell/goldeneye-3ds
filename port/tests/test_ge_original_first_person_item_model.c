@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <ultra64.h>
 #include <bondconstants.h>
@@ -28,6 +29,59 @@ static ModelNode *find_node_opcode(ModelNode *node, uint16_t opcode)
     return NULL;
 }
 
+void load_object_fill_header(ModelFileHeader *header, uint8_t *name,
+    uint8_t *destination, int32_t size, void *texture_pool);
+
+static void test_watch_preserves_right_hand(GeAssetPack *pack)
+{
+    GeOriginalFirstPersonAssets assets;
+    GeOriginalFirstPersonLoaderState loader;
+    ModelFileHeader *right, *left, *again;
+    ModelFileHeader copied_right, watch;
+    ModelNode saved_flash;
+    union ModelRoData saved_flash_data;
+    unsigned slot;
+    assert(ge_original_first_person_assets_init(&assets, pack,
+        right_buffer, sizeof(right_buffer), left_buffer, sizeof(left_buffer))
+        == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    /* Match startup: plain PP7 right and preloaded silenced PP7 left. */
+    assert(ge_original_first_person_assets_load_item_native(&assets, 0U,
+        ITEM_WPPK, (void **)&right) == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    assert(ge_original_first_person_assets_load_item_native(&assets, 1U,
+        ITEM_WPPKSIL, (void **)&left) == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    const int32_t loadout[2] = {ITEM_WPPKSIL, ITEM_WPPKSIL};
+    assert(ge_original_first_person_assets_acquire_loadout_hand(&assets,
+        loadout, 0U, (void **)&right, &slot) == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    assert(slot == 0U && right != left);
+    assert(ge_original_first_person_assets_acquire_loadout_hand(&assets,
+        loadout, 1U, (void **)&left, &slot) == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    assert(slot == 1U && right != left && right->RootNode != left->RootNode);
+    assert(right->Switches != left->Switches);
+    assert(right->Switches[1] != left->Switches[1]);
+    copied_right = *right;
+    assert((copied_right.Switches[1]->Opcode & 0xffU) == MODELNODE_OPCODE_SWITCH);
+    saved_flash = *copied_right.Switches[1];
+    saved_flash_data = *saved_flash.Data;
+    ge_original_first_person_assets_bind_loader(&assets, &loader);
+    watch = *gitem_structs[ITEM_SUIT_LF_HAND].item_header;
+    load_object_fill_header(&watch, (uint8_t *)"Csuit_lf_handZ", left_buffer,
+        0xBD70, NULL);
+    assert(loader.successful_loads == 1U
+        && loader.last_status == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    assert(assets.loaded_model[1] == GE_ORIGINAL_FIRST_PERSON_MODEL_SUIT_LEFT_HAND);
+    /* Gun update consumes the copied header while Watch replaces the left
+     * native model; its flash switch and backing data must still be owned. */
+    assert(memcmp(right, &copied_right, sizeof(copied_right)) == 0);
+    assert(memcmp(copied_right.Switches[1], &saved_flash, sizeof(saved_flash)) == 0);
+    assert(memcmp(copied_right.Switches[1]->Data, &saved_flash_data,
+        sizeof(saved_flash_data)) == 0);
+    assert(ge_original_first_person_assets_acquire_item_native(&assets, 0U,
+        ITEM_WPPKSIL, (void **)&again, &slot) == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
+    assert(slot == 0U && again == right);
+    ge_original_first_person_assets_bind_loader(NULL, NULL);
+    ge_original_first_person_assets_close(&assets);
+}
+
 int main(int argc, char **argv)
 {
     GeAssetPack pack;
@@ -41,6 +95,7 @@ int main(int argc, char **argv)
 
     assert(argc == 2);
     assert(ge_asset_pack_open(&pack, argv[1]) == GE_ASSET_PACK_OK);
+    test_watch_preserves_right_hand(&pack);
     assert(ge_original_first_person_assets_init(
         &assets, &pack, right_buffer, sizeof(right_buffer),
         left_buffer, sizeof(left_buffer)) == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
@@ -316,15 +371,16 @@ int main(int argc, char **argv)
     assert(ge_original_first_person_assets_acquire_item_native(
         &assets, 0U, ITEM_AK47, (void **)&header, &cache_slot)
         == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
-    assert(header == cached_ak47 && cache_slot == 1U);
+    assert(header != cached_ak47 && cache_slot == 0U);
     cache_slot = 2U;
     assert(ge_original_first_person_assets_slot_for_header(
         &assets, header, &cache_slot));
-    assert(cache_slot == 1U);
+    assert(cache_slot == 0U);
+    ModelFileHeader *right_ak47 = header;
     assert(ge_original_first_person_assets_acquire_loadout_hand(
         &assets, loadout, 0U, (void **)&header, &cache_slot)
         == GE_ORIGINAL_FIRST_PERSON_ASSET_OK);
-    assert(header == cached_ak47 && cache_slot == 1U);
+    assert(header == right_ak47 && cache_slot == 0U);
     canonical = gitem_structs[ITEM_REMOTEMINE].item_header;
     assert(canonical != NULL && canonical->Skeleton != NULL);
     assert(ge_original_first_person_assets_load_item_native(

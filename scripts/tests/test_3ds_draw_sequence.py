@@ -13,6 +13,7 @@ actual = re.sub(r'^#include .*\n', '', actual, flags=re.M)
 reference = (vendor/'drawArrays.c').read_text().replace('#include "internal.h"', '')
 reference = reference.replace('void C3D_DrawArrays(', 'void reference_DrawArrays(')
 unit = r'''
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -21,7 +22,7 @@ unit = r'''
 #include <setjmp.h>
 typedef uint32_t u32;
 typedef u32 GPU_Primitive_t;
-typedef struct {u32 prefix[8];u32 flags;} C3D_Context;
+typedef struct {u32 prefix[8];u32 flags; u32 padding[54]; struct {u32 depthTest;} effect;} C3D_Context;
 static C3D_Context context;
 static C3D_Context *C3Di_GetContext(void) {return &context;}
 enum {C3DiF_DrawUsed=2};
@@ -46,7 +47,7 @@ static void C3Di_UpdateContext(void) {
  for(unsigned i=0;i<context_words;++i)GPUCMD_AddWrite(0x100+i,i*17U);
  context.flags &= ~0x80U;
 }
-''' + reference + actual + r'''
+''' + (repo/'platform/3ds/include/ge_3ds_draw_trace.h').read_text() + reference + actual + r'''
 static u32 rng=23183;
 static u32 next(void) {rng=rng*1664525U+1013904223U;return rng;}
 static u32 buffers[2][128];
@@ -54,6 +55,7 @@ static int run(int which,u32 capacity,u32 offset,int null_buffer,
  u32 flags,u32 primitive,int first,int size) {
  gpuCmdBuf=null_buffer?NULL:buffers[which];gpuCmdBufSize=capacity;gpuCmdBufOffset=offset;
  memset(&context,0x59,sizeof(context));context.flags=flags;context_calls=0;
+ if(which) { ge_3ds_draw_trace_reset(); if(flags&1U) ge_3ds_draw_trace_begin(); }
  if(setjmp(panic))return 1;
  if(which)C3D_DrawArrays(primitive,first,size);else reference_DrawArrays(primitive,first,size);
  return 0;

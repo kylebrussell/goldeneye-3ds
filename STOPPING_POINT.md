@@ -548,3 +548,25 @@ checks also pass. Registered the regression in test_port.sh; the full aggregate
 was not rerun for this capture-only fix. Forced ARM build/deployment receipts are
 recorded separately. Physical SELECT retesting is still required; this does not
 claim to fix the remaining world/character rendering issues.
+
+## Watch model ownership and gate/depth traces — 2026-09-11, after 2079d8b5
+
+New hardware evidence: `build/hardware-captures/watch-gate-20260911-195036/`,
+including verified installed ELF. Five complete depth files prove SELECT capture
+works. Watch data abort at PC 0x223050 is gunUpdateAndFire's flash-visibility
+write. Right-hand acquisition borrowed the left slot's silenced PP7 model;
+loading the Watch into the left slot freed it. Acquisition now owns each physical
+hand region. The exact old lifetime error is reproduced under ASan, and the new
+regression verifies the other hand's copied header/node/data survive Watch load.
+
+User confirms the gate did NOT open. Panel 269 received 28 accepted activations,
+but every SELECT capture predates them, so the failure after dispatch remains
+unresolved. Bounded automatic gate motion/collision traces now follow Use.
+
+Tunnel depth replay matches 95,991/96,000 actual pixels when writes are disabled
+only for first 13 draws, restored after first translucent→opaque transition.
+Root GPU-command cause remains open; first32 left-eye draw traces now record CPU
+depth state and actual emitted register values without changing GPU commands.
+Read `docs/WatchAndDepthHardware20260911.md` for evidence and validation scope.
+Focused sanitizer and 50,000 exact command-stream checks passed. Build/install
+receipts are separate. Physical Watch, gate and rendering checks remain required.

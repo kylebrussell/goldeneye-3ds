@@ -126,7 +126,6 @@ GeOriginalFirstPersonAssetStatus ge_original_first_person_assets_acquire_item_na
     void **native_header, unsigned *cache_slot)
 {
     const GeOriginalFirstPersonItemRelation *relation;
-    unsigned slot;
     GeOriginalFirstPersonAssetStatus status;
     if (assets == NULL || native_header == NULL || preferred_slot >= 2U)
         return GE_ORIGINAL_FIRST_PERSON_ASSET_INVALID_ARGUMENT;
@@ -135,13 +134,14 @@ GeOriginalFirstPersonAssetStatus ge_original_first_person_assets_acquire_item_na
     relation = ge_item_relation(item);
     if (relation == NULL)
         return GE_ORIGINAL_FIRST_PERSON_ASSET_INVALID_ARGUMENT;
-    for (slot = 0U; slot < 2U; ++slot) {
-        if (assets->loaded_model[slot] != relation->model
-                || !ge_original_first_person_assets_native_ready(assets, slot))
-            continue;
+    /* The canonical loader replaces each physical hand's buffer independently.
+     * Sharing a relocated model across hands leaves the other hand's copied
+     * header dangling when this hand loads a Watch model or changes weapon. */
+    if (assets->loaded_model[preferred_slot] == relation->model
+            && ge_original_first_person_assets_native_ready(assets, preferred_slot)) {
         *native_header = ge_original_first_person_assets_native_header(
-            assets, slot);
-        if (cache_slot != NULL) *cache_slot = slot;
+            assets, preferred_slot);
+        if (cache_slot != NULL) *cache_slot = preferred_slot;
         return GE_ORIGINAL_FIRST_PERSON_ASSET_OK;
     }
     status = ge_original_first_person_assets_load_item_native(

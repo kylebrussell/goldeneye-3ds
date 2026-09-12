@@ -1,4 +1,5 @@
 #include "ge_3ds_shade_cache.h"
+#include "ge_3ds_draw_trace.h"
 #include "ge_3ds_lifecycle.h"
 #include <3ds.h>
 #include <citro3d.h>
@@ -2454,6 +2455,10 @@ typedef struct RuntimeStageOrdinaryObjects {
     GeOriginalStageSafeRuntime safe_runtime;
     GeOriginalStageSwitchRuntime switch_runtime;
     GeOriginalStagePadlockRuntime padlock_runtime;
+    uint32_t gate_trace_remaining;
+    uint32_t gate_trace_age;
+    int32_t gate_trace_state[2];
+    uint8_t gate_trace_valid[2];
     GeOriginalStageMiscStatus safe_relation_status;
     GeOriginalStageObjectiveEvaluation objective_evaluations[
         GE_ORIGINAL_STAGE_OBJECTIVE_MAX];
@@ -7501,6 +7506,60 @@ static void stage_alarm_play_sfx(void *context, uint32_t sfx_id)
 
 static void publish_stage_use_feedback(Ge3dsUseFeedback feedback);
 
+static void trace_stage_gate_motion(RuntimeStageOrdinaryObjects *objects,
+                                    const char *phase)
+{
+    GeOriginalDoorMotionSnapshot gates[2] = {0};
+    uint8_t valid[2] = {0};
+    bool changed = false;
+    const bool activation = strcmp(phase, "activation") == 0;
+    if (objects == NULL || objects->gate_trace_remaining == 0U) return;
+    if (!activation) {
+        --objects->gate_trace_remaining;
+        ++objects->gate_trace_age;
+    }
+    for (size_t index = 0U; index < 2U; ++index) {
+        void *definition = stage_definition_by_command(objects, 267U + index);
+        valid[index] = ge_original_door_runtime_motion_snapshot(
+            definition, &gates[index]) != 0;
+        changed |= valid[index] != objects->gate_trace_valid[index]
+            || (valid[index] && gates[index].open_state
+                    != objects->gate_trace_state[index]);
+        objects->gate_trace_valid[index] = valid[index];
+        objects->gate_trace_state[index] = gates[index].open_state;
+    }
+    /* Sample motion every 15 simulation ticks and always retain transitions,
+     * the first post-prop result and the final bounded observation. */
+    if (!activation && !changed && objects->gate_trace_age != 1U
+            && objects->gate_trace_age % 15U != 0U
+            && objects->gate_trace_remaining != 0U) return;
+    FILE *stream = fopen("sdmc:/3ds/goldeneye-3ds/use-audit.log", "a");
+    if (stream == NULL) return;
+    fprintf(stream, "gate_trace tick=%llu phase=%s age=%lu remaining=%lu actor_status=%u props_status=%u collision_tests=%lu clear=%lu blocked=%lu missing_chr=%lu missing_obj=%lu collision_status=%u runtime_status=%u\n",
+        (unsigned long long)svcGetSystemTick(), phase,
+        (unsigned long)objects->gate_trace_age,
+        (unsigned long)objects->gate_trace_remaining,
+        (unsigned)objects->actor_tick_status,
+        (unsigned)objects->active_prop_status,
+        (unsigned long)objects->door_collision.tests,
+        (unsigned long)objects->door_collision.clear_results,
+        (unsigned long)objects->door_collision.blocked_results,
+        (unsigned long)objects->door_collision.missing_character_calls,
+        (unsigned long)objects->door_collision.missing_object_metadata_calls,
+        (unsigned)objects->door_collision.status,
+        (unsigned)objects->door_runtime.status);
+    for (size_t index = 0U; index < 2U; ++index)
+        fprintf(stream, "gate_motion command=%lu valid=%u state=%ld open=%.9g/%.9g speed=%.9g lastcalc=%ld runtime=%08lx linked=%lx\n",
+            (unsigned long)(267U + index), valid[index],
+            (long)gates[index].open_state, gates[index].open_position,
+            gates[index].max_frac, gates[index].speed,
+            (long)gates[index].last_calc_tick,
+            (unsigned long)gates[index].runtime_flags,
+            (unsigned long)gates[index].linked_definition);
+    /* fclose flushes this small diagnostic batch; no per-tick fsync. */
+    fclose(stream);
+}
+
 static void tick_stage_interaction(RuntimeStageOrdinaryObjects *objects,
     const RuntimeDamPreview *preview, bool use_intent)
 {
@@ -7611,6 +7670,15 @@ report:
         fflush(stream);
         (void)fsync(fileno(stream));
         fclose(stream);
+    }
+    if (feedback == GE_3DS_USE_ACTIVATED && objects->setup != NULL
+            && objects->setup->descriptor->stage == GE_STAGE_DAM
+            && (selected_command == 267 || selected_command == 268
+                || selected_command == 269 || selected_command == 271
+                || selected_command == 273 || selected_command == 275)) {
+        objects->gate_trace_remaining = 120U;
+        objects->gate_trace_age = 0U;
+        trace_stage_gate_motion(objects, "activation");
     }
 }
 
@@ -12796,6 +12864,7 @@ static void capture_world_gpu(FILE *stream, const RuntimeDamPreview *preview,
             (unsigned long)m->fallback_flags, (unsigned long)m->combine_mux0,
             (unsigned long)m->combine_mux1);
     }
+    ge_3ds_draw_trace_write(stream);
     fprintf(stream, "gpu_snapshot_end=%llu\n\n", (unsigned long long)tick);
 }
 
@@ -18832,6 +18901,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
         } else {
             C3D_FogGasMode(GPU_NO_FOG, GPU_PLAIN_DENSITY, false);
         }
+        if (eye_pass == 0U) ge_3ds_draw_trace_begin();
         if (replay_world_runs) {
             size_t run_index;
             for (run_index = 0U; run_index < world_run_count; ++run_index) {
@@ -19059,6 +19129,7 @@ static void renderer_draw(const RuntimeGbiMesh *rareware_mesh,
             i = next;
         }
     }
+    if (eye_pass == 0U) ge_3ds_draw_trace_end();
     phase_ticks[2] = svcGetSystemTick();
     if (sample_submission) {
         fine_profile.world_submission_detail_ticks[3] += phase_ticks[2] - phase_ticks[1];
@@ -20546,6 +20617,7 @@ start_stage_runtime:
     world_diagnostic_captures = 0U;
     world_diagnostic_pending = false;
     world_last_framebuffer = NULL;
+    ge_3ds_draw_trace_reset();
     world_last_stereo_slider = 0.0f;
     last_b_action_was_use = false;
     publish_stage_use_feedback(GE_3DS_USE_NONE);
@@ -21595,6 +21667,7 @@ start_stage_runtime:
             for (original_tick = 0U; original_tick < ticks; original_tick++) {
                 GeOriginalDynFrameAudit dyn_frame_audit;
                 bool gun_tick_complete = false;
+                bool stage_props_ticked = false;
                 const uint64_t original_tick_profile_start = svcGetSystemTick();
                 if (multiplayer.running) {
                     GeOriginalMultiplayerRegenBatch regen;
@@ -21826,6 +21899,7 @@ start_stage_runtime:
                             &stage_ordinary_objects, &combat_before);
                         fine_profile.gameplay_phase_ticks[5] +=
                             svcGetSystemTick() - audit_start;
+                        stage_props_ticked = true;
                         stage_ordinary_objects.active_prop_status =
                             ge_original_stage_active_props_tick_exact(
                                 &stage_ordinary_objects.active_props);
@@ -21849,6 +21923,7 @@ start_stage_runtime:
                         fine_profile.gameplay_phase_ticks[5] +=
                             svcGetSystemTick() - audit_start;
                     } else {
+                        stage_props_ticked = true;
                         stage_ordinary_objects.active_prop_status =
                             ge_original_stage_active_props_tick_exact(
                                 &stage_ordinary_objects.active_props);
@@ -21917,6 +21992,8 @@ start_stage_runtime:
                     fine_profile.gameplay_phase_ticks[4] +=
                         svcGetSystemTick() - actor_tick_start;
                 }
+                trace_stage_gate_motion(&stage_ordinary_objects,
+                    stage_props_ticked ? "after_props" : "props_skipped");
                 if (dam_stage && dam_objects.doors_linked
                         && stage_ordinary_objects.actor_tick_status
                             != RUNTIME_STAGE_ACTOR_TICK_READY) {

@@ -298,6 +298,22 @@ DoorRecord *ge_port_door_runtime_native_definition(void *definition)
     return find_native_door(definition);
 }
 
+int ge_original_door_runtime_motion_snapshot(
+    const void *definition, GeOriginalDoorMotionSnapshot *out)
+{
+    DoorRecord *door = find_native_door((void *)definition);
+    if (door == NULL || out == NULL) return 0;
+    memset(out, 0, sizeof(*out));
+    out->open_position = door->openPosition;
+    out->max_frac = door->maxFrac;
+    out->speed = door->speed;
+    out->open_state = door->openstate;
+    out->last_calc_tick = door->lastcalc60i;
+    out->runtime_flags = ((const ObjectRecord *)definition)->runtime_bitflags;
+    out->linked_definition = (uintptr_t)door->linkedDoor;
+    return 1;
+}
+
 s32 ge_port_door_runtime_test_collision(PropRecord *prop)
 {
     if (runtime_state != NULL) runtime_state->collision_tests++;

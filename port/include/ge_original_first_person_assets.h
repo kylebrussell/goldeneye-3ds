@@ -185,9 +185,9 @@ GeOriginalFirstPersonAssetStatus ge_original_first_person_assets_relocate_native
 GeOriginalFirstPersonAssetStatus ge_original_first_person_assets_load_item_native(
     GeOriginalFirstPersonAssets *assets, unsigned hand, int32_t item,
     void **native_header);
-/* Resolves an item through the canonical gitem relation and reuses either
- * original hand-model region when that exact item is already relocated.
- * preferred_slot is used only on a cache miss. */
+/* Resolves an item through the canonical gitem relation in the physical hand
+ * region selected by preferred_slot. Reuses that region for an unchanged item;
+ * never borrows the other hand's model, which its native loader may replace. */
 GeOriginalFirstPersonAssetStatus ge_original_first_person_assets_acquire_item_native(
     GeOriginalFirstPersonAssets *assets, unsigned preferred_slot, int32_t item,
     void **native_header, unsigned *cache_slot);
